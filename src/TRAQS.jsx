@@ -18,6 +18,7 @@ import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { LIGHT, DARK } from "./themeTokens.js";
 import { paintPress, syncRail, isNavActive } from "./railPress.js";
+import { normalizeAppearance, appearanceTheme, ACCENTS, DEFAULT_PREFS } from "./appearance.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -973,7 +974,6 @@ animStyle.textContent = `
 .tq-preview-anim, .tq-preview-anim * {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
 }
-@keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
 
 /* Icon-only buttons (filter, search, etc.) — same hover glow as ghost Btn, but no
    overflow clipping so corner badges (filter count) stay visible. */
@@ -1845,7 +1845,6 @@ select:not(:disabled):active {
    stop highlighting entirely. */
 /* Smoothly fade text between black/white as the custom surface flips light/dark, so the
    auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
-.traqs-custom * { transition: color 0.3s ease; }
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -1939,34 +1938,6 @@ html { scroll-behavior: smooth; }
    their own background inline — accent fills, danger, gradients — override this
    naturally, so the coloured ones are untouched. */
 button { background-color: var(--tq-primary, var(--tq-surface-solid)); color: var(--tq-primary-text); }
-
-/* Range sliders styled as pills, matching the toggle tracks. The native track
-   has to be reset per-engine — appearance:none on the input, then the track and
-   thumb pseudo-elements separately for WebKit and Firefox. */
-input[type="range"].tq-pill-range {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 14px; border-radius: 999px; cursor: pointer;
-  background: var(--tq-toggle-track, rgba(127,127,127,0.22));
-}
-input[type="range"].tq-pill-range::-webkit-slider-runnable-track {
-  height: 14px; border-radius: 999px; background: transparent;
-}
-input[type="range"].tq-pill-range::-moz-range-track {
-  height: 14px; border-radius: 999px; background: transparent;
-}
-input[type="range"].tq-pill-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 24px; height: 24px; margin-top: -5px; border-radius: 50%;
-  background: var(--tq-accent, #4169e1);
-  border: 2px solid var(--tq-surface-solid, #fff);
-  box-shadow: 0 1px 5px rgba(0,0,0,0.28);
-}
-input[type="range"].tq-pill-range::-moz-range-thumb {
-  width: 24px; height: 24px; border-radius: 50%;
-  background: var(--tq-accent, #4169e1);
-  border: 2px solid var(--tq-surface-solid, #fff);
-  box-shadow: 0 1px 5px rgba(0,0,0,0.28);
-}
 
 /* ── Liquid background ──────────────────────────────────────────────────────
    Global so both the Dashboard hero and the universal background option can use
@@ -2223,89 +2194,6 @@ function placePopover(r, count, rowH = 35, width = 0) {
 const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
 
 
-
-// Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
-// surface (lists/cards), and opts.systemColor (outer chrome: header + sidebar + logo).
-// Text is AUTOMATIC — it contrasts whatever it sits on (surface, system bg, or page bg).
-// opts: { systemColor, bgImage, cardOpacity 0..100,
-// bgOpacity 0..100 }. A background image flips cards into "adaptive" mode: surfaces/cards become
-// translucent (alpha = cardOpacity) so the image shows through, tinted by the system surface color.
-function buildCustomTheme(bg, accent, surface, opts = {}) {
-  // `frost` is the glass INTENSITY, 0–100, independent of cardOpacity's on/off
-  // role: 0 = clear glass (barely tinted, minimal blur), 50 = the calibrated
-  // default, 100 = fully milky. 50 reproduces the look exactly, so a theme saved
-  // before the slider existed renders identically.
-  const { bgMode = "color", liquidColor = null, bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system", scheduleGrid = true, systemColor = null } = opts;
-  const dk = hexLum(bg) < 0.18;
-  const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
-  const card = surface || blendHex(bg, dk ? 0.10 : 0);
-  // Page-level text contrast is decided by the BACKGROUND colour, not the liquid
-  // wash. This used to mix the two — mixHex(bg, liquidColor, 0.55) — on the reasoning
-  // that liquid mode paints blobs at ~55% over the base, so text sits on the mix.
-  // The problem is that a 0.55 mix is majority LIQUID, so the wash decided the text
-  // colour: a light page with a saturated dark liquid flipped every title and section
-  // header to white against a light background. The wash also moves and is uneven, so
-  // no single sample of it describes what any given title sits on, whereas the
-  // background is constant. Titles follow the background.
-  const effBg = bg;
-  const surfDk = wantsLightText(surf);
-  const txt  = surfDk ? "#f1f5f9" : "#0f172a";
-  const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
-  // "System Color" — the outer chrome (header + sidebar). Independent of the card surface so the
-  // edge can be its own color; text/logo/borders on it CONTRAST it, not the surface. Falls back to
-  // the surface color when unset (older saved themes) so the chrome looks unchanged until edited.
-  const sysBg = systemColor || surf;
-  const sysDk = wantsLightText(sysBg);
-  const sysTxt = sysDk ? "#f1f5f9" : "#0f172a";
-  const sysBord = blendHex(sysBg, sysDk ? 0.18 : -0.12);
-  // ALL surfaces stay SOLID (popups, dropdowns, buttons, cards) for consistency. The frosted-glass
-  // translucency is OPT-IN per element via the `.tq-frost` class (which pulls --tq-frost-bg). adaptive
-  // = a background image is set; cardOpacity drives the frost tint via the CSS var (see effect).
-  // "adaptive" means an image is behind the cards (frost translucency on). In
-  // Color and Liquid modes there is no image, so it must be off — otherwise
-  // Color mode kept painting whatever image was last uploaded.
-  // "adaptive" turns on .tq-frost translucency + backdrop blur. Liquid needs
-  // it as much as an image does — the cards should frost over the moving wash.
-  // Only flat Color mode has nothing behind the cards worth sampling.
-  const adaptive = (bgMode === "image" && !!bgImage) || bgMode === "liquid";
-  return {
-    name:"Custom", bg, surface:surf, surfaceSolid:surf, card, border:bord,
-    // Background mode: "color" | "image" | "liquid". `liquidColor` is the
-    // primary blob hue; `liquidCompanion` is derived from it so the two always
-    // sit in the same temperature family.
-    bgMode, liquidColor, liquidCompanion: liquidColor ? companionHue(liquidColor) : null,
-    // Only surfaced in Image mode, so every consumer of T.bgImage (frostScroll,
-    // the Jobs scroller, exports) stops painting it in the other two.
-    borderLight:blendHex(surf, surfDk ? 0.24 : -0.09),
-    text:txt, textSec:txt, textDim:txt,
-    // Text that sits directly on the page BACKGROUND (e.g. jobs-list section headers),
-    // which can differ in lightness from the card surface. Contrasts bg, not surf.
-    bgText: wantsLightText(effBg) ? "#f1f5f9" : "#0f172a",
-    accent, accentText:accentText(accent), danger:"#f43f5e",
-    // Hover / selection "fade highlight" tints. Accent-hued but shifted in lightness AWAY
-    // from the surface (lighter on dark surfaces, darker on light) so they stay clearly
-    // visible on ANY color combination — not a near-invisible low-alpha accent.
-    hover: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.20 : 0.15),
-    hoverStrong: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.34 : 0.26),
-    font:FONT_UI, mono:FONT_UI,
-    radius:22, radiusSm:16, radiusXs:11, radiusLg:26, radiusHero:34, radiusPill:9999, glass:surf, glassBorder:bord,
-    blur:"none", glow:"none", colorScheme:dk?"dark":"light",
-    // Outer-chrome (header + sidebar) palette — see sysBg above. The chrome reads these via Tc.
-    systemBg: sysBg, systemText: sysTxt, systemBorder: sysBord,
-    systemBorderLight: blendHex(sysBg, sysDk ? 0.24 : -0.09),
-    systemHover: hexA(blendHex(accent, sysDk ? 0.45 : -0.4), sysDk ? 0.20 : 0.15),
-    systemHoverStrong: hexA(blendHex(accent, sysDk ? 0.45 : -0.4), sysDk ? 0.34 : 0.26),
-    bgImage: bgMode === "image" ? bgImage : null, bgOpacity, cardOpacity, adaptive,
-    // Schedule-bar ("job card") colouring: system = each job's own colour (multi),
-    // adaptive = the theme accent for all, custom = jobBarColor for all.
-    jobBarMode, jobBarColor: jobBarColor || accent,
-    // Status/priority cell colouring: system = the configured multi-colours,
-    // adaptive = shades of the accent by value.
-    cellColorMode,
-    // Schedule-page grid (column/row separators): true = show, false = hide.
-    scheduleGrid,
-  };
-}
 
 const THEMES = {
   midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex(DARK.accent, 0.45), 0.2), hoverStrong: hexA(blendHex(DARK.accent, 0.45), 0.34), danger: "#f43f5e", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark", ...DARK },
@@ -2993,11 +2881,6 @@ const isTimelinePlaced = (n) => isDated(n) && isAssigned(n);
 // to treat them as one person. Ids are mixed string/number across web and iOS.
 const idKey = v => typeof v + ":" + v;
 const PERSON_BLUE = "#4169e1";
-// What the Frosted Glass toggle writes into cardOpacity when switched on. It is
-// the ON MARKER, not the rendered fill — the actual glass alphas live in the
-// theme effect and differ by surface luminance. Any value under 100 would do;
-// this is the login kiosk's original 64.
-const GLASS_OPACITY = 64;
 
 // Two letters, matching the login roster's avatars: first + last initial
 // ("Mary Beth Jones" → "MJ"), or the first two letters of a single name
@@ -3832,26 +3715,16 @@ function autoEmail(name, domain) {
 }
 
 export default function App({ auth0User, getToken, logout, orgCode, orgConfig }) {
-  const [themeMode, setThemeMode] = useState(() => {
-    const saved = localStorage.getItem("tq_theme");
-    // First-time users (no saved theme) default to the Light ("frost") theme.
-    return (THEMES[saved] || saved === "custom") ? saved : "frost";
-  });
-  const [customTheme, setCustomTheme] = useState(() => {
-    // Derived from THEMES.frost (Light) rather than an unrelated hardcoded
-    // palette: a user with no saved custom theme opening Customize for the
-    // first time should see something that looks IDENTICAL to Light until
-    // they actually change a value, not jump to a different look entirely.
-    const def = { bg: THEMES.frost.bg, accent: THEMES.frost.accent, text: THEMES.frost.text, surface: THEMES.frost.surface, systemColor: THEMES.frost.surface, bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: THEMES.frost.accent, cellColorMode: "system", scheduleGrid: true };
-    try {
-      const saved = JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {};
-      const merged = { ...def, ...saved };
-      // Migration: themes saved before the System Color existed inherit their surface, so the
-      // header/sidebar look exactly as they did (chrome == surface) until the user changes it.
-      if (saved.systemColor == null) merged.systemColor = merged.surface;
-      return merged;
-    } catch { return def; }
-  });
+  // Light / Dark + accent (src/appearance.js). `customTheme` keeps its name and
+  // storage keys but now only holds the accent and the element settings; anything
+  // older (a Custom theme, image/liquid background, glass) is mapped on read.
+  const _savedAppearance = () => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("tq_custom_theme") || "null"); } catch { /* corrupt */ }
+    return normalizeAppearance(localStorage.getItem("tq_theme"), saved);
+  };
+  const [themeMode, setThemeMode] = useState(() => _savedAppearance().themeMode);
+  const [customTheme, setCustomTheme] = useState(() => _savedAppearance().prefs);
   // Declared here (rather than with the rest of the settings/draft state) so
   // the live theme below can read them — T is computed above that point and
   // referencing them later would hit the temporal dead zone.
@@ -3896,8 +3769,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return () => { off = true; };
   }, [orgCode, getToken]);
   const [settingsSection, setSettingsSection] = useState("general");
-  const [draftMode, setDraftMode] = useState("custom");
-  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", systemColor: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true });
+  const [draftMode, setDraftMode] = useState("frost");
+  const [draftCustom, setDraftCustom] = useState({ ...DEFAULT_PREFS });
 
   // While Customization is open, the WHOLE app previews the draft — chrome
   // included. Without this the sidebar, header and the corner where they meet
@@ -3905,45 +3778,22 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const _themeEditing = settingsMode && settingsSection === "customization";
   const _tMode = _themeEditing ? draftMode : themeMode;
   const _tc = _themeEditing ? draftCustom : customTheme;
-  T = _tMode === "custom" ? buildCustomTheme(_tc.bg, _tc.accent, _tc.surface, { bgMode: _tc.bgMode, liquidColor: _tc.liquidColor, bgImage: _tc.bgImage, cardOpacity: _tc.cardOpacity, bgOpacity: _tc.bgOpacity, jobBarMode: _tc.jobBarMode, jobBarColor: _tc.jobBarColor, cellColorMode: _tc.cellColorMode, scheduleGrid: _tc.scheduleGrid, systemColor: _tc.systemColor }) : (THEMES[themeMode] || THEMES.midnight);
-  // Frosted Glass: one boolean, replacing the old 20–100% Card Frost Opacity
-  // slider. It rides on the existing cardOpacity field rather than adding a new
-  // one, so saved theme presets, the S3 config shape and iOS all keep working
-  // untouched — anything below 100 means glass, 100 means solid. GLASS_OPACITY
-  // is the kiosk's fill, so the toggle lands on the look being evaluated.
+  T = appearanceTheme(THEMES[_tMode] || THEMES.frost, _tc);
+  // Frosted Glass was a Customization toggle riding on cardOpacity; the setting
+  // is gone (2026-10-03) and neither preset sets cardOpacity, so this is false.
+  // Kept as the one switch the glass-only styling still reads.
   const glassOn = (T.cardOpacity ?? 100) < 100;
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
-  const [customizationOpen, setCustomizationOpen] = useState(false);
-  // Draft theme edited inside the Customize modal — only applied to the live theme on Save.
   const [previewView, setPreviewView] = useState("jobs"); // which page the Customize mockup shows: jobs | schedule
   // The view actually RENDERED — lags previewView by one beat so the swap happens at the midpoint
   // of the dip overlay (while it's fully covering), giving a clean fade-out-then-fade-in.
   const [displayedPreview, setDisplayedPreview] = useState("jobs");
-  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setPreviewView("jobs"); setDisplayedPreview("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (previewView === displayedPreview) return;
     const t = setTimeout(() => setDisplayedPreview(previewView), 230); // remove the old (fading) layer once its fade-out finishes
     return () => clearTimeout(t);
   }, [previewView, displayedPreview]);
-  // Per-org, matching the tq_ui_{orgCode}_* convention elsewhere in this file:
-  // presets saved while using one org must not appear in an unrelated org
-  // sharing the same browser. Without this a brand-new org "starting from
-  // scratch" would inherit whatever the last org's admin had saved.
-  const [themePresets, setThemePresets] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`tq_theme_presets_${orgCode}`) || "null") || []; }
-    catch { return []; }
-  });
-  const [presetNameInput, setPresetNameInput] = useState("");
-  useEffect(() => { localStorage.setItem(`tq_theme_presets_${orgCode}`, JSON.stringify(themePresets)); }, [themePresets, orgCode]);
-  // History of recently-used background images (most-recent first, capped at 5) so the
-  // Customize modal can switch back to a previous image without re-uploading it.
-  const [bgImageHistory, setBgImageHistory] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tq_bg_image_history") || "null") || []; }
-    catch { return []; }
-  });
-  useEffect(() => { localStorage.setItem("tq_bg_image_history", JSON.stringify(bgImageHistory)); }, [bgImageHistory]);
-  const pushBgImage = data => { if (data) setBgImageHistory(prev => [data, ...prev.filter(x => x !== data)].slice(0, 5)); };
   // Inject glow-pulse keyframe so it always matches T.accent
   useEffect(() => {
     let el = document.querySelector("style[data-traqs-glow]");
@@ -3964,7 +3814,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-surface-solid", solid);
     // Primary = sidebar / headers / buttons / toggles.
     document.documentElement.style.setProperty("--tq-primary", T.systemBg || solid);
-    // Slider pills reuse the toggle track shade so the two read as one control family.
     // One field colour for every form control — text inputs, textareas and every
     // dropdown trigger. They had drifted apart (inputs on T.surface, SimpleDrop on
     // T.bg, SearchSelect on T.glass), so a single modal could show three different
@@ -3979,7 +3828,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // caret — is drawn by the browser from this, not from our CSS. Left unset it
     // assumes light, so a dark theme got a white autofill wash over a dark field.
     document.documentElement.style.setProperty("color-scheme", T.colorScheme || (wantsLightText(T.surface) ? "dark" : "light"));
-    document.documentElement.style.setProperty("--tq-toggle-track", hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14));
     document.documentElement.style.setProperty("--tq-accent", T.accent);
     document.documentElement.style.setProperty("--tq-accent-soft", hexA(T.accent, 0.18));
     // Hover tint for buttons and dropdown triggers. 0.07 is deliberately near the
@@ -4230,16 +4078,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     el.textContent = `.react-colorful{width:100%;gap:0}.react-colorful__saturation{border-radius:12px 7px 0 0;flex:1}.react-colorful__hue{height:14px;border-radius:0 0 7px 7px;margin:0}.react-colorful__saturation-pointer,.react-colorful__hue-pointer{width:18px;height:18px;border-width:2.5px}`;
     document.head.appendChild(el);
   }, []);
-  // Inject date-picker CSS for dynamic custom theme color-scheme
-  useEffect(() => {
-    if (themeMode !== "custom") return;
-    const dk = hexLum(customTheme.bg) < 0.18;
-    let el = document.querySelector("style[data-traqs-custom]");
-    if (!el) { el = document.createElement("style"); el.setAttribute("data-traqs-custom","1"); document.head.appendChild(el); }
-    el.textContent = dk
-      ? `.traqs-custom input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1) brightness(2);cursor:pointer}.traqs-custom input[type="date"]{color-scheme:dark}`
-      : `.traqs-custom input[type="date"]::-webkit-calendar-picker-indicator{filter:none;cursor:pointer}.traqs-custom input[type="date"]{color-scheme:light}`;
-  }, [themeMode, customTheme.bg]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   // Sidebar icons step down on narrow viewports — at 1366x768 and similar the
   // 17px glyphs read oversized against the rest of the chrome. Tracked as a
@@ -8191,9 +8029,6 @@ Extraction rules:
   // behaves identically on every machine. localStorage still holds a fast-paint
   // cache (applied instantly on load); the server copy wins once it arrives. The
   // first machine to sync (server empty) seeds the account from its local values.
-  // (bgImageHistory — the recent-uploads cache — stays device-local to keep the
-  // synced blob well under the function payload limit; the CURRENT background in
-  // customTheme.bgImage still syncs.)
   const userSettingsLoadedRef = useRef(false);
   const lastSyncedUserSettingsRef = useRef(null);
   useEffect(() => {
@@ -8204,9 +8039,13 @@ Extraction rules:
         if (cancelled || !remote || typeof remote !== "object") return;
         const keys = Object.keys(remote).filter(k => k !== "lastModifiedAt");
         if (keys.length === 0) return; // nothing saved yet — this machine will seed it below
-        if (remote.themeMode != null) setThemeMode(remote.themeMode);
-        if (remote.customTheme && typeof remote.customTheme === "object") setCustomTheme(ct => ({ ...ct, ...remote.customTheme }));
-        if (Array.isArray(remote.themePresets)) setThemePresets(remote.themePresets);
+        // Normalized as a PAIR: the old blob's mode decides how its customTheme is
+        // read (a Custom theme keeps its accent, a legacy preset does not).
+        if (remote.themeMode != null || (remote.customTheme && typeof remote.customTheme === "object")) {
+          const a = normalizeAppearance(remote.themeMode ?? themeMode, remote.customTheme ?? customTheme);
+          setThemeMode(a.themeMode);
+          setCustomTheme(a.prefs);
+        }
         // Back-filled, exactly like the localStorage copy above. This is the read that
         // wins -- it lands after first paint and replaces whatever was painted -- so
         // without it a column shipped after this account last saved its order is
@@ -8234,7 +8073,7 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    const bundle = { themeMode, customTheme, themePresets, colOrder, colLabels, groupColPref };
+    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref };
     const snapshot = JSON.stringify(bundle);
     if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
     const t = setTimeout(() => {
@@ -8243,7 +8082,7 @@ Extraction rules:
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, themePresets, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -14697,7 +14536,11 @@ ${jobsCtx || "No jobs found."}`;
                   without silently weakening that. It shows live state and hands
                   off to the Time Clock page, which owns the PIN prompt. */}
               {panel(1, "My clock",
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                // flex: 1 so this column fills the panel body; without it the
+                // column was only as tall as its content and the spacer below had
+                // no free height to take, so the buttons sat under the status.
+                // min-height stays auto, so a short card still scrolls the body.
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                     <span style={{ width: 9, height: 9, borderRadius: 8, background: PERSON_STATUS_META[myStatus].color, flexShrink: 0 }} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{PERSON_STATUS_META[myStatus].label}</span>
@@ -22693,11 +22536,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
           {prefOpen ? <>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); enterSettings("customization"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
               </span>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div></div>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Light or dark, and accent color</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
             {can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
@@ -25735,7 +25578,7 @@ ${jobsCtx || "No jobs found."}`;
   // Is the current section dirty vs its pristine baseline?
   const computeSettingsDirty = () => {
     if (settingsSection === "customization") {
-      return draftMode !== themeMode || (draftMode === "custom" && JSON.stringify(draftCustom) !== JSON.stringify(customTheme));
+      return draftMode !== themeMode || JSON.stringify(draftCustom) !== JSON.stringify(customTheme);
     }
     if (!settingsDraft || settingsPristineRef.current == null) return false;
     return JSON.stringify(settingsDraft) !== settingsPristineRef.current;
@@ -25794,7 +25637,7 @@ ${jobsCtx || "No jobs found."}`;
         setPeople(updated);
       } else if (sec === "customization") {
         setThemeMode(draftMode);
-        if (draftMode === "custom") setCustomTheme(draftCustom);
+        setCustomTheme(draftCustom);
       }
       // Reset the dirty baseline: the draft we just committed is the new truth.
       if (sec !== "customization" && settingsDraft) settingsPristineRef.current = JSON.stringify(settingsDraft);
@@ -25823,11 +25666,13 @@ ${jobsCtx || "No jobs found."}`;
     if (settingsAnimTimer.current) clearTimeout(settingsAnimTimer.current);
     settingsAnimTimer.current = setTimeout(() => setSettingsTransitioning(false), 420);
   };
-  const enterSettings = () => {
+  const enterSettings = (section = "general") => {
+    // Also an onClick handler, so anything that is not a section name means General.
+    const sec = typeof section === "string" ? section : "general";
     clearModals();
     setPriorView(view);
-    setSettingsSection("general");
-    loadSectionDraft("general");
+    setSettingsSection(sec);
+    loadSectionDraft(sec);
     setSettingsMode(true);
     runSettingsCrossfade();
   };
@@ -26599,23 +26444,18 @@ ${jobsCtx || "No jobs found."}`;
     );
   };
   const renderSettingsCustomization = () => {
-    const isCustom = draftMode === "custom";
     const dc = draftCustom;
     const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
-    const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgMode: dc.bgMode, liquidColor: dc.liquidColor, bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid, systemColor: dc.systemColor }) : (THEMES[draftMode] || THEMES.midnight);
-    const pAdaptive = !!(isCustom && (dc.bgMode || "color") === "image" && dc.bgImage);
-    const pLiquid = !!(isCustom && (dc.bgMode || "color") === "liquid");
-      const pFrostBg = (pAdaptive || pLiquid) ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
-      // True frosted glass, matching .traqs-adaptive .tq-frost in the real app.
-      // Skipped on a flat colour background — a backdrop-filter there costs a
-      // compositing layer and shows nothing.
-      const pFrostFx = (pAdaptive || pLiquid) ? { backdropFilter: "blur(28px) saturate(1.4)", WebkitBackdropFilter: "blur(28px) saturate(1.4)" } : null;
+    // The preview theme is built from the DRAFT exactly as the live one is
+    // (appearanceTheme), so the mockup shows what Save will apply.
+    const pT = appearanceTheme(THEMES[draftMode] || THEMES.frost, dc);
+    const pFrostBg = pT.card;
+    const pFrostFx = null;
     const pSolid = pT.systemBg || pT.surfaceSolid || pT.surface;
     const pSysText = pT.systemText || pT.text;
     const pSysBorder = pT.systemBorder || pT.border;
     const lbl = { fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 14 };
     const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: 26, padding: "20px 22px", marginBottom: 28 };
-    const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
     const ROSTER = 132;
     const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
     // Six groups, 20 people, 28 bars — against 4 / 8 / 9 before, so the mockup
@@ -26632,10 +26472,7 @@ ${jobsCtx || "No jobs found."}`;
     ];
     const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
     const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
-    // Element settings come from the DRAFT, not pT. buildCustomTheme folds them
-    // into pT on a custom theme, but on a preset pT is the raw THEMES entry and
-    // carries none of them — so changing System Elements, List Cells or Schedule
-    // Grid left the preview rendering the previous value.
+    // Element settings ride on pT (appearanceTheme folds the draft's into it).
     const pMode = pT.jobBarMode || "system";
     const pCellMode = pT.cellColorMode || "system";
     const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
@@ -26643,24 +26480,10 @@ ${jobsCtx || "No jobs found."}`;
     const pGridOn = pT.scheduleGrid !== false;
     const pGridLine = blendHex(pT.surfaceSolid || pT.surface, wantsLightText(pT.surfaceSolid || pT.surface) ? 0.15 : -0.15);
     const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
-    const swatch = (key, label, sub) => (
-      <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
-          <div style={{ width: "100%", height: "100%", background: dc[key] }} />
-          <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-        </label>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-          <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-        </div>
-        <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc[key]}</div>
-      </div>
-    );
     return (
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <style>{`
           .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
-          @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
           @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
         `}</style>
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
@@ -26668,108 +26491,39 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ width: 460, flexShrink: 0, overflowY: "auto", padding: "24px 22px 20px", background: T.surfaceSolid || T.card }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}><h1 style={{ ...pageTitleStyle, color: T.text }}>Customization</h1>{titleActions}</div>
             <div style={card}>
-              <div style={lbl}>Theme</div>
+              <div style={lbl}>Background</div>
               <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
+                {[{ id: "frost", label: "Light" }, { id: "midnight", label: "Dark" }].map(th => {
                   const active = draftMode === th.id;
                   return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
                 })}
               </div>
             </div>
-            {isCustom && <>
-              <div style={card}>
-                <div style={lbl}>Colors</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {swatch("systemColor", "Primary", "Sidebar, headers & buttons")}
-                  {swatch("surface", "Secondary", "Tables, lists, graphs & toggles")}
-                  {swatch("accent", "Accent", "Highlights, selections & indicators")}
-                  {swatch("bg", "Background Color", "The page background")}
-                </div>
-                <div style={{ marginTop: 14 }}>
-                {/* Color | Image | Liquid. Stored on the theme as bgMode so it
-                    persists with the rest of the custom theme. */}
-                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none", marginBottom: 14 }}>
-                  {[{ id: "color", label: "Color" }, { id: "image", label: "Image" }, { id: "liquid", label: "Liquid" }].map(o => {
-                    const a = (dc.bgMode || "color") === o.id;
-                    return <button key={o.id} onClick={() => setDc({ bgMode: o.id })}
-                      style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{o.label}</button>;
-                  })}
-                </div>
-                {(dc.bgMode || "color") === "liquid" && (() => {
-                  const lc = dc.liquidColor || dc.accent || "#4169e1";
-                  const comp = companionHue(lc);
-                  return <div style={{ marginBottom: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                      <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0 }}>
-                        <div style={{ width: "100%", height: "100%", background: lc }} />
-                        <input type="color" value={lc} onChange={e => setDc({ liquidColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} />
-                      </label>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Liquid Color</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>The moving wash over the background</div>
-                      </div>
-                    </div>
-                    <div style={{ position: "relative", height: 104, borderRadius: T.radius, overflow: "hidden", background: dc.bg }}>
-                      {/* Basic tier's untouched default: the signup screen's own four
-                          brand colours, not a single hue + auto companion — the colour
-                          wheel above still starts somewhere (dc.accent) so it has a
-                          value to show, but nothing has been PICKED yet, so the preview
-                          doesn't commit to that one hue either. Picking a colour sets
-                          dc.liquidColor and collapses this to the normal 2-colour mode. */}
-                      {billingTier !== "business" && !dc.liquidColor
-                        ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
-                        : <LiquidBackground color={lc} companion={comp} />}
-                    </div>
-                  </div>;
-                })()}
-                {(dc.bgMode || "color") === "image" && <>
-                {dc.bgImage
-                  ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ width: 64, height: 42, borderRadius: T.radius, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
-                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
-                      <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
-                    </div>
-                  : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radius, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                      Upload background image
-                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
-                    </label>}
-                {recentImgs.length > 0 && <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: T.textDim, marginBottom: 8 }}>Recent images</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {recentImgs.map((img, i) => {
-                      const isCur = img === dc.bgImage;
-                      return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
-                        style={{ position: "relative", width: 58, height: 40, borderRadius: T.radius, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
-                        {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                        <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: "transparent", border: "none", color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
-                      </button>;
-                    })}
-                  </div>
-                </div>}
-                {dc.bgImage && <div style={{ marginTop: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
-                  <input type="range" className="tq-pill-range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%, transparent ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
-                </div>}
-                </>}
-                {/* Frosted Glass — a toggle, not the old 20–100% slider. No bgMode
-                    gate: the glass blurs whatever is behind it, so it is worth
-                    having on a flat colour background too, not only over an image
-                    or the liquid wash. */}
-                {(() => { const on = (dc.cardOpacity ?? 100) < 100; return (
-                  <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Frosted Glass</div>
-                      <div style={{ fontSize: 11, color: T.textDim }}>Popups and menus blur what sits behind them. Off = solid surfaces.</div>
-                    </div>
-                    <button type="button" onClick={() => setDc({ cardOpacity: on ? 100 : GLASS_OPACITY })} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                      <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
-                    </button>
-                  </div>
-                ); })()}
-                </div>
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>System Elements</div>
+            <div style={card}>
+              <div style={lbl}>Accent Color</div>
+              {(() => {
+                // null = the mode's own accent, which is ACCENTS[0]; picking that
+                // swatch stores null so the default stays the default.
+                const base = (THEMES[draftMode] || THEMES.frost).accent;
+                const cur = (dc.accent || base).toLowerCase();
+                const isPreset = ACCENTS.some(c => c.toLowerCase() === cur);
+                const ring = on => ({ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer", border: "none", boxShadow: on ? `0 0 0 2px ${T.surfaceSolid || T.card}, 0 0 0 4px ${T.text}` : `inset 0 0 0 1px ${hexA(T.text, 0.12)}` });
+                return <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+                  {ACCENTS.map(c => <button key={c} type="button" aria-label={`Accent ${c}`} title={c}
+                    onClick={() => setDc({ accent: c.toLowerCase() === base.toLowerCase() ? null : c })}
+                    style={{ ...ring(cur === c.toLowerCase()), background: c }} />)}
+                  <label title="Custom color" style={{ ...ring(!isPreset), position: "relative", overflow: "hidden", display: "block",
+                    background: isPreset ? "conic-gradient(#f43f5e, #f59e0b, #10b981, #38BDF8, #7c3aed, #f43f5e)" : dc.accent }}>
+                    <input type="color" value={dc.accent || base} onChange={e => setDc({ accent: e.target.value })}
+                      style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%", border: "none", padding: 0 }} />
+                  </label>
+                </div>;
+              })()}
+            </div>
+            <div style={card}>
+              <div style={lbl}>Colors</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Job Cards</div>
                   <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                     {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
                       const a = (dc.jobBarMode || "system") === o.id;
@@ -26778,15 +26532,15 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
                     <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
-                      <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || dc.accent }} />
-                      <input type="color" value={dc.jobBarColor || dc.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+                      <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || pT.accent }} />
+                      <input type="color" value={dc.jobBarColor || pT.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
                     </label>
                     <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>All colored elements use this color.</div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || dc.accent}</div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || pT.accent}</div>
                   </div>}
                 </div>
                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>List Cells</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Job List Cells</div>
                   <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                     {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
                       const a = (dc.cellColorMode || "system") === o.id;
@@ -26803,28 +26557,6 @@ ${jobsCtx || "No jobs found."}`;
                     })}
                   </div>
                 </div>
-              </div>
-            </>}
-            <div style={{ ...card, marginBottom: 0 }}>
-              <div style={lbl}>Saved Presets</div>
-              {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
-              {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-                {themePresets.map((p, idx) => (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 26, cursor: "pointer" }}
-                    onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface, systemColor: p.systemColor ?? c.systemColor, bgMode: p.bgMode ?? c.bgMode, bgImage: p.bgImage !== undefined ? p.bgImage : c.bgImage, liquidColor: p.liquidColor ?? c.liquidColor, bgOpacity: p.bgOpacity ?? c.bgOpacity, cardOpacity: p.cardOpacity ?? c.cardOpacity, jobBarMode: p.jobBarMode ?? c.jobBarMode, jobBarColor: p.jobBarColor ?? c.jobBarColor, cellColorMode: p.cellColorMode ?? c.cellColorMode, scheduleGrid: p.scheduleGrid ?? c.scheduleGrid })); }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 8, background: p.accent }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
-                    <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
-                  </div>
-                ))}
-              </div>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
-                  onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); } }}
-                  style={{ flex: 1, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 16px", fontFamily: T.font, outline: "none" }} />
-                <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); }}
-                  style={{ padding: "8px 18px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusPill, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
-              </div>
             </div>
             {renderSettingsActions()}
           </div>
@@ -26853,13 +26585,6 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
-                    ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
-                    : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
-                  {pAdaptive && <>
-                    <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: -40, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", animation: "tqFadeOnly 0.35s ease" }} />
-                    <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: pT.bg, opacity: 1 - (dc.bgOpacity ?? 100) / 100 }} />
-                  </>}
                   {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                     <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
@@ -27634,12 +27359,11 @@ ${jobsCtx || "No jobs found."}`;
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Theme</div>
               <div style={{ display: "flex", gap: 6 }}>
-                {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
+                {[{ id: "frost", label: "Light" }, { id: "midnight", label: "Dark" }].map(th => {
                   const active = themeMode === th.id;
                   return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusPill, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : T.surface, color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                 })}
               </div>
-              {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
             </div>
           </div>
         </div>
@@ -27700,400 +27424,6 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     )}</FadeOnClose>
-    {/* Customization Modal */}
-    <FadeOnClose open={!!customizationOpen} duration={220}>{customizationOpen && (() => {
-      const isCustom = draftMode === "custom";
-      const dc = draftCustom;
-      const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
-      // Preview theme built from the DRAFT (never the live theme), so the mockup shows exactly
-      // what Save will apply — colors, background image, frosted-glass cards, auto text contrast.
-      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgMode: dc.bgMode, liquidColor: dc.liquidColor, bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid, systemColor: dc.systemColor }) : (THEMES[draftMode] || THEMES.midnight);
-      const pAdaptive = !!(isCustom && (dc.bgMode || "color") === "image" && dc.bgImage);
-      const pLiquid = !!(isCustom && (dc.bgMode || "color") === "liquid");
-      const pFrostBg = (pAdaptive || pLiquid) ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
-      // True frosted glass, matching .traqs-adaptive .tq-frost in the real app.
-      // Skipped on a flat colour background — a backdrop-filter there costs a
-      // compositing layer and shows nothing.
-      const pFrostFx = (pAdaptive || pLiquid) ? { backdropFilter: "blur(28px) saturate(1.4)", WebkitBackdropFilter: "blur(28px) saturate(1.4)" } : null;
-      // Preview chrome (mock header + sidebar) follows the System Color, with contrasting text/borders.
-      const pSolid = pT.systemBg || pT.surfaceSolid || pT.surface;
-      const pSysText = pT.systemText || pT.text;
-      const pSysBorder = pT.systemBorder || pT.border;
-      const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 };
-      // Each control group sits in its own card so the panel reads as distinct, tidy sections.
-      // Backed by a subtle tint OF THE SURFACE (not T.bg) so the surface-contrasting text
-      // (T.text / T.textDim) stays readable regardless of how light/dark the chosen bg is.
-      const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", marginBottom: 16 };
-      // Current image first, then the last-5 history — deduped — so the user can switch back.
-      const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
-      // Blank Schedule-page mockup data. ROSTER = left roster width; BARC = bar palette
-      // (job-colour-like, fixed); SCHED_GROUPS = departments → person rows → timeline bars
-      // ({ l: left%, w: width%, c: index into BARC }).
-      const ROSTER = 132;
-      const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
-      // Kept in step with the full-page settings copy above — same six groups, 20
-      // people, 28 bars. See the comment there for what the shape means.
-      const SCHED_GROUPS = [
-        [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }], [{ l: 12, w: 20, c: 3 }, { l: 70, w: 14, c: 5 }] ],
-        [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }], [{ l: 30, w: 26, c: 4 }], [{ l: 2, w: 12, c: 2 }, { l: 46, w: 18, c: 1 }] ],
-        [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }], [{ l: 38, w: 22, c: 5 }], [{ l: 6, w: 16, c: 3 }, { l: 62, w: 22, c: 0 }] ],
-        [ [], [{ l: 34, w: 24, c: 2 }], [{ l: 14, w: 18, c: 5 }, { l: 66, w: 12, c: 1 }], [{ l: 50, w: 20, c: 4 }] ],
-        [ [{ l: 22, w: 14, c: 3 }, { l: 56, w: 24, c: 0 }], [{ l: 8, w: 18, c: 2 }], [{ l: 40, w: 16, c: 5 }] ],
-        [ [{ l: 30, w: 20, c: 1 }], [{ l: 2, w: 10, c: 4 }, { l: 44, w: 14, c: 3 }, { l: 74, w: 12, c: 0 }] ],
-      ];
-      // Jobs-mockup color columns (priority + client), so the System Elements mode is visible
-      // on the jobs page too. system = multi palettes; adaptive = accent (cells as shades);
-      // custom = chosen color (cells as shades).
-      const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
-      const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
-      const pMode = pT.jobBarMode || "system";
-      // List Cells (status/priority) preview follows its OWN toggle, independent of System Elements.
-      const pCellMode = pT.cellColorMode || "system";
-      const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
-      const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
-      // Schedule grid preview (on/off + contrasting line color).
-      const pGridOn = pT.scheduleGrid !== false;
-      const pGridLine = blendHex(pT.surfaceSolid || pT.surface, wantsLightText(pT.surfaceSolid || pT.surface) ? 0.15 : -0.15);
-      const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
-      const swatch = (key, label, sub) => (
-        <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
-            <div style={{ width: "100%", height: "100%", background: dc[key] }} />
-            <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-          </label>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-            <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-          </div>
-          <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc[key]}</div>
-        </div>
-      );
-      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }} onClick={() => setCustomizationOpen(false)}>
-        <div onClick={e => e.stopPropagation()} style={{ background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 28px 80px rgba(0,0,0,0.6)", width: "min(1840px, 99vw)", height: "min(1080px, 97vh)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.22s ease-out" }}>
-          {/* Mockup fade/transition CSS — rendered here (not the injected stylesheet) so it
-              applies live while editing. Every colored element inside .tq-preview-anim eases
-              its color/opacity/shadow changes instead of snapping. */}
-          <style>{`
-            .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
-            @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
-          `}</style>
-          {/* Header */}
-          <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-2 3-4 3h-2a2 2 0 0 0-1 4 2 2 0 0 1-1 3z"/></svg></span>
-            <span style={{ fontSize: 17, fontWeight: 800, color: T.text, flex: 1 }}>Customize Appearance</span>
-            <button onClick={() => setCustomizationOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
-          </div>
-          {/* Body: controls + live preview */}
-          <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-            {/* Controls */}
-            <div style={{ width: 460, flexShrink: 0, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
-              {/* ── Theme ── */}
-              <div style={card}>
-                <div style={lbl}>Theme</div>
-                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                  {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
-                    const active = draftMode === th.id;
-                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
-                  })}
-                </div>
-              </div>
-              {isCustom && <>
-                {/* ── Colors ── */}
-                <div style={card}>
-                  <div style={lbl}>Colors</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    {swatch("systemColor", "Primary", "Sidebar, headers & buttons")}
-                    {swatch("surface", "Secondary", "Tables, lists, graphs & toggles")}
-                    {swatch("accent", "Accent", "Highlights, selections & indicators")}
-                  </div>
-                  {/* System Elements — every per-entity color (job bars, avatars, clients, dots) */}
-                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>System Elements</div>
-                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                      {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
-                        const a = (dc.jobBarMode || "system") === o.id;
-                        return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                      })}
-                    </div>
-                    {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
-                      <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
-                        <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || dc.accent }} />
-                        <input type="color" value={dc.jobBarColor || dc.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                      </label>
-                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>All colored elements use this color.</div>
-                      <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || dc.accent}</div>
-                    </div>}
-                  </div>
-                  {/* List Cells — jobs-list status/priority cells ONLY (independent of System Elements) */}
-                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>List Cells</div>
-                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                      {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
-                        const a = (dc.cellColorMode || "system") === o.id;
-                        return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                      })}
-                    </div>
-                  </div>
-                  {/* Schedule Grid — show/hide the day-column & row gridlines on the Schedule page */}
-                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Schedule Grid</div>
-                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                      {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
-                        const a = (dc.scheduleGrid !== false) === o.id;
-                        return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                      })}
-                    </div>
-                  </div>
-                </div>
-                {/* ── Background Image ── */}
-                <div style={card}>
-                  <div style={lbl}>Background Image</div>
-                  {/* Color Hue — the page background color; also tints the image when one is set. */}
-                  <div style={{ marginBottom: 16 }}>
-                    {swatch("bg", "Background Color", "The page background")}
-                  </div>
-                  {dc.bgImage
-                    ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ width: 64, height: 42, borderRadius: T.radius, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
-                        <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
-                        <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
-                      </div>
-                    : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radius, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                        Upload background image
-                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
-                      </label>}
-                  {/* Recent images — current is ringed; click any to switch back without re-uploading */}
-                  {recentImgs.length > 0 && <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: T.textDim, marginBottom: 8 }}>Recent images</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {recentImgs.map((img, i) => {
-                        const isCur = img === dc.bgImage;
-                        return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
-                          style={{ position: "relative", width: 58, height: 40, borderRadius: T.radius, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
-                          {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                          <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: "transparent", border: "none", color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
-                        </button>;
-                      })}
-                    </div>
-                  </div>}
-                  {dc.bgImage && <div style={{ marginTop: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
-                    <input type="range" className="tq-pill-range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%, transparent ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
-                  </div>}
-                  {/* Frosted Glass toggle — mirrors the desktop settings page. */}
-                  {(() => { const on = (dc.cardOpacity ?? 100) < 100; return (
-                    <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Frosted Glass</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>Popups and menus blur what sits behind them.</div>
-                      </div>
-                      <button type="button" onClick={() => setDc({ cardOpacity: on ? 100 : GLASS_OPACITY })} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
-                      </button>
-                    </div>
-                  ); })()}
-                </div>
-              </>}
-              {/* ── Saved Presets ── */}
-              <div style={{ ...card, marginBottom: 0 }}>
-                <div style={lbl}>Saved Presets</div>
-                {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
-                {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-                  {themePresets.map((p, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 26, cursor: "pointer" }}
-                      onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface, systemColor: p.systemColor ?? c.systemColor, bgMode: p.bgMode ?? c.bgMode, bgImage: p.bgImage !== undefined ? p.bgImage : c.bgImage, liquidColor: p.liquidColor ?? c.liquidColor, bgOpacity: p.bgOpacity ?? c.bgOpacity, cardOpacity: p.cardOpacity ?? c.cardOpacity, jobBarMode: p.jobBarMode ?? c.jobBarMode, jobBarColor: p.jobBarColor ?? c.jobBarColor, cellColorMode: p.cellColorMode ?? c.cellColorMode, scheduleGrid: p.scheduleGrid ?? c.scheduleGrid })); }}>
-                      <div style={{ width: 10, height: 10, borderRadius: 8, background: p.accent }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
-                      <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
-                    </div>
-                  ))}
-                </div>}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
-                    onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); } }}
-                    style={{ flex: 1, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
-                  <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); }}
-                    style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radius, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
-                </div>
-              </div>
-            </div>
-            {/* Live preview — mirrors the home / jobs-list view (blank placeholder rows) */}
-            <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                  {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
-                    const a = previewView === v.id;
-                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
-                  })}
-                </div>
-              </div>
-              <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 20, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
-                {/* full-width solid header (logo + New Job) — sits above sidebar + content, no divider */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
-                  <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.045em", marginLeft: 46 }}>traqs</span>
-                  <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
-                    <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
-                  </span>
-                </div>
-                {/* row: sidebar + content */}
-                <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-                  {/* sidebar (solid chrome) — a fixed icon rail */}
-                  <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
-                    </div>
-                  </div>
-                  {/* rounded content panel with the background image. Its own value, not
-                      SHELL_RADIUS: the mock is about a fifth of the real panel's size, so the
-                      panel's corner copied literally would read as a blob at this scale. */}
-                  <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
-                    ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
-                    : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
-                    {pAdaptive && <>
-                      {/* Sharp background image — blur is applied via backdropFilter on each card element
-                          so non-card areas show the image cleanly, and only behind cards does the frosted
-                          glass effect appear. */}
-                      <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", animation: "tqFadeOnly 0.35s ease" }} />
-                      {/* Color-Hue wash over the image — its OWN element so background-color (the hue) and
-                          opacity (strength = 1 − image opacity) BOTH cross-fade via .tq-preview-anim as you
-                          drag the Color Hue / image-opacity sliders. The translucent cards sit over this,
-                          so the hue shows through them and fades in live, in lockstep with the gaps. */}
-                      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: pT.bg, opacity: 1 - (dc.bgOpacity ?? 100) / 100 }} />
-                    </>}
-                    {/* Cross-fade: the NEW view renders underneath at full frost (no opacity fade →
-                        no frost "pop"), and the OLD view fades out on top of it — so the old fades
-                        out as the new is revealed, simultaneously. */}
-                    {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
-                      {/* content toolbar — New Job lives here (on the screen), not in the header */}
-                      <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
-                      </div>
-                      {/* Five job groups of 3-5 rows — 20 rows against the 10 this had.
-                        Row count only has to be plausible, not fit: the panel clips,
-                        so the extra rows read as a list that continues past the frame,
-                        which is what a real Jobs page looks like. Widths vary per row
-                        so no two title placeholders line up. */}
-                    {[[70, 56, 82, 64], [62, 78, 48, 66, 74], [74, 50, 60, 68], [58, 72, 46, 80], [66, 54, 76]].map((rowWidths, sec) => {
-                        const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
-                        return <div key={sec}>
-                          {/* group header — blank label + count chip */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-                            <div style={{ height: 9, width: 88, borderRadius: 8, background: pT.text, opacity: 0.55 }} />
-                            <div style={{ height: 15, width: 24, borderRadius: 20, background: pT.accent + "2e" }} />
-                          </div>
-                          {/* frosted section panel */}
-                          <div style={{ background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
-                            {/* column-header row (blank) */}
-                            <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
-                              {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 8, background: pT.textDim, opacity: 0.45 }} />)}
-                            </div>
-                            {/* blank rows */}
-                            {rowWidths.map((nameW, r) => (
-                              <div key={r} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "10px 14px", borderBottom: r < rowWidths.length - 1 ? `1px solid ${pT.border}` : "none" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 9, height: 9, borderRadius: 8, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
-                                  <div style={{ height: 8, width: `${nameW}%`, borderRadius: 8, background: pT.textDim, opacity: 0.32 }} />
-                                </div>
-                                <div style={{ height: 8, width: "80%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
-                                {/* Col 3 — priority pill (multi-color / mode-driven shades) */}
-                                <span style={{ height: 15, width: 48, borderRadius: 12, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
-                                {/* Col 4 — client cell (multi-color dot + label / mode-driven) */}
-                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 8, background: pClientColor(r), opacity: 0.55 }} /></div>
-                                <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
-                                <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
-                                <div style={{ height: 6, borderRadius: 8, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 8 }} /></div>
-                                <div style={{ width: 16, height: 16, borderRadius: 20, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
-                              </div>
-                            ))}
-                          </div>
-                        </div>;
-                      })}
-                    </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
-                      {/* schedule toolbar — Select / Today + filter + search */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "6px 14px" }}>Select</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 20, padding: "6px 12px", opacity: 0.75 }}>Today</span>
-                        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                          <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
-                          <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
-                        </span>
-                      </div>
-                      {/* gantt panel (frosted) — left roster + timeline with bars */}
-                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column", ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
-                        {/* day-number header */}
-                        <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
-                          <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
-                          <div style={{ flex: 1, display: "flex" }}>
-                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>)}
-                          </div>
-                        </div>
-                        {/* department groups → person rows */}
-                        <div style={{ flex: 1, overflow: "hidden" }}>
-                          {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
-                              <div style={{ height: 7, width: 54, borderRadius: 8, background: pT.text, opacity: 0.5 }} />
-                              <div style={{ height: 12, width: 20, borderRadius: 20, background: pT.accent + "2e" }} />
-                            </div>
-                            {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
-                              <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
-                                <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
-                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 8, background: pT.textDim, opacity: 0.34 }} /></div>
-                                <div style={{ height: 11, width: 22, borderRadius: 8, background: pT.accent + "26", flexShrink: 0 }} />
-                              </div>
-                              <div style={{ flex: 1, position: "relative", height: 32 }}>
-                                <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(to right, ${pGridLine} 0 1px, transparent 1px calc(100% / 14))`, opacity: pGridOn ? 1 : 0, pointerEvents: "none" }} />
-                                {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 8 }} />)}
-                              </div>
-                            </div>)}
-                          </div>)}
-                        </div>
-                      </div>
-                      {/* Schedule Status — blank status cards (profile avatars in their colors + colored lines) */}
-                      <div style={{ flexShrink: 0 }}>
-                        <div style={{ height: 7, width: 96, borderRadius: 8, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
-                        <div style={{ display: "flex", gap: 10 }}>
-                          {[0, 1, 2, 3, 4].map(i => {
-                            const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
-                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9, ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
-                              {/* header: avatar + name + link */}
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
-                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>
-                                <div style={{ height: 5, width: 24, borderRadius: 8, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
-                              </div>
-                              <div style={{ height: 1, background: pT.border }} />
-                              {/* body: job + client + status */}
-                              <div style={{ height: 6, width: "86%", borderRadius: 8, background: pT.textDim, opacity: 0.3 }} />
-                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 8, background: ac, opacity: 0.5 }} /></div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 20, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 8, background: pT.textDim, opacity: 0.25 }} /></div>
-                            </div>;
-                          })}
-                        </div>
-                      </div>
-                    </div>;
-                    return <>
-                      {renderMock(previewView)}
-                      {displayedPreview !== previewView && <div key={`fadeout-${displayedPreview}`} aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 6, animation: "tqWipe 0.22s ease-out forwards", pointerEvents: "none" }}>{renderMock(displayedPreview)}</div>}
-                    </>;
-                    })()}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Footer */}
-          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Changes preview live and apply only when you save.</span>
-            <Btn variant="secondary" onClick={() => setCustomizationOpen(false)}>Cancel</Btn>
-            <Btn onClick={() => { setThemeMode(draftMode); if (draftMode === "custom") setCustomTheme(draftCustom); setCustomizationOpen(false); }}>Save Changes</Btn>
-          </div>
-        </div>
-      </div>;
-    })()}</FadeOnClose>
     {/* Clients Modal */}
     {/* ── Export Selection Modal ── */}
     <FadeOnClose open={exportSelOpen} duration={220}>{exportSelOpen && (() => {
