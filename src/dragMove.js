@@ -335,33 +335,3 @@ export function workedSplitParts({ node, workedHours, cfg, cal, workStartH }) {
   };
 }
 
-/**
- * Unfinished work the schedule does not draw because its window closed (root cause 7 D, #87):
- * dated, assigned, not finished, end before today, nobody clocked into it — at the level that
- * carries the assignment (an op; a panel with no ops; a job with no panels). The Overdue tray
- * and the per-row badge list exactly these, so nothing the schedule hides is unfindable.
- *
- * Returns [{ node, job, panel, level, personIds, workedH, remainingH, endedDaysAgo }].
- */
-export function overdueUnits(tasks, { today, isLive = () => false, workedOf = () => 0 }) {
-  const out = [];
-  const consider = (node, level, job, panel) => {
-    if (!node || node.deletedAt || !node.start || !node.end || node.status === "Finished") return;
-    const team = (node.team || []).filter(x => x != null);
-    if (!team.length || !(node.end < today) || isLive(node)) return;
-    const workedH = Math.max(0, workedOf(node) || 0, node.loggedHours || 0);
-    out.push({ node, job, panel, level, personIds: team.map(sid), workedH, remainingH: Math.max(0, (node.hpd || 0) - workedH),
-      endedDaysAgo: Math.round((Date.parse(today + "T12:00:00Z") - Date.parse(node.end + "T12:00:00Z")) / 864e5) });
-  };
-  for (const job of tasks || []) {
-    if (!job || job.deletedAt) continue;
-    const panels = (job.subs || []).filter(p => p && !p.deletedAt);
-    if (!panels.length) consider(job, 0, job, null);
-    for (const panel of panels) {
-      const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
-      if (!ops.length) consider(panel, 1, job, panel);
-      for (const op of ops) consider(op, 2, job, panel);
-    }
-  }
-  return out.sort((a, b) => (a.node.end < b.node.end ? 1 : a.node.end > b.node.end ? -1 : 0) || String(a.node.id).localeCompare(String(b.node.id)));
-}

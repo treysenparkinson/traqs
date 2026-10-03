@@ -58,15 +58,13 @@ check("Pending tray drop needs editJobs, moveJobs and reassign", body("const han
 // THE TWO GATES THAT ACTUALLY RUN. The check below reads `reassignTask`, which has no
 // callers — so it has been passing while proving nothing about whether reassignment is
 // gated. These two are the paths a person actually takes: dragging a bar onto someone
-// else's row in week/month, and dropping an Overdue-tray item onto another row. Neither
-// was covered. (Three other reassign gates already are: placeTaskAt and
+// else's row in week/month (the Overdue-tray drop was the other, removed 2026-10-03).
+// It was not covered. (Three other reassign gates already are: placeTaskAt and
 // handlePendingItemDrop above, and the Job Details task Assign below.)
 check("Week/month drag onto another row needs reassign",
   SRC.slice(SRC.indexOf("Split the drag permission at the drop, not at the grab"),
             SRC.indexOf("Split the drag permission at the drop, not at the grab") + 900),
   { has: ['if (isReassign && !can("reassign")) {'] });
-check("Overdue-tray drop onto another row needs reassign", body("const handleOverdueDrop = (nodeId"),
-  { has: ['!sameId(fromPid, toPid) && !can("reassign")'] });
 // (the reassignTask gate check is gone with the function: it read a body with no callers,
 //  so it passed while proving nothing. The two checks above cover the paths that run.)
 check("Inline cell edits ask for the key of the field", body("const commitCellEdit = (id, key, val, pid)"), { has: ['if (!can(need)) return', '"moveJobs"', '"reassign"'] });

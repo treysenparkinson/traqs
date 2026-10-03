@@ -114,7 +114,7 @@ check("the rail and its <aside> can be located", () => (ASIDE.length > 2000 && R
 check("the logo mark is centred on the page-title row", () =>
   /const TITLE_ROW_TOP = 24, TITLE_ROW_H = 57;/.test(RAIL) && /marginTop: TITLE_ROW_TOP - RAIL_PAD_TOP, height: TITLE_ROW_H/.test(ASIDE) || "mark not on the title row");
 check("frostScroll puts titles 24px down, the greeting's padTop (fixture for the check above)", () => /const frostScroll = \(children, pad = "24px 32px 28px"/.test(SRC) && /const padTop = isMobile \? 2 : 24;/.test(SRC) || "frostScroll padding / greeting padTop moved");
-check("page titles are the greeting's size", () => /fontSize: isMobile \? 32 : 52,\s*fontWeight: 900,\s*letterSpacing: "-0\.07em",\s*lineHeight: 1\.1/.test(SRC) && /<span style=\{\{ fontSize: isMobile \? 32 : 52, fontWeight: 900, letterSpacing: "-0\.07em"[^\n]*lineHeight: 1\.1/.test(SRC) || "title size != greeting size");
+check("page titles are the greeting's size and face (Manrope)", () => /fontSize: isMobile \? 32 : 52,\s*fontFamily: FONT_TITLE,\s*fontWeight: 800,\s*letterSpacing: "-0\.07em",\s*lineHeight: 1\.1/.test(SRC) && /<span style=\{\{ fontSize: isMobile \? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0\.07em"[^\n]*lineHeight: 1\.1/.test(SRC) || "title size/face != greeting size/face");
 check("no page title overrides that size", () => !/<h1 style=\{\{ \.\.\.pageTitleStyle, [^}]*fontSize/.test(SRC) || "an <h1> overrides fontSize");
 check("no title container is still at the old 34px offset", () => !/padding: (asPage \? )?"34px 32px/.test(SRC) || "a 34px title offset remains");
 // iOS-style floating nav: the column is the page itself (no sidebar fill, no rule),
@@ -135,9 +135,9 @@ check("the rail draws on the page theme (it floats over the page)", () => RAIL.s
 const GLASS = (RAIL.match(/const railGlass = glassOn\n\s*\? \{[^\n]*/) || [""])[0];
 const SOLID = (RAIL.match(/const railGlass = glassOn\n[^\n]*\n\s*: \{[^\n]*/) || [""])[0].split("\n").pop();
 check("the pills are glass only when Frosted Glass is on", () => (!!GLASS && !!SOLID) || "railGlass is not gated on glassOn");
-check("...and solid with no blur when it is off", () => /background: T\.surface[,\s]/.test(SOLID) && !/blur|hexA\(T\.surface/.test(SOLID) || SOLID || "no solid branch");
+check("...and solid with no blur when it is off", () => /background: railFill[,\s]/.test(SOLID) && !/blur|hexA\(railFill/.test(SOLID) || SOLID || "no solid branch");
 check("glass: translucent fill with a backdrop blur (both engines)", () =>
-  /background: hexA\(T\.surface, 0\.\d+\)/.test(GLASS) && /backdropFilter: "blur\(\d+px\)/.test(GLASS) && /WebkitBackdropFilter: "blur\(\d+px\)/.test(GLASS) || GLASS || "no railGlass");
+  /background: hexA\(railFill, railLight \? 0\.\d+ : 0\.\d+\)/.test(GLASS) && /backdropFilter: "blur\(\d+px\)/.test(GLASS) && /WebkitBackdropFilter: "blur\(\d+px\)/.test(GLASS) || GLASS || "no railGlass");
 check("the glass casts no drop shadow (edge only)", () => GLASS && !/boxShadow/.test(GLASS) || "railGlass has a boxShadow");
 const navOpen = (ASIDE.match(/<nav className="tq-rail-nav" style=\{\{[^\n]*/) || [""])[0];
 check("the nav is a glass capsule", () => /\.\.\.railGlass/.test(navOpen) && /borderRadius: T\.radiusPill/.test(navOpen) || navOpen.slice(0, 160) || "no <nav className=\"tq-rail-nav\">");
@@ -214,7 +214,7 @@ check("rail nav buttons paint on mouse-down", () => {
   return n >= 3 || `${n} buttons press-paint (views, Admin, settings sections)`;
 });
 check("hover reads the live selection, not a render-time closure", () =>
-  /const hoverIn = \(label, bg = T\.hover\) => e => \{ if \(!isNavActive\(e\.currentTarget\)\)/.test(RAIL) &&
+  /const hoverIn = \(label, bg = railHover\) => e => \{ if \(!isNavActive\(e\.currentTarget\)\)/.test(RAIL) &&
   /const hoverOut = \(bg = "transparent"\) => e => \{ if \(!isNavActive\(e\.currentTarget\)\)/.test(RAIL) || "hover still keyed on the closure");
 check("buttons carry the selection React rendered (data-nav-active)", () => /data-nav-active=\{active \? "1" : "0"\}/.test(ASIDE) || "no data-nav-active");
 check("nav buttons render no text labels", () => {

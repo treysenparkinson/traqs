@@ -11,7 +11,7 @@ const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, overdueUnits, landUnit } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -704,12 +704,16 @@ const pctBarWidth = (pct) => Math.max(0, Math.min(100, pct));
 
 
 
+// Two faces: Manrope for the screen titles (every page's h1 and the dashboard
+// greeting), Sora for everything else. Both top out at 800 (ExtraBold), so the
+// titles ask for 800 -- a 900 request would be synthesised.
+const FONT_UI = "'Sora',-apple-system,BlinkMacSystemFont,sans-serif";
+const FONT_TITLE = "'Manrope','Sora',-apple-system,BlinkMacSystemFont,sans-serif";
 const fontLink = document.createElement("link"); fontLink.rel = "stylesheet";
-// 800 matters: it's DM Sans ExtraBold, the heaviest weight the design uses
-// (iOS TFontName.extrabold). Without it here the fallback link would silently
-// synthesise it. index.html normally wins, so this is the safety net.
-fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap";
-if (!document.querySelector('link[href*="DM+Sans"]')) document.head.appendChild(fontLink);
+// index.html normally wins, so this is the safety net; it asks for the same
+// weights so the fallback never synthesises one.
+fontLink.href = "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@300;400;500;600;700;800&display=swap";
+if (!document.querySelector('link[href*="Sora"]')) document.head.appendChild(fontLink);
 
 if (!document.querySelector('meta[name="viewport"]')) { const vp = document.createElement("meta"); vp.name = "viewport"; vp.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"; document.head.appendChild(vp); }
 
@@ -2283,7 +2287,7 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     // visible on ANY color combination — not a near-invisible low-alpha accent.
     hover: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.20 : 0.15),
     hoverStrong: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.34 : 0.26),
-    font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
+    font:FONT_UI, mono:FONT_UI,
     radius:22, radiusSm:16, radiusXs:11, radiusLg:26, radiusHero:34, radiusPill:9999, glass:surf, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
     // Outer-chrome (header + sidebar) palette — see sysBg above. The chrome reads these via Tc.
@@ -2304,9 +2308,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex(DARK.accent, 0.45), 0.2), hoverStrong: hexA(blendHex(DARK.accent, 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark", ...DARK },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light", ...LIGHT },
+  midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex(DARK.accent, 0.45), 0.2), hoverStrong: hexA(blendHex(DARK.accent, 0.45), 0.34), danger: "#f43f5e", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark", ...DARK },
+  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
+  frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light", ...LIGHT },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -8738,8 +8742,6 @@ Extraction rules:
   // A week/month resize in progress: the landing the bar is PREVIEWED at. Nothing is written
   // until the release (root cause 7 C: #31 #32) — the bar reads this instead.
   const [resizePreview, setResizePreview] = useState(null);
-  // The Overdue tray (root cause 7 D, #87): null | "all" | a person id.
-  const [overdueTray, setOverdueTray] = useState(null);   // { barId, start, startHour, end, endHour, share, refused }
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
@@ -9334,7 +9336,7 @@ Extraction rules:
     return clearOverlaps(taskList, touchedIds, overlapCtx);
   };
   // The shared landing checks (dragMove.refuseDragMove) for placements that are not a bar
-  // gesture: the Gantt split, the Split Job modal, Reschedule and the Overdue tray. Same rules
+  // gesture: the Gantt split, the Split Job modal and Reschedule. Same rules
   // as every drag — live, locked, record, department, time off, and (Business) past + overlap.
   const refuseLanding = (plan) => refuseDragMove(plan, {
     isLocked: () => false,   // op.locked retired (ruling 3)
@@ -9347,31 +9349,6 @@ Extraction rules:
   const showLandingRefusal = (r, title = "Can't move here") => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
     title: r.kind === "past" ? "Can't schedule in the past" : title, message: refusalMessage(r),
     onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-  // An Overdue-tray item dropped on a day: through the normal landing and checks (#87). It
-  // lands at the start of the working day, or at the next half hour when dropped on today.
-  const handleOverdueDrop = (nodeId, fromPid, toPid, day, atHour = null) => {
-    if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
-    if (fromPid != null && !sameId(fromPid, toPid) && !can("reassign")) return denied(PERM_VERB.reassign);
-    const item = overdueUnits(tasks, { today: TD, isLive: n => isLiveOpId(n.id), workedOf: n => producedFor(n) }).find(u => sameId(u.node.id, nodeId));
-    if (!item) return;
-    const node = item.node;
-    const size = Math.max(1, (node.team || []).length);
-    // The length the bar will draw at: the remaining hours when some were worked, else the estimate.
-    const shareH = item.workedH > 0 ? Math.max(0.25, item.remainingH / size) : personShareHours(node.hpd, size, productiveHoursPerDay);
-    // #310. Week and month drop onto a DAY, so the hour is derived: now (rounded up to the
-    // half hour) for today, the start of the day otherwise. The day view drops onto an HOUR —
-    // that is the axis it draws — so it passes one, and it is clamped into the working day
-    // rather than trusted, because the drop can land on a dead column or past the end.
-    const hour = atHour != null
-      ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.round(atHour * 2) / 2))
-      : day === shopDay() ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.ceil(shopHour() * 2) / 2)) : workStartH;
-    const plan = planDragMove({ grabbed: { id: node.id, node, fromDay: node.start, fromHour: node.startHour ?? workStartH, shareH },
-      drop: { day, hour }, origPerson: fromPid, dropPerson: toPid, cfg: dayWindowCfg, cal: calOf(orgSettings.workDays, orgSettings.holidays), workStartH, workEndH });
-    const refusal = refuseLanding(plan);
-    if (refusal) { showLandingRefusal(refusal); return; }
-    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-    commitLanding((list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, reason: "Rescheduled from Overdue" }), movedByName), [String(node.id)], node.title);
-  };
   // Commit a built change once, behind the no-overlap backstop (refused, never rearranged).
   const commitLanding = (build, ids, title) => {
     const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), ids);
@@ -10666,23 +10643,22 @@ ${jobsCtx || "No jobs found."}`;
   // digit's ink — which is (yMax + yMin) / 2, NOT half the ink height, because the
   // ink is not symmetric about the baseline.
   //
-  // Measured out of the shipped font rather than assumed: DM Sans Bold
-  // (unitsPerEm 1000, OS/2 capHeight 700) inks its digits from yMin -12 to
-  // yMax 712, so the offset is (712 + -12) / 2 = 350 units = 0.350em. That holds
-  // for flat-topped digits too — "4" runs 0..700, and (700 + 0) / 2 is also 350 —
-  // so every date centres identically.
+  // Measured out of the shipped font rather than assumed: Sora Bold (unitsPerEm
+  // 1000, OS/2 capHeight 730, measured with fontTools from the Google Fonts 700
+  // instance). Unlike DM Sans, Sora's digits do not share one ink box: the
+  // per-digit (yMax + yMin) / 2 runs from 0.3555em ("3", "5") to 0.376em ("2"),
+  // and the flat-topped ones ("1", "7") sit at exactly half the cap height,
+  // 0.365em -- also the middle of that range. So 0.365, and no single date is
+  // off by more than ~0.1px at these sizes.
   //
-  // This was 0.36, from assuming half a ~0.72em cap height, which sat the digit
-  // 0.07px low; the note justifying that 0.72em cited Inter .727 / SF .70 /
-  // Helvetica .717, none of which is the app's font (see Fonts/DMSans-Bold.ttf in
-  // the iOS bundle). Halving the 0.724em ink height instead gives 0.362 and is
-  // just as wrong in the same direction — hence spelling out (yMax + yMin) / 2
-  // above, which is the only form that stays correct per-glyph.
+  // This was 0.350, measured from DM Sans Bold (digits -12..712) before the
+  // switch to Sora. Inter / SF / Helvetica cap heights are not the app's font
+  // either; measure the shipped face if it changes again.
   //
   // Deriving it from the font size rather than hard-coding a y keeps the two-digit
   // case centred too, since that one renders a size smaller to fit the tile.
   const dateFs = todayDateNum > 9 ? 9.5 : 10.5;
-  const dateBaseline = 14.7 + dateFs * 0.35;
+  const dateBaseline = 14.7 + dateFs * 0.365;
   // All sidebar glyphs are normalized to one optical box: geometry stays inside
   // 3..21 of the 24-unit viewBox so that, once the 2px stroke halo is added, every
   // icon inks the same 20x20 area centered on (12,12). Without this the stock
@@ -14169,7 +14145,8 @@ ${jobsCtx || "No jobs found."}`;
     margin: 0,
     // The dashboard greeting's size ("Hello, <org>"), so every page title matches it.
     fontSize: isMobile ? 32 : 52,
-    fontWeight: 900,
+    fontFamily: FONT_TITLE,
+    fontWeight: 800,
     letterSpacing: "-0.07em",
     lineHeight: 1.1,
     // Page titles sit directly on the page BACKGROUND, not on a card, so they
@@ -15027,7 +15004,7 @@ ${jobsCtx || "No jobs found."}`;
           transition: `left ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), top ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), transform ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1)`,
           animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
         }}>
-          <span style={{ fontSize: isMobile ? 32 : 52, fontWeight: 900, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
+          <span style={{ fontSize: isMobile ? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
             Hello,{greetName ? " " : ""}{greetName || " there"}
           </span>
         </div>
@@ -15124,32 +15101,6 @@ ${jobsCtx || "No jobs found."}`;
     const lW = isMobile ? 120 : Math.min(510, Math.max(250, 158 + _pillW)), rH = 42, grpH = 36;
     // The pan reads the label column's real width (#89).
     teamLWRef.current = lW;
-    // Unfinished work whose window closed: not drawn as bars, so it is listed in the Overdue
-    // tray and counted on every person's row (#87). Same predicate everywhere: dragMove.overdueUnits.
-    const _overdueAll = overdueUnits(tasks, { today: TD, isLive: n => isLiveOpId(n.id), workedOf: n => producedFor(n) });
-    const _overdueBy = new Map();
-    for (const u of _overdueAll) for (const pid of u.personIds) { if (!_overdueBy.has(pid)) _overdueBy.set(pid, []); _overdueBy.get(pid).push(u); }
-    // Always visible on the row — not on hover, not in a menu: someone thinks this work is scheduled.
-    //
-    // THE COUNT, not the word (#311). Measured against the real column: lW is 250 whenever
-    // nobody is clocked onto a job, which leaves 119.5px for the name block, and "N overdue"
-    // at 10px/700 with its padding is 66.6-75.6px of that. It never clipped itself — it
-    // evicted the line it shared, so anyone with overdue work lost their department: at
-    // Matrix, 17 people across 8 departments, "Engineering · 8h" cut to 63% of its width.
-    // The number alone is ~26-30px and rides the NAME line, where the shortest first name
-    // still leaves room; the word is in the title, where the rest of the sentence already was.
-    //
-    // A FILLED pill, not amber text on a 13% amber wash: the old #b45309 measured 2.53:1 on
-    // the dark ladders against that wash. Filled, the ground is the amber itself and the ink
-    // follows the same rule as everything else on this screen.
-    const OVERDUE_AMBER = legibleBarColor("#f59e0b");
-    const overdueBadge = (pid) => {
-      const n = (_overdueBy.get(String(pid)) || []).length;
-      if (!n) return null;
-      return <span role="button" title={`${n} unfinished ${n === 1 ? "operation" : "operations"} past their end date — not shown on the schedule. Click to see them.`}
-        onClick={e => { e.stopPropagation(); setOverdueTray(String(pid)); }}
-        style={{ display: "inline-block", marginLeft: 5, padding: "0 5px", minWidth: 8, textAlign: "center", borderRadius: T.radiusPill, background: OVERDUE_AMBER, color: barInk([OVERDUE_AMBER]), fontWeight: 800, fontSize: 10, lineHeight: "15px", cursor: "pointer", verticalAlign: "middle", flexShrink: 0 }}>{n}</span>;
-    };
     // teamWidth measures the OUTER wrapper, but in month mode the grid inside it is
     // stretched to `monthZoom * 100%` and scrolls horizontally. Every consumer of cW
     // converts between pixels and days — pan, wheel, bar drags, the pending-work drag
@@ -15738,7 +15689,6 @@ ${jobsCtx || "No jobs found."}`;
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
-          {_overdueAll.length > 0 && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")} style={{ marginLeft: 6, borderColor: "#f59e0b88", color: legibleOn("#b45309", T.card) }}>Overdue · {_overdueAll.length}</Btn>}
         </div>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
@@ -15949,7 +15899,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
                       <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:T.text,display:"flex",alignItems:"center",minWidth:0}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{p.name.split(" ")[0]}</span>{overdueBadge(p.id)}</div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,display:"flex",alignItems:"center",minWidth:0}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{p.name.split(" ")[0]}</span></div>
                         {/* nowrap + ellipsis: without it "Admin · 8h" broke onto a second
                             line inside a fixed-height row and collided with the pill. */}
                         <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.department} · {p.cap}h</div>
@@ -15957,29 +15907,7 @@ ${jobsCtx || "No jobs found."}`;
                       {personClockPill(p, { size: 11 })}
                     </div>
                     <div style={{flex:1,position:"relative",display:"flex"}}>
-                      {/* #310. The day view had no drop target at all, so re-planning an
-                          overdue item only worked in week and month — the one view that can
-                          say WHEN during the day was the one that could not accept the drop.
-                          Each hour cell is a target, and the half the cursor lands in picks
-                          the half hour, so a drop reads as the place it was aimed at.
-                          handleOverdueDrop does the rest: it already checks moveJobs and
-                          reassign, plans through planDragMove, refuses through refuseLanding
-                          and commits behind the no-overlap backstop. */}
                       {hours.map(h => <div key={h}
-                        onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-overdue")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }}
-                        onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-                        onDrop={e => {
-                          e.currentTarget.style.boxShadow = "none";
-                          const _od = e.dataTransfer.getData("application/x-traqs-overdue");
-                          if (!_od) return;
-                          e.preventDefault();
-                          const [_odId, _odFrom] = JSON.parse(_od);
-                          // Which half of the column the cursor is in, so a drop at the right
-                          // of the 10:00 cell means 10:30 rather than silently snapping back.
-                          const _r = e.currentTarget.getBoundingClientRect();
-                          const _half = _r.width > 0 && (e.clientX - _r.left) / _r.width >= 0.5 ? 0.5 : 0;
-                          handleOverdueDrop(_odId, _odFrom, p.id, tStart, h + _half);
-                        }}
                         style={{flex:1,height:"100%",background:pOff?offColor+"12":deadHours.has(h)?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
                         {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
                         <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
@@ -16077,36 +16005,6 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
         );
-      })()}
-      {/* Overdue tray (#87): every unfinished unit past its end date, per person. Drag one onto a
-          day on the schedule to re-plan it — the normal landing and checks; nothing moves by itself. */}
-      {overdueTray && (() => {
-        const list = overdueTray === "all" ? _overdueAll : (_overdueBy.get(String(overdueTray)) || []);
-        const groups = new Map();
-        for (const u of list) for (const pid of u.personIds) { if (overdueTray !== "all" && pid !== String(overdueTray)) continue; if (!groups.has(pid)) groups.set(pid, []); groups.get(pid).push(u); }
-        const hours = Math.round(list.reduce((sum, u) => sum + u.remainingH, 0));
-        const mayDrag = can("moveJobs");
-        return <div style={{ position: "fixed", right: 16, top: 90, bottom: 16, width: 360, maxWidth: "calc(100vw - 32px)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 12px 40px rgba(0,0,0,0.35)", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Overdue{overdueTray !== "all" ? ` · ${people.find(x => sameId(x.id, overdueTray))?.name || ""}` : ""}</div>
-              <div style={{ fontSize: 11, color: T.textDim }}>{list.length} unfinished past their end date · {hours}h left{mayDrag ? " · drag one onto a day" : ""}</div>
-            </div>
-            {overdueTray !== "all" && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")}>All</Btn>}
-            <button onClick={() => setOverdueTray(null)} title="Close" style={{ width: 24, height: 24, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", fontSize: 16 }}>×</button>
-          </div>
-          <div style={{ overflowY: "auto", padding: "6px 0" }}>
-            {[...groups.entries()].map(([pid, items]) => <div key={pid}>
-              <div style={{ padding: "8px 14px 4px", fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{people.find(x => sameId(x.id, pid))?.name || "Unknown"} · {items.length}</div>
-              {items.map(u => <div key={pid + "-" + u.node.id} draggable={mayDrag}
-                onDragStart={e => { e.dataTransfer.setData("application/x-traqs-overdue", JSON.stringify([String(u.node.id), pid])); e.dataTransfer.effectAllowed = "move"; }}
-                style={{ margin: "2px 10px", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: mayDrag ? "grab" : "default" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.panel && u.level === 2 ? `${u.panel.title} · ` : ""}{u.node.title}</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>{u.job.jobNumber ? `#${u.job.jobNumber} ` : ""}{u.job.title} · ended {fmtDate(u.node.end)} · {Math.round(u.remainingH * 10) / 10}h left{u.workedH > 0 ? " · partly worked" : ""}</div>
-              </div>)}
-            </div>)}
-          </div>
-        </div>;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{ width: "100%" }}>
@@ -16384,7 +16282,7 @@ ${jobsCtx || "No jobs found."}`;
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, display: "flex", alignItems: "center", minWidth: 0, cursor: barSelectMode ? "pointer" : "default" }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{p.name.split(" ")[0]}</span>{overdueBadge(p.id)}</div>
+                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, display: "flex", alignItems: "center", minWidth: 0, cursor: barSelectMode ? "pointer" : "default" }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{p.name.split(" ")[0]}</span></div>
                   <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h</div>
                 </div>
                 {personClockPill(p, { size: 11 })}
@@ -16396,7 +16294,7 @@ ${jobsCtx || "No jobs found."}`;
                   onClick={placingTask ? (e) => { e.stopPropagation(); e.currentTarget.style.boxShadow = "none"; placeTaskAt(p.id, day); } : undefined}
                   onMouseEnter={placingTask ? (e) => { e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } : undefined}
                   onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-                  onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending") || e.dataTransfer.types.includes("application/x-traqs-overdue")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const _od = e.dataTransfer.getData("application/x-traqs-overdue"); if (_od) { e.preventDefault(); const [_odId, _odFrom] = JSON.parse(_od); handleOverdueDrop(_odId, _odFrom, p.id, day); return; } const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", position: "relative", cursor: placingTask ? "copy" : undefined, zIndex: placingTask ? 6 : undefined }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                  onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", position: "relative", cursor: placingTask ? "copy" : undefined, zIndex: placingTask ? 6 : undefined }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
@@ -27245,9 +27143,17 @@ ${jobsCtx || "No jobs found."}`;
       // The pills follow the Frosted Glass setting (glassOn): on, a translucent
       // page-surface fill blurred and saturated behind; off, a solid surface fill
       // with no blur. Hairline edge either way, no drop shadow.
+      // Light themes: a white pill on the white canvas all but vanished (an 8%
+      // edge and textSec icons), so there the pill takes the card tint, a firmer
+      // edge, and icons/hover pulled toward T.text. Dark themes are unchanged.
+      const railLight = hexLum(T.bg) >= 0.5;
+      const railEdge = `1px solid ${hexA(T.text, railLight ? 0.16 : 0.08)}`;
+      const railInk = railLight ? mixHex(T.textSec, T.text, 0.45) : T.textSec;
+      const railHover = railLight ? hexA(T.text, 0.07) : T.hover;
+      const railFill = railLight ? T.card : T.surface;
       const railGlass = glassOn
-        ? { background: hexA(T.surface, 0.62), backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)", border: `1px solid ${hexA(T.text, 0.08)}` }
-        : { background: T.surface, border: `1px solid ${hexA(T.text, 0.08)}` };
+        ? { background: hexA(railFill, railLight ? 0.82 : 0.62), backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)", border: railEdge }
+        : { background: railFill, border: railEdge };
       const navBtn = (active, o = {}) => ({
         position: "relative", flexShrink: 0,
         width: RAIL_BTN, height: RAIL_BTN, padding: 0,
@@ -27255,7 +27161,7 @@ ${jobsCtx || "No jobs found."}`;
         border: o.border || "none",
         // Selected = a solid accent disc, its icon in the accent's own contrast colour.
         background: active ? T.accent : (o.bg || "transparent"),
-        color: active ? T.accentText : (o.color || T.textSec),
+        color: active ? T.accentText : (o.color || railInk),
         boxShadow: "none",
         cursor: "pointer", fontFamily: T.font,
         display: "flex", alignItems: "center", justifyContent: "center",
@@ -27269,10 +27175,10 @@ ${jobsCtx || "No jobs found."}`;
       const railTipOff = () => setRailTip(t => (t.on ? { ...t, on: false } : t));
       // Hover reads the selection off the DOM (data-nav-active), not a render-time
       // `active`: between a press and the commit that closure is stale.
-      const hoverIn = (label, bg = T.hover) => e => { if (!isNavActive(e.currentTarget)) e.currentTarget.style.background = bg; tipFor(label, e.currentTarget); };
+      const hoverIn = (label, bg = railHover) => e => { if (!isNavActive(e.currentTarget)) e.currentTarget.style.background = bg; tipFor(label, e.currentTarget); };
       const hoverOut = (bg = "transparent") => e => { if (!isNavActive(e.currentTarget)) e.currentTarget.style.background = bg; railTipOff(); };
       // Selection paint, shared by the press and the per-commit sync.
-      const railColors = { on: T.accent, onInk: T.accentText, off: "transparent", offInk: T.textSec };
+      const railColors = { on: T.accent, onInk: T.accentText, off: "transparent", offInk: railInk };
       railColorsRef.current = railColors;
       railActiveKeyRef.current = settingsMode
         ? "settings:" + (settingsSection.startsWith("org-") ? "org-parent" : settingsSection)

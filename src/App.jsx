@@ -93,12 +93,12 @@ const INK = "#0B0B0C";
 const STONE = "#8A867E";
 const HAIRLINE = "rgba(16,24,40,.08)";
 
-// TRAQS HAS ONE TYPEFACE, and the product already decided that: every theme in
-// TRAQS.jsx sets BOTH its font and its mono to DM Sans. There is no second face
-// anywhere in the app.
+// TRAQS HAS ONE BODY TYPEFACE: every theme in TRAQS.jsx sets BOTH its font and
+// its mono to Sora. The only second face in the app is Manrope, and it is only
+// the screen titles (page h1s and the dashboard greeting).
 //
 // These screens had drifted to three faces, none of which index.html loads -- it
-// fetches DM Sans and Space Grotesk and nothing else -- so the field labels, the
+// fetches Manrope, Sora and Space Grotesk and nothing else -- so the field labels, the
 // step counter and the org code each rendered in whatever the machine happened
 // to have lying around. That is why they looked like they came from a different
 // product than the line above them. Measured in Chrome rather than inferred: a
@@ -110,7 +110,7 @@ const HAIRLINE = "rgba(16,24,40,.08)";
 //
 // Space Grotesk is the exception and stays: it is the wordmark, per the lockup
 // spec, and it is loaded.
-const FONT = "'DM Sans', system-ui, sans-serif";
+const FONT = "'Sora', system-ui, sans-serif";
 
 const PAGE = {
   minHeight: "100vh",
@@ -1117,7 +1117,7 @@ const GLASS = {
   WebkitBackdropFilter: "blur(56px) saturate(1.6) brightness(1.06)",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 40px rgba(255,255,255,.28), 0 24px 60px rgba(16,24,40,.16)",
   animation: "tqPadIn .28s cubic-bezier(0.34, 1.4, 0.64, 1) both",
-  fontFamily: "'DM Sans', system-ui, sans-serif",
+  fontFamily: FONT,
   boxSizing: "border-box",
 };
 
@@ -1538,7 +1538,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
       </div>
 
       {/* Lower-right toggle: switch between the roster sign-in and the clock-in/out kiosk */}
-      <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, display: "flex", gap: 4, padding: 4, background: "#fff", border: "1px solid rgba(16,24,40,.1)", borderRadius: 999, boxShadow: "0 8px 24px rgba(16,24,40,.14)", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, display: "flex", gap: 4, padding: 4, background: "#fff", border: "1px solid rgba(16,24,40,.1)", borderRadius: 999, boxShadow: "0 8px 24px rgba(16,24,40,.14)", fontFamily: FONT }}>
         {[["login", "Log In"], ["clock", "Clock In"]].map(([key, label]) => {
           const active = view === key;
           return (
@@ -1587,7 +1587,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
             // ground — and why this value stays low: the two blurs compound.
             backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)",
             animation: "tqScrimIn .22s ease both",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'DM Sans', system-ui, sans-serif",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: FONT,
           }}
           onClick={closeClockModal}
         >

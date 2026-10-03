@@ -142,15 +142,16 @@ ok("...and the same bar proportions",
 // reports the family you wrote; the browser just draws a fallback. These screens
 // had accumulated three faces -- JetBrains Mono on the field labels, Space Mono
 // on the step counter, a bare ui-monospace on the org code -- and index.html
-// loads DM Sans and Space Grotesk only, so each rendered in whatever the machine
+// loaded only its own faces, so each rendered in whatever the machine
 // happened to have. Nothing in the build, the lint or the console said a word.
 //
-// TRAQS has one typeface. Every theme in TRAQS.jsx sets both its font and its
-// mono to DM Sans; Space Grotesk is the wordmark and is loaded.
+// TRAQS has one body typeface. Every theme in TRAQS.jsx sets both its font and
+// its mono to Sora; Manrope is the screen titles and Space Grotesk the wordmark,
+// and all three are loaded.
 const HTML = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const loaded = new Set(
   [...HTML.matchAll(/family=([A-Za-z+]+)/g)].map((m) => m[1].replace(/\+/g, " ")));
-ok("index.html loads the faces the design uses", loaded.has("DM Sans") && loaded.has("Space Grotesk"));
+ok("index.html loads the faces the design uses", loaded.has("Sora") && loaded.has("Manrope") && loaded.has("Space Grotesk"));
 
 // Generic families and system stacks are instructions to the browser, not
 // requests for a file, so they need no loading.
@@ -201,7 +202,7 @@ for (const rel of ["../src/App.jsx", "../src/SignupSteps.jsx"]) {
     }
   }
 }
-ok("the auth screens name no face but DM Sans and the wordmark's"
+ok("the auth screens name no face but Sora and the wordmark's"
   + (foreign.length ? " -- found " + [...new Set(foreign)].join(", ") : ""),
   foreign.length === 0);
 

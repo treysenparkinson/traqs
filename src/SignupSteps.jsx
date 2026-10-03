@@ -29,9 +29,9 @@ const HAIR = "#d7d3c9";
 // One typeface, same rule as everywhere else -- see the note on FONT in
 // App.jsx. What was here is not loaded by index.html, so the step counter and
 // the tier badge rendered in a system face while the card two lines above them
-// was DM Sans. Kept as a named constant rather than inherit, so the next person
+// was Sora. Kept as a named constant rather than inherit, so the next person
 // can see there is a rule being followed.
-const FONT = "'DM Sans', system-ui, sans-serif";
+const FONT = "'Sora', system-ui, sans-serif";
 
 // A selectable pill. The wireframe uses these for company size and pay period
 // rather than dropdowns — every option stays visible, which is the point when
