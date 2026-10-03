@@ -580,15 +580,6 @@ const personStatus = (p) => {
   if (p?.activeClockIn) return "idle";
   return "offline";
 };
-// The rotating analytics panel cycles these in order, one every 5s. Keys only —
-// the values are derived at render time from live data. Module scope so the
-// rotator's interval can wrap the index without reaching into render state.
-const DASH_STAT_KEYS = ["hours", "active", "ontime", "avg", "clocked", "due"];
-// Shortest a dashboard panel row may get before the page scrolls instead of
-// squeezing further. A card spends ~58px on padding + header, so this leaves
-// ~112px of body — enough for the densest panel's first rows to read as content
-// rather than a sliver. The outer grid derives its own row floor from this.
-const DASH_ROW_MIN = 170;
 // ── Dashboard intro timing ───────────────────────────────────────────────────
 // How long the greeting holds at mid-screen before it starts moving.
 const DASH_HELLO_HOLD_MS = 1500;
@@ -600,9 +591,6 @@ const DASH_TRAVEL_MS = 1150;
 // its way before the layout fills in behind it, instead of everything moving at
 // once from a standing start.
 const DASH_CARDS_DELAY_MS = DASH_TRAVEL_MS / 2;
-// Diameter of a day marker in the dashboard month grid. Today's filled circle
-// and the hover highlight are the SAME disc, so one number keeps them identical.
-const DASH_DAY_DISC = 42;
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 // The ONE working calendar is scheduleRules.workCalendar: work week AND holidays, every
 // loop bounded. These keep their names so every caller keeps working, but delegate to it —
@@ -970,6 +958,58 @@ animStyle.textContent = `
 }
 .anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
+/* ── Revamp ("Candy, cardless", TRAQS Revamp.html) ─────────────────────────────
+   Shared atoms for the rebuilt pages: hairline dividers instead of cards, flat
+   accent pills, round highlights. Colours come from --rv-* (set from T in the
+   theme effect), so Light / Dark and the chosen accent carry through. */
+.rv-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid var(--rv-track);background:var(--rv-surface);color:var(--rv-ink);white-space:nowrap;box-sizing:border-box;font-family:inherit;cursor:pointer;line-height:1.2}
+.rv-pill.pri{background:var(--tq-accent);color:var(--rv-on-acc);border-color:var(--tq-accent)}
+.rv-pill.on{background:var(--rv-acc-soft);border-color:var(--tq-accent);color:var(--tq-accent)}
+.rv-pill.sm{padding:5px 10px;font-size:10.5px}
+.rv-pill:disabled{opacity:.5;cursor:default}
+.rv-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--rv-chip);color:var(--rv-mute);white-space:nowrap;flex:none}
+.rv-chip.g{background:var(--rv-g-bg);color:var(--rv-g-fg)}.rv-chip.y{background:var(--rv-y-bg);color:var(--rv-y-fg)}.rv-chip.b{background:var(--rv-b-bg);color:var(--rv-b-fg)}.rv-chip.r{background:var(--rv-r-bg);color:var(--rv-r-fg)}.rv-chip.o{background:var(--rv-o-bg);color:var(--rv-o-fg)}
+.rv-mute{color:var(--rv-mute)}
+.rv-num{font-variant-numeric:tabular-nums}
+.rv-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--rv-line);font-size:11.5px;color:var(--rv-ink);min-width:0}
+.rv-row:last-child{border-bottom:0}
+.rv-row .rv-txt{min-width:0;flex:1;display:flex;flex-direction:column}
+.rv-row .rv-txt b{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-row .rv-txt span{color:var(--rv-mute);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-row>small{color:var(--rv-mute);font-size:10px;flex:none}
+.rv-dot{width:8px;height:8px;border-radius:50%;background:var(--rv-track);display:inline-block;flex:none}
+.rv-bar{display:block;flex:1;position:relative;border-radius:999px;background:var(--rv-track);overflow:hidden;min-width:40px}
+.rv-bar i{position:absolute;top:0;bottom:0;left:0;border-radius:999px}
+.rv-sx{min-width:0;min-height:0;display:flex;flex-direction:column}
+.rv-sx>h3{margin:0 0 16px;font-size:13.5px;letter-spacing:1px;text-transform:uppercase;font-weight:700;display:flex;justify-content:space-between;align-items:center;color:var(--rv-ink);flex:none}
+.rv-sx>h3>span{color:var(--tq-accent);text-transform:none;letter-spacing:0;font-weight:600;font-size:12px}
+.rv-sx>h3>span.rv-link{cursor:pointer}
+.rv-sx>.rv-body{min-height:0;overflow-y:auto;overflow-x:hidden}
+.rv-rail{border-left:1px solid var(--rv-line);padding-left:36px;display:flex;flex-direction:column;gap:40px;min-height:0}
+.rv-kstrip{display:flex;border-top:1px solid var(--rv-line);border-bottom:1px solid var(--rv-line)}
+.rv-kstrip>div{flex:1;padding:16px 20px 16px 0;border-right:1px solid var(--rv-line);margin-right:20px;min-width:0}
+.rv-kstrip>div:last-child{border:0;margin:0}
+.rv-kstrip b{font-size:26px;display:block;letter-spacing:-.8px;line-height:1.1;font-weight:700;color:var(--rv-ink)}
+.rv-kstrip b small{font-size:13px;color:var(--rv-mute);letter-spacing:0;font-weight:600}
+.rv-kstrip>div>small{color:var(--rv-mute);font-size:10.5px;display:block;margin-top:5px}
+.rv-clockline{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--rv-ink)}
+.rv-clockline .rv-time{font-size:28px;font-weight:700;letter-spacing:-1px;margin:0 14px 0 8px;white-space:nowrap;flex:none}
+.rv-clockline .rv-time small{font-size:13px;color:var(--rv-mute);letter-spacing:0;font-weight:600}
+.rv-tl{display:grid;grid-template-columns:200px 1fr;align-items:center;column-gap:16px}
+.rv-tl .rv-axis{grid-column:2;display:flex;justify-content:space-between;font-size:9.5px;color:var(--rv-mute);padding-bottom:6px}
+.rv-tl .rv-who{display:flex;gap:8px;align-items:center;font-size:11.5px;height:34px;min-width:0;color:var(--rv-ink)}
+.rv-lane{position:relative;height:34px}
+.rv-lane>b{position:absolute;top:8px;height:18px;border-radius:9px;background:var(--tq-accent)}
+.rv-lane>b.lu{background:#eda412}
+.rv-lane>.now{position:absolute;top:0;bottom:0;border-left:2px solid #ff6b5b}
+.rv-cal{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px;text-align:center}
+.rv-cal>small{font-size:9.5px;color:var(--rv-mute);font-weight:600;padding-bottom:6px}
+.rv-cal>div{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 0;cursor:pointer}
+.rv-cal>div>b{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--rv-ink)}
+.rv-cal>div:hover>b{background:var(--rv-acc-soft)}
+.rv-cal>div.out>b{color:var(--rv-mute);opacity:.45}
+.rv-cal>div.on>b{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-cal>div>i{width:4px;height:4px;border-radius:50%;background:var(--tq-accent)}
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
 .tq-preview-anim, .tq-preview-anim * {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
@@ -3714,6 +3754,36 @@ function autoEmail(name, domain) {
   return first && domain ? `${first}@${domain}` : "";
 }
 
+// ── Revamp atoms (TRAQS Revamp.html) ──────────────────────────────────────────
+// JSX for the .rv-* classes in the global sheet. They read --rv-* variables, not
+// T, so they live at module scope and every rebuilt page shares them.
+//   rvSx    — an open section: an uppercase h3 (with an accent note or link on the
+//             right) over a body that scrolls if it runs out of room.
+//   rvChip  — a status chip; kind is "" | g | y | b | r | o.
+//   rvBar   — a thin rounded progress bar.
+//   rvKstrip— the hairline stat strip: [[value, unit, label], …].
+function rvSx(title, right, body, style) {
+  return (
+    <section className="rv-sx" style={style}>
+      <h3>{title}{right == null || right === "" ? null : typeof right === "string" ? <span>{right}</span> : right}</h3>
+      <div className="rv-body">{body}</div>
+    </section>
+  );
+}
+function rvChip(text, kind = "") {
+  return <span className={kind ? `rv-chip ${kind}` : "rv-chip"}>{text}</span>;
+}
+function rvBar(pct, color = "var(--tq-accent)", h = 6) {
+  return <span className="rv-bar" style={{ height: h }}><i style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} /></span>;
+}
+function rvKstrip(items) {
+  return (
+    <div className="rv-kstrip">
+      {items.map(([v, unit, label]) => <div key={label}><b className="rv-num">{v}{unit ? <small>{unit}</small> : null}</b><small>{label}</small></div>)}
+    </div>
+  );
+}
+
 export default function App({ auth0User, getToken, logout, orgCode, orgConfig }) {
   // Light / Dark + accent (src/appearance.js). `customTheme` keeps its name and
   // storage keys but now only holds the accent and the element settings; anything
@@ -3835,6 +3905,25 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // not enough to notice as the mouse crosses a toolbar. The lift and the glow
     // are gone, so this is the ONLY hover feedback these controls have.
     document.documentElement.style.setProperty("--tq-accent-hover", hexA(T.accent, 0.07));
+    // Revamp atoms (.rv-*). Light uses the design's own pastel chips; Dark gets
+    // alpha tints of the same hues with lighter ink so they still read.
+    {
+      const root = document.documentElement.style;
+      const dk = wantsLightText(T.surface);
+      root.setProperty("--rv-ink", T.text);
+      root.setProperty("--rv-mute", T.textSec);
+      root.setProperty("--rv-line", T.border);
+      root.setProperty("--rv-track", T.borderLight);
+      root.setProperty("--rv-surface", T.surface);
+      root.setProperty("--rv-chip", dk ? hexA(T.text, 0.1) : "#eef0f6");
+      root.setProperty("--rv-acc-soft", hexA(T.accent, dk ? 0.2 : 0.12));
+      root.setProperty("--rv-on-acc", T.accentText);
+      const chips = { g: ["#dcf2e6", "#15603f", "#34d399"], y: ["#fdefcf", "#7a5200", "#fbbf24"], b: ["#dcefff", "#0d5f99", "#60a5fa"], r: ["#ffe3df", "#a62e1f", "#f87171"], o: ["#ffe7d6", "#9a4a10", "#fb923c"] };
+      for (const [k, [bg, fg, hue]] of Object.entries(chips)) {
+        root.setProperty(`--rv-${k}-bg`, dk ? hexA(hue, 0.18) : bg);
+        root.setProperty(`--rv-${k}-fg`, dk ? hue : fg);
+      }
+    }
     document.documentElement.style.setProperty("--tq-primary-text", T.systemText || T.text);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
     // ── Liquid glass (see .traqs-glass .tq-lglass) ──────────────────────────
@@ -4003,7 +4092,9 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // and the job form turned to glass. From the document element, portalled and
     // in-tree content are both descendants.
     document.documentElement.classList.toggle("traqs-glass", glassOn);
-  }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity, T.bgImage]);
+  // Every colour read above is listed: it used to key on the surface alone, so
+  // picking a new accent in the same mode left --tq-accent (and the rest) stale.
+  }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity, T.bgImage, T.accent, T.accentText, T.text, T.textSec, T.border, T.borderLight, T.systemBg, T.systemText, T.colorScheme, T.bg, T.glass]);
   // Custom scrollbar tint (see the global ::-webkit-scrollbar rules): the thumb
   // is the accent — the same color as the app's buttons — and lifts slightly
   // brighter on hover. Tracks the theme's accent.
@@ -4559,8 +4650,6 @@ Extraction rules:
   // The panels are deliberately tied to the START of the move, not its end, so
   // the two motions overlap instead of running back to back.
   const [dashStage, setDashStage] = useState("hello");
-  // Index into DASH_STAT_KEYS for the single rotating analytics panel.
-  const [dashStatIdx, setDashStatIdx] = useState(0);
   // Latches once the intro has played this app load. A ref, not state, so it
   // survives every dashboard mount/unmount without re-rendering anything.
   const dashIntroPlayedRef = useRef(false);
@@ -4598,21 +4687,6 @@ Extraction rules:
     const tCards = setTimeout(() => setDashCardsIn(true), DASH_HELLO_HOLD_MS + DASH_CARDS_DELAY_MS);
     return () => { clearTimeout(tMove); clearTimeout(tCards); };
   }, [view]);
-  // Rotate the analytics panel. A TIMEOUT keyed on the current index, not a
-  // repeating interval: every change — auto or manual — gets a clean 5s before
-  // the next one, so tapping a pip doesn't get yanked forward half a second
-  // later by an interval that was already mid-flight.
-  //
-  // Deliberately NOT reset on view entry. Leaving the dashboard and coming back
-  // resumes from wherever the cycle was instead of snapping to the first stat.
-  useEffect(() => {
-    if (view !== "dashboard" || dashStage !== "open") return;
-    const id = setTimeout(() => setDashStatIdx(i => (i + 1) % DASH_STAT_KEYS.length), 5000);
-    return () => clearTimeout(id);
-  }, [view, dashStage, dashStatIdx]);
-  // Throttles wheel/trackpad paging so one flick advances a single stat rather
-  // than tearing through the whole set.
-  const dashStatWheelRef = useRef(0);
   // ── Personal, per-machine view state ────────────────────────────────────
   // Which departments you collapsed on the Schedule, which filters you left on,
   // how you sorted, which sections are open. These are PREFERENCES, not org
@@ -14106,142 +14180,57 @@ ${jobsCtx || "No jobs found."}`;
   // no new fetches, so it paints instantly from the cold cache.
   const renderDashboard = () => {
     const atTop = dashStage !== "hello";   // greeting has left mid-screen
-    const showCards = dashCardsIn;         // panels join HALFWAY through that trip
+    const showCards = dashCardsIn;         // content joins HALFWAY through that trip
     const padX = isMobile ? 14 : 32;
     const padTop = isMobile ? 2 : 24;
 
-    // ── Live team status ─────────────────────────────────────────────────────
-    const team = people.filter(p => p.userRole === "user" || p.userRole === "admin");
-    const byStatus = { job: [], idle: [], lunch: [], break: [], offline: [] };
-    team.forEach(p => { (byStatus[personStatus(p)] || byStatus.offline).push(p); });
-    const onClock = team.length - byStatus.offline.length;
-
-    // ── Basic-tier dashboard layout ──────────────────────────────────────────
-    // Basic drops Analytics, renames/reshapes two panels, and grows Team Right
-    // Now into the vacated slot. Business's dashboard is untouched — every
-    // panel below still computes and renders exactly as it did before this.
+    // Revamp (TRAQS Revamp.html, screen 1): the greeting with the clock inline on
+    // its row, a hairline stat strip, then the team timeline and jobs in motion on
+    // the left and a rail of Due soon / Messages / This week on the right. No
+    // cards. Basic keeps its own reads: "Scheduled" instead of "Due", since a
+    // Basic job is a scheduled block rather than a deadline.
     const isBasic = billingTier !== "business";
-    // "On the clock" is broader than "on a job": anyone with an open session at
-    // all, job-clocked or not (idle = punched into the general time clock with
-    // no job selected; lunch/break are still an open shift, just paused).
-    const onClockNow = [...byStatus.job, ...byStatus.idle, ...byStatus.lunch, ...byStatus.break];
 
-    // ── Period + job stats (feed the rotating panel) ─────────────────────────
-    const pp = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
-    const hoursLogged = timeclock
-      .filter(e => !e.eventType && !e.deletedAt && e.date >= pp.start && e.date <= pp.end)
-      .reduce((s, e) => s + (e.hours || 0), 0);
+    // ── Team status ──────────────────────────────────────────────────────────
+    const team = people.filter(p => p.userRole === "user" || p.userRole === "admin");
+    const statusOf = new Map(team.map(p => [String(p.id), personStatus(p)]));
+    const onClock = team.filter(p => statusOf.get(String(p.id)) !== "offline").length;
+    // The design's four chip states. On job and Clocked in are both "In".
+    const ST_CHIP = { job: ["In", "g"], idle: ["In", "g"], lunch: ["Lunch", "y"], break: ["Break", "o"], offline: ["Off", ""] };
+    const ST_ORDER = ["job", "idle", "lunch", "break", "offline"];
+
+    // ── Jobs ─────────────────────────────────────────────────────────────────
     const activeJobs = tasks.filter(t => t.status !== "Finished");
-    const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
-    const onTimePct = activeJobs.length ? Math.round(activeJobs.filter(j => healthOf(j) === "ontime").length / activeJobs.length * 100) : 0;
     const dueSoon = activeJobs
       .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
       .sort((a, b) => String(a.end).localeCompare(String(b.end)));
-    // Distinct from dueSoon: a due DATE is a deadline: SCHEDULED work is
-    // whether the job's own date range actually touches the next 7 days at
-    // all, which is what someone opening the Schedule page this week would
-    // see. Same range test the calendar's busyDays dots above use, just
-    // scoped to 7 days instead of the visible month.
+    // Basic: whether the job's own date range touches the next 7 days, which is
+    // what someone opening the Schedule this week would see.
     const scheduledNext7 = activeJobs
       .filter(j => j.start && j.end && j.start <= addD(TD, 6) && j.end >= TD)
       .sort((a, b) => String(a.start).localeCompare(String(b.start)));
-
-    const STATS = {
-      hours:   { label: "Hours logged this pay period", value: (Math.round(hoursLogged * 10) / 10).toFixed(1), unit: "h", color: T.accent },
-      active:  { label: "Active jobs", value: String(activeJobs.length), unit: "", color: "#6366f1" },
-      ontime:  { label: "Jobs on time", value: String(onTimePct), unit: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : "#ef4444" },
-      avg:     { label: "Average completion", value: String(avgPct), unit: "%", color: "#10b981" },
-      clocked: { label: "On the clock right now", value: String(onClock), unit: ` / ${team.length}`, color: onClock ? "#10b981" : T.textDim },
-      due:     { label: "Jobs due within 7 days", value: String(dueSoon.length), unit: "", color: dueSoon.length ? "#f59e0b" : T.textDim },
+    const soonList = isBasic ? scheduledNext7 : dueSoon;
+    // In motion = started and not done, furthest along first.
+    const motionJobs = activeJobs
+      .map(j => ({ j, pct: _jobPct(j) }))
+      .filter(x => x.pct > 0 && x.pct < 100)
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 8);
+    // Everyone on a job: its own team plus every sub-job's and task's.
+    const jobTeamOf = (j) => {
+      const ids = new Set();
+      const walk = n => { (n.team || []).forEach(id => id != null && ids.add(String(id))); (n.subs || []).forEach(walk); };
+      walk(j);
+      return [...ids].map(id => people.find(p => String(p.id) === id)).filter(Boolean);
     };
-    const statKey = DASH_STAT_KEYS[dashStatIdx] || DASH_STAT_KEYS[0];
-    const stat = STATS[statKey];
+    const shortDate = (ds) => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-    // ── Month calendar ───────────────────────────────────────────────────────
-    const mNow = new Date(TD + "T12:00:00");
-    const mFirst = new Date(mNow.getFullYear(), mNow.getMonth(), 1);
-    const daysInMonth = new Date(mNow.getFullYear(), mNow.getMonth() + 1, 0).getDate();
-    const leadBlanks = mFirst.getDay();
-    const monthLabel = mFirst.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    // A day is "busy" if any unfinished job spans it — drives the dot under the
-    // date. Each job's range is clamped to the visible month before walking it,
-    // so a multi-year job costs at most 31 iterations instead of its full span.
-    const monthStartDS = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-01`;
-    const monthEndDS = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
-    const busyDays = new Set();
-    for (const t of activeJobs) {
-      if (!t.start || !t.end) continue;
-      let d = t.start > monthStartDS ? t.start : monthStartDS;
-      const stop = t.end < monthEndDS ? t.end : monthEndDS;
-      while (d <= stop) { busyDays.add(d); d = addD(d, 1); }
-    }
-
-    // ── Card chrome. `i` drives the one-by-one stagger. ──────────────────────
-    // Background and blur come from the shared glass rule via tq-lglass on the
-    // panel below, NOT from here. These used to be hardcoded — hexA(T.card, 0.82)
-    // with blur(18px) saturate(1.3) — which made the dashboard the one page that
-    // ignored the Frosted Glass toggle: permanently half-glass, never solid, and
-    // at values nothing else used. A solid T.card here is the toggle-off state.
-    const cardBase = {
-      background: T.card,
-      border: `1px solid ${T.border}`,
-      borderRadius: 34,
-      padding: 16,
-      display: "flex", flexDirection: "column", minWidth: 0,
-      // Rows are fixed fractions now, so a panel must be able to shrink inside
-      // its track instead of pushing the grid taller than the screen.
-      minHeight: 0, overflow: "hidden",
-    };
-    // Span is no longer a parameter — the two containers below own the layout,
-    // so a panel just renders at whatever width its slot gives it.
-    // bodyExtra overrides the body wrapper — used by My Clock to switch off
-    // clipping so its buttons' hover glow has somewhere to render.
-    const panel = (i, title, body, right, extra = {}, bodyExtra = {}) => (
-      <div className={dashAnimate ? "dash-card tq-lglass" : "tq-lglass"} style={{ ...cardBase, ...(dashAnimate ? { animationDelay: `${i * 70}ms` } : null), ...extra }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", color: T.textDim }}>{title}</span>
-          {right}
-        </div>
-        {/* Body scrolls rather than clips. The card has overflow:hidden so it
-            can shrink inside its fixed 1fr row, but that was silently cutting
-            the last row off panels with more content than height (the Team
-            list). flex:1 + minHeight:0 lets this absorb the leftover space and
-            scroll only what doesn't fit; display:flex keeps `flex:1` working
-            for children that want the full height, like the calendar grid. */}
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", ...bodyExtra }}>
-          {body}
-        </div>
-      </div>
-    );
-    const emptyNote = (msg) => <div style={{ fontSize: 12.5, color: T.textDim, padding: "18px 4px", textAlign: "center" }}>{msg}</div>;
-
-    // Status group: a coloured count chip plus that group's avatars.
-    const statusRow = (key) => {
-      const meta = PERSON_STATUS_META[key];
-      const list = byStatus[key] || [];
-      return (
-        <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", flex: 1, minHeight: 32, borderBottom: `1px solid ${T.border}55` }}>
-          <span style={{ width: 8, height: 8, borderRadius: 8, background: meta.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: 82, flexShrink: 0 }}>{meta.label}</span>
-          <span style={{ fontSize: 13, fontWeight: 800, color: meta.color, fontFamily: T.mono, width: 24, flexShrink: 0 }}>{list.length}</span>
-          {/* No overflow:hidden here — that was cropping the avatars top and
-              bottom whenever the row got shorter than the chip. The panel body
-              already clips horizontally, so runaway width is handled a level up;
-              showing 6 keeps the row inside the column at the narrowest layout. */}
-          <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
-            {list.slice(0, 6).map(p => <span key={p.id} title={p.name} style={{ marginLeft: -4, display: "flex", flexShrink: 0 }}><PersonAvatar person={p} size={22} ring={T.card} /></span>)}
-            {list.length > 6 && <span style={{ fontSize: 10.5, color: T.textDim, marginLeft: 7, flexShrink: 0 }}>+{list.length - 6}</span>}
-          </div>
-        </div>
-      );
-    };
-
-    const greetName = (orgName || "").trim();
-
-    // ── Messages panel ───────────────────────────────────────────────────────
+    // ── Messages ─────────────────────────────────────────────────────────────
     // One row per THREAD, newest activity first — the same shape as the Messages
-    // page, not a flat message feed. `messages` is already ACL-filtered
-    // server-side, so no extra permission check is needed here.
+    // page. `messages` is already ACL-filtered server-side.
+    const meId = String(loggedInUser?.id);
+    const isUnread = (x) => !x.deletedAt && x.threadKey && String(x.authorId) !== meId && String(x.timestamp) > (lastRead[x.threadKey] || "1970-01-01T00:00:00Z");
+    const unreadAll = messages.filter(isUnread).length;
     const dashThreads = (() => {
       const latest = new Map();
       for (const m of messages) {
@@ -14254,21 +14243,17 @@ ${jobsCtx || "No jobs found."}`;
         .slice(0, 4)
         .map(m => {
           const tk = m.threadKey;
-          // Unread = messages in this thread newer than my last-read stamp that
-          // I didn't send. Same rule the Messages page uses, so counts agree.
-          const seen = lastRead[tk] || "1970-01-01T00:00:00Z";
-          const unread = messages.filter(x => x.threadKey === tk && !x.deletedAt
-            && String(x.authorId) !== String(loggedInUser?.id) && String(x.timestamp) > seen).length;
+          const unread = messages.filter(x => x.threadKey === tk && isUnread(x)).length;
           let title = m.authorName || "Conversation";
           let who = null;
           if (tk.startsWith("dm:")) {
-            const otherId = tk.slice(3).split("_").find(id => String(id) !== String(loggedInUser?.id));
+            const otherId = tk.slice(3).split("_").find(id => String(id) !== meId);
             who = people.find(pp => String(pp.id) === String(otherId)) || null;
             title = who?.name || m.authorName || "Direct message";
           } else if (tk.startsWith("group:")) {
             const g = groups.find(x => String(x.id) === tk.slice(6));
             const names = (g?.memberIds || [])
-              .filter(id => String(id) !== String(loggedInUser?.id))
+              .filter(id => String(id) !== meId)
               .map(id => people.find(pp => String(pp.id) === String(id))?.name)
               .filter(Boolean);
             title = g?.name || (names.length ? names.join(", ") : "Group");
@@ -14279,12 +14264,11 @@ ${jobsCtx || "No jobs found."}`;
             who = people.find(pp => String(pp.id) === String(m.authorId)) || null;
           }
           // Prefix my own messages so a thread's last line reads correctly.
-          const mine = String(m.authorId) === String(loggedInUser?.id);
+          const mine = String(m.authorId) === meId;
           const preview = (m.text || (m.attachments?.length ? "Attachment" : "")).trim();
           return { tk, title, who, unread, at: m.timestamp, preview: mine ? `You: ${preview}` : preview, authorName: m.authorName, authorColor: m.authorColor };
         });
     })();
-    const unreadTotal = dashThreads.reduce((s, t) => s + t.unread, 0);
     const msgAgo = (iso) => {
       const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
       if (mins < 1) return "now";
@@ -14294,60 +14278,82 @@ ${jobsCtx || "No jobs found."}`;
       return Math.round(hrs / 24) + "d";
     };
 
-
-    // ── Today strip ──────────────────────────────────────────────────────────
-    // A gantt of the actual working day: one lane per person who has clocked any
-    // time today, each punch drawn against the org's configured work window. An
-    // open shift runs to "now", so the lane grows through the day.
+    // ── Today · team timeline ────────────────────────────────────────────────
+    // Every punch drawn against the org's work window; an open shift runs to now.
     const dayStartH = workStartH;
     const daySpanH = Math.max(1, workEndH - workStartH);
     const nowH = shopHour();
+    const clamp01 = v => Math.min(1, Math.max(0, v));
     const frac = (iso) => {
       const t = Date.parse(iso);
       if (Number.isNaN(t)) return null;
-      return Math.min(1, Math.max(0, (shopHour(t) - dayStartH) / daySpanH));
+      return clamp01((shopHour(t) - dayStartH) / daySpanH);
     };
-    const todayLanes = team.map(p => {
+    const nowFrac = (nowH - dayStartH) / daySpanH;
+    const segsOf = (p) => {
       const segs = timeclock
         .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(p.id) && e.date === TD && e.clockIn)
-        .map(e => ({ from: frac(e.clockIn), to: e.clockOut ? frac(e.clockOut) : Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: !e.clockOut }));
+        .map(e => ({ from: frac(e.clockIn), to: e.clockOut ? frac(e.clockOut) : clamp01(nowFrac), live: !e.clockOut }));
       const ac = p.activeClockIn?.clockIn;
-      if (ac && shopDay(Date.parse(ac)) === TD) {
-        segs.push({ from: frac(ac), to: Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: true });
-      }
-      const clean = segs.filter(s => s.from != null && s.to != null && s.to > s.from);
-      return clean.length ? { p, segs: clean } : null;
-    }).filter(Boolean);
-    const hourTicks = [];
-    for (let h = Math.ceil(dayStartH); h <= Math.floor(workEndH); h += 2) hourTicks.push(h);
+      if (ac && shopDay(Date.parse(ac)) === TD) segs.push({ from: frac(ac), to: clamp01(nowFrac), live: true });
+      return segs.filter(s => s.from != null && s.to != null && s.to > s.from);
+    };
+    const tlHours = [];
+    for (let h = Math.ceil(dayStartH); h <= Math.floor(workEndH); h++) tlHours.push(h);
     const hLabel = (h) => { const hh = ((h % 24) + 24) % 24; const h12 = hh % 12 === 0 ? 12 : hh % 12; return `${h12}${hh >= 12 ? "p" : "a"}`; };
+    const laneGrid = tlHours.length > 1
+      ? { background: `linear-gradient(90deg, var(--rv-line) 1px, transparent 1px) 0 0 / ${100 / (tlHours.length - 1)}% 100%` }
+      : undefined;
+    // Only people with a job scheduled today: any unfinished job, sub-job or task
+    // whose dates cover today and whose team includes them. Nobody else gets a
+    // lane — an empty row is just noise on a timeline.
+    const scheduledToday = new Set();
+    const walkSched = (n) => {
+      if (!n || n.deletedAt || n.status === "Finished") return;
+      if (n.start && n.end && n.start <= TD && n.end >= TD) (n.team || []).forEach(id => id != null && scheduledToday.add(String(id)));
+      (n.subs || []).forEach(walkSched);
+    };
+    tasks.forEach(walkSched);
+    const tlPeople = team.filter(p => scheduledToday.has(String(p.id))).sort((a, b) =>
+      ST_ORDER.indexOf(statusOf.get(String(a.id))) - ST_ORDER.indexOf(statusOf.get(String(b.id)))
+      || String(a.name).localeCompare(String(b.name)));
 
-    // ── My clock (quick panel) ───────────────────────────────────────────────
-    const meRec = people.find(p => String(p.id) === String(loggedInUser?.id));
-    // Passing dashNow (not the default Date.now()) is what makes the elapsed
-    // figure recompute on every tick instead of freezing at first render.
+    // ── Hours logged today (team): finished punches plus open shifts so far ──
+    const hoursToday = timeclock
+      .filter(e => !e.eventType && !e.deletedAt && e.date === TD)
+      .reduce((s, e) => s + (e.hours || 0), 0)
+      + team.reduce((s, p) => {
+        const ac = p.activeClockIn?.clockIn;
+        if (!ac || shopDay(Date.parse(ac)) !== TD) return s;
+        return s + (effectiveClockState(p, dashNow)?.runningMs || 0) / 3600000;
+      }, 0);
+
+    // ── Calendar: this month, Monday first, padded to whole weeks ───────────
+    // A day carries a dot when any unfinished job spans it.
+    const mNow = new Date(TD + "T12:00:00");
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const mFirstDs = ymd(new Date(mNow.getFullYear(), mNow.getMonth(), 1));
+    const mLastDs = ymd(new Date(mNow.getFullYear(), mNow.getMonth() + 1, 0));
+    const gridStart = addD(mFirstDs, -((new Date(mFirstDs + "T12:00:00").getDay() + 6) % 7));
+    const gridEnd = addD(mLastDs, (7 - new Date(mLastDs + "T12:00:00").getDay()) % 7);
+    const calDays = [];
+    for (let ds = gridStart; ds <= gridEnd; ds = addD(ds, 1)) {
+      calDays.push({
+        ds, num: new Date(ds + "T12:00:00").getDate(), inMonth: ds >= mFirstDs && ds <= mLastDs,
+        busy: activeJobs.some(j => j.start && j.end && j.start <= ds && j.end >= ds),
+      });
+    }
+    const monthLabel = mNow.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    // ── My clock (inline on the greeting row) ────────────────────────────────
+    const meRec = people.find(p => String(p.id) === meId);
+    // dashNow (not Date.now()) is what makes the elapsed figure tick.
     const myState = meRec ? effectiveClockState(meRec, dashNow) : null;
     const myStatus = meRec ? personStatus(meRec) : "offline";
-    const myClockInIso = meRec?.activeClockIn?.clockIn || null;
-    const myClockInAt = myClockInIso
-      ? new Date(myClockInIso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-      : null;
-    // "3h 24m" reads better than 3.40h for an in-progress shift. Seconds are
-    // deliberately omitted — a ticking seconds digit draws the eye for no gain.
-    const hm = (ms) => {
-      const mins = Math.max(0, Math.floor(ms / 60000));
-      return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-    };
-    const myHoursToday = timeclock
-      .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(loggedInUser?.id) && e.date === TD)
-      .reduce((s, e) => s + (e.hours || 0), 0);
-
-    // Every clock action is PIN-gated server-side, and the keypad modal lives in
-    // the Time Clock page's render. So rather than duplicating the keypad (and
-    // its submit/verify handlers) here, the dashboard primes the SAME shared pin
-    // state and switches to that page — the modal is already open on arrival, so
-    // it's one tap to the keypad instead of one tap to a page you then have to
-    // find the button on.
+    const myMins = myState?.isClocked ? Math.max(0, Math.floor((myState.runningMs || 0) / 60000)) : 0;
+    // Every clock action is PIN-gated server-side, and the keypad lives on the
+    // Time Clock page, so this primes the same shared pin state and switches there
+    // — the keypad is already open on arrival.
     const openClockFlow = (nextPinState) => {
       if (nextPinState === "clockOut_pin" && ENFORCE_CLOCK_JOB_DEPENDENCY && loggedInUser?.activeJobClock) {
         alert("Log out of your job before clocking out.");
@@ -14357,487 +14363,159 @@ ${jobsCtx || "No jobs found."}`;
       setPinState(nextPinState);
       switchView("timestamp");
     };
+    const clockLine = meRec ? (
+      <div className="rv-clockline" style={isMobile ? { flexWrap: "wrap" } : undefined}>
+        <span className="rv-dot" style={{ background: PERSON_STATUS_META[myStatus].color }} />
+        <b>{PERSON_STATUS_META[myStatus].label}</b>
+        <span className="rv-time rv-num">{Math.floor(myMins / 60)}<small>h</small> {String(myMins % 60).padStart(2, "0")}<small>m</small></span>
+        <button className="rv-pill pri" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}>{myState?.isClocked ? "Clock out" : "Clock in"}</button>
+        {/* Lunch and break only mean anything on an open shift: disabled, not
+            hidden, so the row keeps its shape. */}
+        <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin")}>{myState?.isOnLunch ? "End lunch" : "Lunch"}</button>
+        <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin")}>{myState?.isOnBreak ? "End break" : "Break"}</button>
+      </div>
+    ) : null;
 
-    // The wrapper below carries two load-bearing styles:
-    //   position:relative — makes THAT box, the visible scroll viewport which
-    //     never grows with content, the containing block for the greeting's and
-    //     the glow's percentage anchors.
-    //   scrollbarGutter:stable — reserves the scrollbar's width up front. The
-    //     panels push the content past one screen, so without it the scrollbar
-    //     materialises on exactly the frame they mount, narrowing this box by
-    //     ~15px, which reflows the whole grid AND drags the greeting sideways
-    //     mid-flight since its anchor is a percentage of this width.
-    // The scroller carries viewScrollRef — the same ref every frostScroll page
-    // uses — so the pinned background layer inside it is measured by the existing
-    // observer instead of needing one of its own. Only one view is mounted at a
-    // time, which is what makes sharing a single ref safe.
+    const hr = Math.floor(nowH);
+    const firstName = String(loggedInUser?.name || "").trim().split(/\s+/)[0] || (orgName || "").trim();
+    const greeting = `Good ${hr < 12 ? "morning" : hr < 17 ? "afternoon" : "evening"}${firstName ? `, ${firstName}` : ""}`;
+    const dateLine = new Date(TD + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const emptyNote = (msg) => <div className="rv-mute" style={{ fontSize: 11.5, padding: "10px 0" }}>{msg}</div>;
+    const link = (label, to) => <span className="rv-link" onClick={() => switchView(to)}>{label}</span>;
+
+    // ── Sections ─────────────────────────────────────────────────────────────
+    const timeline = tlPeople.length ? (
+      <div className="rv-tl">
+        <div className="rv-axis">{tlHours.map(h => <span key={h}>{hLabel(h)}</span>)}</div>
+        {tlPeople.map(p => {
+          const st = statusOf.get(String(p.id)) || "offline";
+          const [chipLabel, chipKind] = ST_CHIP[st] || ST_CHIP.offline;
+          return (
+            <Fragment key={p.id}>
+              <div className="rv-who">
+                <PersonAvatar person={p} size={24} />
+                <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(p.name || "").split(" ")[0]}</b>
+                <span style={{ flex: 1 }} />
+                {rvChip(chipLabel, chipKind)}
+              </div>
+              <div className="rv-lane" style={laneGrid}>
+                {nowFrac >= 0 && nowFrac <= 1 && <i className="now" style={{ left: `${nowFrac * 100}%` }} />}
+                {segsOf(p).map((sg, i) => (
+                  <b key={i} className={sg.live && st === "lunch" ? "lu" : undefined}
+                    title={sg.live ? "On the clock" : "Worked"}
+                    style={{ left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%` }} />
+                ))}
+              </div>
+            </Fragment>
+          );
+        })}
+      </div>
+    ) : emptyNote("Nobody is scheduled on a job today.");
+
+    const motion = motionJobs.length ? motionJobs.map(({ j, pct }) => {
+      const crew = jobTeamOf(j);
+      return (
+        <div key={j.id} className="rv-row" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
+          <span className="rv-num rv-mute" style={{ width: 64, flex: "none" }}>{j.jobNumber ? `#${j.jobNumber}` : "—"}</span>
+          <b style={{ width: isMobile ? "auto" : 200, flex: isMobile ? 1 : "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</b>
+          {!isMobile && <span className="rv-mute" style={{ width: 110, flex: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientName(j.clientId)}</span>}
+          {rvBar(pct)}
+          <small className="rv-num" style={{ width: 34, flex: "none", textAlign: "right", color: "var(--rv-ink)" }}>{pct}%</small>
+          {crew.length > 0 && <span style={{ display: "inline-flex", flex: "none" }}>
+            {crew.slice(0, 3).map((p, i) => <span key={p.id} style={{ marginLeft: i ? -6 : 0, display: "flex" }}><PersonAvatar person={p} size={20} ring={T.bg} /></span>)}
+          </span>}
+        </div>
+      );
+    }) : emptyNote("No jobs in progress.");
+
+    const soon = soonList.length ? soonList.slice(0, 6).map(j => {
+      const when = isBasic ? (j.start > TD ? j.start : TD) : j.end;
+      return (
+        <div key={j.id} className="rv-row" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
+          <span className="rv-dot" style={{ background: elColorT(HEALTH_DOT[healthOf(j)]) || "var(--rv-track)" }} />
+          <div className="rv-txt"><b>{j.jobNumber ? `#${j.jobNumber}` : j.title}</b><span>{j.jobNumber ? j.title : clientName(j.clientId)}</span></div>
+          <small className="rv-num">{shortDate(when)}</small>
+        </div>
+      );
+    }) : emptyNote(isBasic ? "Nothing scheduled in the next 7 days." : "Nothing due in the next week.");
+
+    const msgs = dashThreads.length ? dashThreads.map(t => (
+      <div key={t.tk} className="rv-row" onClick={() => switchView("messages")} style={{ cursor: "pointer" }}>
+        <PersonAvatar person={t.who || { name: t.authorName, color: t.authorColor }} size={26} />
+        <div className="rv-txt"><b>{t.title}</b><span>{t.preview}</span></div>
+        <small>{msgAgo(t.at)}</small>
+        {t.unread > 0 && <i className="rv-dot" style={{ background: "var(--tq-accent)" }} />}
+      </div>
+    )) : emptyNote("No messages yet.");
+
+    const calendar = (
+      <div className="rv-cal">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <small key={i}>{d}</small>)}
+        {calDays.map(d => (
+          <div key={d.ds} className={d.ds === TD ? "on" : d.inMonth ? undefined : "out"} onClick={() => switchView("schedule")}>
+            <b className="rv-num">{d.num}</b><i style={d.busy ? undefined : { opacity: 0 }} />
+          </div>
+        ))}
+      </div>
+    );
+
+    const kItems = [
+      [onClock, ` / ${team.length}`, "Clocked in now"],
+      [(Math.round(hoursToday * 10) / 10).toFixed(1), "h", "Hours logged today"],
+      [activeJobs.length, "", "Active jobs"],
+      isBasic ? [scheduledNext7.length, "", "Scheduled next 7 days"] : [dueSoon.length, "", "Due within 7 days"],
+      [unreadAll, "", "Unread messages"],
+    ];
+
+    // The scroll container carries two load-bearing styles:
+    //   position:relative — the visible scroll viewport (which never grows with
+    //     content) is the containing block for the greeting's percentage anchors.
+    //   scrollbarGutter:stable — the scrollbar's width is reserved up front, so it
+    //     appearing as the content mounts can't reflow the page mid-intro.
+    // It carries viewScrollRef, the same ref every frostScroll page uses.
     return (
       <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
         <style>{`
-          /* dashGlowIn + dashDriftA..D lived here for the hard-coded blob wash
-             this view used to paint over the theme. The wash is gone — Liquid mode
-             is drawn once by LiquidBackground on the content panel (tqLiquidA..D),
-             which is what every other page already sat on top of. */
           @keyframes dashHelloIn { from { opacity: 0; } to { opacity: 1; } }
-          @keyframes dashCardIn { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
-          /* One full in-hold-out cycle per stat, restarted by the key change. */
-          @keyframes dashStatCycle {
-            0% { opacity: 0; transform: translateX(26px); }
-            8% { opacity: 1; transform: translateX(0); }
-            88% { opacity: 1; transform: translateX(0); }
-            100% { opacity: 0; transform: translateX(-26px); }
-          }
+          @keyframes dashCardIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
           .dash-card { animation: dashCardIn 0.44s cubic-bezier(0.22,1,0.36,1) both; }
-          /* The app-wide rule is
-               button:not(:disabled):not([disabled]):not([aria-disabled]):hover
-             with !important on a 0 4px 16px glow and a 1.5px lift. Two things
-             made that clip here, and BOTH had to be dealt with:
-               1. Specificity — that selector scores (0,4,1). A plain
-                  .dash-btn:hover is only (0,2,0) and loses even with !important,
-                  so the three :not()s are repeated below to reach (0,5,0).
-               2. Nowhere to draw — these buttons are full-width inside a panel
-                  body that clipped (overflowX:hidden). Its box sits INSIDE the
-                  card padding, so the glow met a hard edge right at the button.
-                  The My Clock body opts out of clipping (see bodyExtra below),
-                  which hands the glow the card's 16px padding to fade into.
-             The glow is kept, just retuned to fit that 16px: blur 10 + 2px
-             offset reaches 12px, so it fades out fully before the card's own
-             overflow:hidden — visible halo, no cut edge. */
-          /* Accent tint, same as every other control. The lift and the 22px glow
-             that used to live here are gone; the long note above explains the
-             specificity and clipping they needed, which no longer applies. */
-          /* covered by the app-wide ::after overlay; nothing to add here */
-          .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-            transform: scale(0.985) !important;
-          }
-          /* Month grid. The hover tint lives on the day DISC, not the grid cell:
-             the cell is a full-column rectangle, so tinting it drew a square
-             next to today's circle. Same diameter as today's marker, so hovering
-             any day previews exactly the shape today already wears. :not(.is-today)
-             keeps the hover from flattening today's gradient. */
-          .dash-day-disc { transition: background-color 0.13s ease, color 0.13s ease; }
-          /* !important is required, not decorative: the disc sets background and
-             color as INLINE styles, which outrank a plain stylesheet rule. */
-          .dash-day:hover .dash-day-disc:not(.is-today) {
-            background-color: var(--tq-accent-soft, rgba(65,105,225,0.18)) !important;
-            color: var(--tq-accent) !important;
-          }
-          @media (prefers-reduced-motion: reduce) {
-            .dash-card { animation-duration: 0.01ms !important; }
-            /* The .dash-blob rules that used to be here went with the wash. The
-               shared LiquidBackground already stops its own drift under this
-               preference (see .tq-liquid-blob in the global sheet). */
-          }
+          @media (prefers-reduced-motion: reduce) { .dash-card { animation-duration: 0.01ms !important; } }
         `}</style>
 
-        {/* Pinned background image — the same layer frostScroll gives every other
-            page, sticky inside this scroller so the frosted cards' backdrop-filter
-            samples it in the same stacking context.
-
-            Placement is load-bearing. It has to come BEFORE the content and the
-            content has to carry zIndex:1, exactly as frostScroll orders them.
-            Positioned siblings at z-index auto/0 paint in DOM order, so with this
-            after the content wrapper the image covered the whole dashboard — which
-            the old blob wash got away with only because blurred rgba blobs are
-            transparent enough to read through. An image is not.
-
-            Dashboard used to paint that wash unconditionally and sat in a permanent
-            Liquid look whatever bgMode said. Liquid now comes from the single
-            LiquidBackground on the content panel, behind this view as it is behind
-            the others; Color shows the panel's T.bg through; Image gets this. */}
-        {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-        </div>}
-
-        {/* minHeight:100% + flex column is what lets the grid below claim all the
-            leftover vertical space. Without it the grid was only as tall as its
-            content and the page ended two-thirds of the way down.
-            Deliberately NOT height:100% — that pinned the page to the viewport,
-            so on a short window (a 14" laptop is ~870px) the grid's rows shrank
-            past their content and the cards clipped their own bottoms with no
-            way to scroll to them. minHeight keeps the fills-the-screen look on a
-            tall display while letting the page grow and scroll on a short one. */}
-        <div style={{ position: "relative", zIndex: 1, minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
-          {/* The greeting is not here — it lives as a direct child of the scroll
-              container below, deliberately; see the comment there. (The frosted
-              glow that used to share that placement is gone: the background now
-              comes from the theme like every other page's.) */}
-
-          {/* The Replay button that used to sit here was a testing aid; the intro
-              still plays once per app load, so a page refresh replays it. */}
-
-          {/* Panels — mounted only once the greeting has settled, so their
-              entrance animations start from the stage change rather than from
-              page load. */}
+        {/* minHeight:100% + flex column lets the grid claim the leftover height on
+            a tall display, while still letting the page grow and scroll on a short
+            one (height:100% clipped the bottom on a 14" laptop). */}
+        <div style={{ position: "relative", zIndex: 1, minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : `${padTop}px ${padX}px 28px` }}>
+          {/* Content mounts once the greeting has started for its header spot, so
+              the entrance starts from the stage change rather than page load. The
+              top margin is the greeting row (title + date) it sits under. */}
           {showCards && (
-            /* Outer grid: two columns on the top row (panels | calendar), then
-               Today spanning both underneath. Giving the OUTER grid its own rows
-               is what stops the calendar running the full page height — it now
-               ends level with Reports, and Today owns the strip below.
-               alignItems:start is deliberately absent throughout: it sized every
-               panel to its content, which is what left the ragged gaps under the
-               shorter ones. Explicit 1fr tracks make panels stretch to their row
-               instead, so boxes grow to fill the space rather than the space
-               sitting empty.
-
-               Row minimums (not minmax(0,…)) are what keep this honest on a short
-               window. A 0 minimum let every track shrink under its content until
-               the cards clipped; DASH_ROW_MIN is the floor a panel stays readable
-               at, and the page scrolls once the rows can't all fit. On a tall
-               display there's slack above the floor, so the layout is unchanged.
-               The right column shrinks to 420 before the left one gives up any
-               more width — 680 flat overflowed a narrow window sideways. */
-            <div style={{ position: "relative", zIndex: 1, flex: 1, marginTop: isMobile ? 56 : 74, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) minmax(420px, 680px)", gridTemplateRows: isMobile ? "none" : `minmax(${DASH_ROW_MIN * 3 + 20}px, 1fr) minmax(${DASH_ROW_MIN}px, 0.52fr)`, gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gridTemplateRows: isMobile ? "none" : `repeat(3, minmax(${DASH_ROW_MIN}px, 1fr))`, gap: 10 }}>
-
-              {/* Rotating analytics — one box, a new metric every 5s. Business
-                  only: Basic drops it, and Team Right Now grows into the slot
-                  (see its gridRow below). */}
-              {!isBasic && panel(0, "Analytics",
-                // Wheel/trackpad pages through the stats. No preventDefault —
-                // React's wheel listener is passive, so calling it would only
-                // warn; the panel's own body has nothing to scroll anyway.
-                <div
-                  onWheel={(e) => {
-                    const now = Date.now();
-                    if (now - dashStatWheelRef.current < 260) return;
-                    dashStatWheelRef.current = now;
-                    const dir = (e.deltaY || e.deltaX) > 0 ? 1 : -1;
-                    setDashStatIdx(i => (i + dir + DASH_STAT_KEYS.length) % DASH_STAT_KEYS.length);
-                  }}
-                  style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, cursor: "ns-resize" }}
-                >
-                  {/* Keyed on statKey so the in-hold-out cycle restarts on every
-                      change, manual ones included. */}
-                  <div key={statKey} style={{ animation: "dashStatCycle 5s ease-in-out both", display: "flex", flexDirection: "column", justifyContent: "center", flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                      <span style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: stat.color, fontFamily: T.mono, letterSpacing: "-0.045em" }}>{stat.value}</span>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: stat.color, opacity: 0.75 }}>{stat.unit}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: T.textSec, marginTop: 8 }}>{stat.label}</div>
-                  </div>
-                </div>,
-                // Pips are buttons — click to jump straight to a stat.
-                <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {DASH_STAT_KEYS.map((k, i) => (
-                    <button
-                      key={k}
-                      className="dash-btn"
-                      title={STATS[k]?.label || k}
-                      onClick={() => setDashStatIdx(i)}
-                      style={{ width: i === dashStatIdx ? 16 : 7, height: 7, padding: 0, borderRadius: 8, border: "none", background: i === dashStatIdx ? T.accent : T.border, cursor: "pointer", transition: "width 0.3s ease, background 0.3s ease" }}
-                    />
-                  ))}
-                </span>
-              )}
-
-              {/* Quick clock. Clocking in/out is PIN-gated server-side
-                  (clockInAction sends `pin`), so this can't be a one-tap action
-                  without silently weakening that. It shows live state and hands
-                  off to the Time Clock page, which owns the PIN prompt. */}
-              {panel(1, "My clock",
-                // flex: 1 so this column fills the panel body; without it the
-                // column was only as tall as its content and the spacer below had
-                // no free height to take, so the buttons sat under the status.
-                // min-height stays auto, so a short card still scrolls the body.
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: 8, background: PERSON_STATUS_META[myStatus].color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{PERSON_STATUS_META[myStatus].label}</span>
-                  </div>
-                  {myState?.isClocked && (
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                      {/* Elapsed counts up live; lunch/break freeze it, because
-                          clockState subtracts open pause ranges from runningMs. */}
-                      <span style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.045em" }}>{hm(myState.runningMs)}</span>
-                      {myClockInAt && <span style={{ fontSize: 12, color: T.textSec }}>since {myClockInAt}</span>}
-                    </div>
-                  )}
-                  {/* Only shown once there's a COMPLETED punch today. An open
-                      shift contributes nothing to `hours` until clock-out, so
-                      while you're on the clock this used to read "Nothing logged
-                      today yet" — technically true of the payroll log, but it
-                      reads as wrong when the timer above it is counting up. */}
-                  {myHoursToday > 0 && (
-                    <div style={{ fontSize: 11.5, color: T.textDim }}>{myHoursToday.toFixed(2)}h logged earlier today</div>
-                  )}
-                  {/* Pushes the buttons to the bottom of the card whatever the
-                      status block above happens to be. */}
-                  <div style={{ flex: 1, minHeight: 4 }} />
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button className="dash-btn tq-softglow" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
-                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
-                      {myState?.isClocked ? "Clock out" : "Clock in"}
-                    </button>
-                    {/* Lunch and break only mean anything on an open shift, so
-                        they're disabled (not hidden) when clocked out — the row
-                        keeps its shape instead of the card reflowing. */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                      {[
-                        { on: myState?.isOnLunch, label: "Lunch", end: "End lunch", state: myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin", color: "#f59e0b" },
-                        { on: myState?.isOnBreak, label: "Break", end: "End break", state: myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin", color: "#8b5cf6" },
-                      ].map(b => (
-                        <button key={b.label} className="dash-btn tq-softglow" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
-                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : hexA(T.accent, myState?.isClocked ? 0.55 : 0.26)}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: b.on ? b.color : hexA(T.accent, myState?.isClocked ? 1 : 0.45), fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
-                          {b.on ? b.end : b.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>,
-                null,
-                isBasic ? { gridColumn: "2", gridRow: "1" } : {},
-                // Was overflow:visible, to let the buttons' hover glow spill into
-                // the card padding — on the assumption this panel never has more
-                // content than height. That assumption failed on a short window:
-                // clocked in, the timer + logged-hours line + three buttons need
-                // ~177px, so the bottom of the button stack was cut off at the
-                // card's overflow:hidden edge with no scrollbar to reach it.
-                // Keeping the default overflowY:auto fixes that; the negative
-                // margin buys the glow 6px of room INSIDE the scroll box, so it
-                // still isn't clipped at the body edge.
-                { margin: -6, padding: 6 }
-              )}
-
-              {/* Live team status. On Basic this fills Analytics' vacated slot too
-                  (gridRow "1 / 3" spans both rows in this column) — the status
-                  rows are already flex:1 + centered, so the extra height spreads
-                  them out evenly rather than leaving dead space at the bottom. */}
-              {panel(2, "Team right now",
-                team.length ? <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, justifyContent: isBasic ? "space-evenly" : undefined }}>{["job", "idle", "lunch", "break", "offline"].map(statusRow)}</div> : emptyNote("No team members yet."),
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{onClock}/{team.length} in</span>,
-                isBasic ? { gridColumn: "1", gridRow: "1 / 3" } : {}
-              )}
-
-              {/* Who's on what. Basic broadens this to anyone clocked in at all
-                  (see onClockNow above), not just an active job clock. */}
-              {panel(3, isBasic ? "On the clock now" : "On a job now",
-                isBasic ? (
-                  onClockNow.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {onClockNow.slice(0, 5).map(p => {
-                        const onJob = personStatus(p) === "job";
-                        const j = onJob ? tasks.find(t => t.id === p.activeJobClock?.jobId) : null;
-                        const sub = onJob ? (j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running") : PERSON_STATUS_META[personStatus(p)].label;
-                        return (
-                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <PersonAvatar person={p} size={28} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                              <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {onClockNow.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{onClockNow.length - 5} more</div>}
-                    </div>
-                  ) : emptyNote("Nobody is on the clock right now.")
-                ) : (
-                  byStatus.job.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {byStatus.job.slice(0, 5).map(p => {
-                        const j = tasks.find(t => t.id === p.activeJobClock?.jobId);
-                        return (
-                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <PersonAvatar person={p} size={28} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                              <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running"}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {byStatus.job.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{byStatus.job.length - 5} more</div>}
-                    </div>
-                  ) : emptyNote("Nobody is on a job right now.")
-                ),
-                undefined,
-                isBasic ? { gridColumn: "2", gridRow: "2" } : {}
-              )}
-
-              {/* Due soon / scheduled soon. Basic shows actual scheduled date-range
-                  overlap with the next 7 days (scheduledNext7), not a due-date
-                  deadline — a job due in 5 days with nothing scheduled this week
-                  reads differently from one with hours scheduled tomorrow. */}
-              {panel(4, isBasic ? "Schedule for the next 7 days" : "Due within 7 days",
-                isBasic ? (
-                  scheduledNext7.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {scheduledNext7.slice(0, 5).map(j => {
-                        const h = healthOf(j);
-                        // Who's on it: team lives on the job's subs (a Basic job is
-                        // job + one flat sub carrying the real assignment), not on
-                        // the job itself — flatten subs and their own subs so this
-                        // reads correctly regardless of nesting depth.
-                        const teamIds = new Set();
-                        (j.subs || []).forEach(s => {
-                          (s.team || []).forEach(id => teamIds.add(String(id)));
-                          (s.subs || []).forEach(op => (op.team || []).forEach(id => teamIds.add(String(id))));
-                        });
-                        const jobTeam = [...teamIds].map(id => people.find(p => String(p.id) === id)).filter(Boolean);
-                        return (
-                          <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
-                            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
-                            {jobTeam.length > 0 && <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                              {jobTeam.slice(0, 3).map((p, i) => (
-                                <div key={p.id} style={{ marginLeft: i > 0 ? -6 : 0, border: `1.5px solid ${T.card}`, borderRadius: "50%", lineHeight: 0 }}>
-                                  <PersonAvatar person={p} size={18} />
-                                </div>
-                              ))}
-                              {jobTeam.length > 3 && <span style={{ marginLeft: 2, fontSize: 10, color: T.textDim, fontWeight: 700 }}>+{jobTeam.length - 3}</span>}
-                            </div>}
-                            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date((j.start > TD ? j.start : TD) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                          </div>
-                        );
-                      })}
-                      {scheduledNext7.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{scheduledNext7.length - 5} more</div>}
-                    </div>
-                  ) : emptyNote("Nothing scheduled in the next 7 days.")
-                ) : (
-                  dueSoon.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {dueSoon.slice(0, 5).map(j => {
-                        const h = healthOf(j);
-                        return (
-                          <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
-                            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
-                            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date(j.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                          </div>
-                        );
-                      })}
-                      {dueSoon.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{dueSoon.length - 5} more</div>}
-                    </div>
-                  ) : emptyNote("Nothing due in the next week.")
-                ),
-                undefined,
-                isBasic ? { gridColumn: "1", gridRow: "3" } : {}
-              )}
-
-              {/* Reports — no reporting data model exists yet, so this states
-                  that plainly rather than inventing numbers to fill the box. */}
-              {/* Messages — newest first, tapping through to the thread. */}
-              {/* One row per thread: who, the latest line, and when. Unread
-                  count rides the avatar corner as an accent badge. */}
-              {panel(5, "Messages",
-                dashThreads.length ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {dashThreads.map(t => (
-                      <div key={t.tk} onClick={() => switchView("messages")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                        <span style={{ position: "relative", display: "flex", flexShrink: 0 }}>
-                          <PersonAvatar person={t.who || { name: t.authorName, color: t.authorColor }} size={30} />
-                          {t.unread > 0 && (
-                            <span style={{ position: "absolute", top: -3, right: -4, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 12, background: T.accent, color: T.accentText, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>
-                              {t.unread > 9 ? "9+" : t.unread}
-                            </span>
-                          )}
-                        </span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: t.unread > 0 ? 800 : 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
-                          <div style={{ fontSize: 11.5, fontWeight: 500, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.preview}</div>
-                        </div>
-                        <span style={{ fontSize: 10.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{msgAgo(t.at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : emptyNote("No messages yet."),
-                unreadTotal > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: T.accentText, background: T.accent, borderRadius: 16, padding: "2px 8px" }}>{unreadTotal}</span> : null,
-                isBasic ? { gridColumn: "2", gridRow: "3" } : {}
-              )}
-
-            </div>
-
-              {/* Calendar — right column, full height */}
-              {panel(7, monthLabel,
-                // flex:1 through every layer so the day grid absorbs the panel's
-                // full height — the cells size themselves to the column instead
-                // of being pinned square by aspectRatio.
-                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
-                    {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 11.5, fontWeight: 700, color: T.textDim }}>{d}</div>)}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: "minmax(0, 1fr)", flex: 1, minHeight: 0, rowGap: 2 }}>
-                    {Array.from({ length: leadBlanks }, (_, i) => <div key={`b${i}`} />)}
-                    {Array.from({ length: daysInMonth }, (_, i) => {
-                      const dayNum = i + 1;
-                      const ds = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-                      const isToday = ds === TD;
-                      const busy = busyDays.has(ds);
-                      return (
-                        <div key={ds} className="dash-day" title={busy ? "Work scheduled" : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, minHeight: 0 }}>
-                          {/* Only TODAY carries a marker, and it's a circle. The
-                              per-date rounded squares are gone — with a tint on
-                              every busy day the grid read as a wall of chips.
-                              NOT .tq-cal-day: that class tints the whole grid
-                              CELL on hover, which is a wide rectangle and read as
-                              a square beside this circle. .dash-day puts the hover
-                              on the disc below instead, at the same diameter. */}
-                          <span className={isToday ? "dash-day-disc is-today" : "dash-day-disc"}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: DASH_DAY_DISC, height: DASH_DAY_DISC, borderRadius: "50%", background: isToday ? brandGrad(T.accent) : "transparent", color: isToday ? T.accentText : T.text, fontSize: 19, fontWeight: isToday ? 800 : 500, lineHeight: 1 }}>{dayNum}</span>
-                          <span style={{ width: 5, height: 5, borderRadius: 8, flexShrink: 0, background: busy ? brandGrad(T.accent) : "transparent" }} />
-                        </div>
-                      );
-                    })}
-                  </div>
+            <div className={dashAnimate ? "dash-card" : undefined} style={{ flex: 1, minHeight: 0, marginTop: isMobile ? 70 : 96, display: "flex", flexDirection: "column", gap: isMobile ? 28 : 40 }}>
+              {isMobile && clockLine}
+              {rvKstrip(kItems)}
+              <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 340px", gap: isMobile ? 36 : "0 48px" }}>
+                <div style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", gap: 40, minHeight: 0 }}>
+                  {rvSx("Today · team timeline", `${tlPeople.filter(p => statusOf.get(String(p.id)) !== "offline").length} of ${tlPeople.length} scheduled clocked in`, timeline, isMobile ? undefined : { maxHeight: 34 * 9 + 50 })}
+                  {rvSx("Jobs in motion", link("All jobs →", "tasks"), motion)}
                 </div>
-              )}
-
-              {/* Today — full-width gantt beneath both columns. */}
-              {panel(6, "Today",
-                todayLanes.length ? (
-                  <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                    {/* Hour axis */}
-                    <div style={{ position: "relative", height: 14, marginLeft: 92, marginBottom: 4 }}>
-                      {hourTicks.map(h => (
-                        <span key={h} style={{ position: "absolute", left: `${((h - dayStartH) / daySpanH) * 100}%`, transform: "translateX(-50%)", fontSize: 9.5, color: T.textDim, fontFamily: T.mono }}>{hLabel(h)}</span>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-around", gap: 5, flex: 1, minHeight: 0, overflowY: "auto" }}>
-                      {todayLanes.map(({ p, segs }) => (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <PersonAvatar person={p} size={20} />
-                          <span style={{ width: 64, flexShrink: 0, fontSize: 11.5, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
-                          <div style={{ position: "relative", flex: 1, height: 16, borderRadius: 12, background: hexA(T.border, 0.5), overflow: "hidden" }}>
-                            {/* Tick guides so a bar can be read against the clock */}
-                            {hourTicks.map(h => <span key={h} style={{ position: "absolute", left: `${((h - dayStartH) / daySpanH) * 100}%`, top: 0, bottom: 0, width: 1, background: hexA(T.textDim, 0.18) }} />)}
-                            {segs.map((sg, si) => (
-                              <span key={si} title={sg.live ? "On the clock" : "Worked"}
-                                style={{ position: "absolute", left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%`, top: 2, bottom: 2, borderRadius: 12, background: sg.live ? brandGrad(T.accent) : hexA(T.accent, 0.45) }} />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : emptyNote("Nobody has clocked in today yet."),
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{hLabel(Math.round(dayStartH))}–{hLabel(Math.round(workEndH))}</span>,
-                { gridColumn: isMobile ? "auto" : "1 / -1" }
-              )}
+                <div className="rv-rail" style={isMobile ? { borderLeft: 0, paddingLeft: 0 } : undefined}>
+                  {rvSx(isBasic ? "Scheduled · next 7 days" : "Due soon", link("Schedule →", "schedule"), soon)}
+                  {rvSx("Messages", unreadAll > 0 ? `${unreadAll} unread` : "", msgs)}
+                  {rvSx(monthLabel, link("Schedule →", "schedule"), calendar)}
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Greeting. Sits HERE — a direct child of the scroll container — rather
-            than inside the padded wrapper above, and that placement is the whole
-            fix. An absolutely-positioned element resolves percentages against its
-            nearest positioned ancestor. Inside the wrapper that ancestor grows the
-            instant the panels mount, which is the same frame the greeting starts
-            travelling, so `top: 50%` re-resolved against a box roughly twice as
-            tall and the title slid DOWN the screen instead of up to the header.
-            The scroll container's own box is the visible viewport and never grows
-            however tall its content gets, so 50% here means the middle of the
-            screen, permanently. That also retires the measure-into-pixels
-            workaround this used to need: its layout effect bailed out whenever the
-            container hadn't mounted yet and never re-ran, leaving the anchor at 0
-            and silently falling back to the very percentage it was added to avoid.
-
-            ONE size throughout — it fades in where it sits and then travels to the
-            top-left. Width is max-content so translateX(-50%) centres it on its
-            own width, which then interpolates to the page's left padding.
-            cubic-bezier(0.83,0,0.17,1) is an ease-in-OUT (quint): it creeps off
-            the mark, covers the middle fast, and settles slowly. */}
+        {/* Greeting. A direct child of the scroll container, not the padded
+            wrapper: an absolutely-positioned element resolves percentages against
+            its nearest positioned ancestor, and the wrapper grows the instant the
+            content mounts — the same frame the greeting starts travelling — so
+            top:50% re-resolved and the title slid DOWN instead of up. The scroll
+            container's box is the visible viewport and never grows.
+            One size throughout: it fades in mid-screen, then travels to the
+            top-left on an ease-in-out quint. */}
         <div aria-hidden={false} style={{
           position: "absolute", zIndex: 2, pointerEvents: "none",
           width: "max-content", maxWidth: "92%",
@@ -14847,14 +14525,16 @@ ${jobsCtx || "No jobs found."}`;
           transition: `left ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), top ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), transform ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1)`,
           animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
         }}>
-          <span style={{ fontSize: isMobile ? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
-            Hello,{greetName ? " " : ""}{greetName || " there"}
+          <span style={{ fontSize: isMobile ? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1, display: "block" }}>
+            {greeting}
           </span>
+          <div className="rv-mute" style={{ fontSize: 12, marginTop: 7 }}>{dateLine}</div>
         </div>
-        {/* The title-row actions. Not inside the greeting: that element is
-            pointer-events:none and travels, so they sit in the same row's
-            right-hand corner instead and appear once the greeting has landed. */}
-        <div className="dash-greeting-actions" style={{ position: "absolute", zIndex: 3, top: padTop, right: padX, minHeight: isMobile ? 35 : 57, display: "flex", alignItems: "center", opacity: atTop ? 1 : 0, pointerEvents: atTop ? "auto" : "none", transition: `opacity 0.3s ease ${atTop ? DASH_TRAVEL_MS : 0}ms` }}>
+        {/* The greeting row's right-hand side: the clock line, then the title
+            actions. Not inside the greeting, which is pointer-events:none and
+            travels; it appears once the greeting has landed. */}
+        <div className="dash-greeting-actions" style={{ position: "absolute", zIndex: 3, top: padTop, right: padX, minHeight: isMobile ? 35 : 57, display: "flex", alignItems: "center", gap: 14, opacity: atTop ? 1 : 0, pointerEvents: atTop ? "auto" : "none", transition: `opacity 0.3s ease ${atTop ? DASH_TRAVEL_MS : 0}ms` }}>
+          {!isMobile && clockLine}
           {titleActions}
         </div>
       </div>

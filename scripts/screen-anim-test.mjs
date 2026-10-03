@@ -39,7 +39,8 @@ const appStart = SRC.indexOf("export default function App()");
 ok("the default export is where it is expected to be", appStart > 0);
 const app = SRC.slice(appStart);
 
-const SHEETS = [...SRC.matchAll(/const ([A-Z_]+_CSS) = `/g)].map((m) => m[1]);
+// LIQUID_CSS is built by the shared generator (src/liquidWash.js), not a literal.
+const SHEETS = [...SRC.matchAll(/const ([A-Z_]+_CSS) = (?:`|liquidCss\()/g)].map((m) => m[1]);
 ok("the stylesheets are declared as named constants", SHEETS.length >= 3);
 
 const rootMounted = SHEETS.filter((n) => app.includes(`<style>{${n}}</style>`));

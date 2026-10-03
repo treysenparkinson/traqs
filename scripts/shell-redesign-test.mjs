@@ -268,7 +268,6 @@ const STAGGER = /(toolDropUp|toolDrop|staggerUp|dropIn)\b[^\n]{0,80}?\$\{[^}]*\*
 // tight enough that a dropdown elsewhere cannot borrow the exemption.
 const ALLOWED = [
   ["right-click menus (ctxRowAnim)", /function ctxRowAnim\(/, 400],
-  ["dashboard cards", /dashAnimate \? \{ animationDelay/, 40],
   ["schedule select-mode rows", /animationDelay: `\$\{ri \* 25\}ms` \}\}>\{selPeople\.has/, 120],
   ["Time Settings people grid (modal)", /tsSettingsDraft\.map\(\(p, pi\) =>/, 900],
   ["Add/Edit Dependencies modal", /const on=isLinked\(sub\.id\);/, 400],
