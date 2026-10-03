@@ -60,7 +60,7 @@ check("Pending tray drop needs editJobs, moveJobs and reassign", body("const han
 // gated. These two are the paths a person actually takes: dragging a bar onto someone
 // else's row in week/month, and dropping an Overdue-tray item onto another row. Neither
 // was covered. (Three other reassign gates already are: placeTaskAt and
-// handlePendingItemDrop above, and the Project Plan Assign button below.)
+// handlePendingItemDrop above, and the Job Details task Assign below.)
 check("Week/month drag onto another row needs reassign",
   SRC.slice(SRC.indexOf("Split the drag permission at the drop, not at the grab"),
             SRC.indexOf("Split the drag permission at the drop, not at the grab") + 900),
@@ -86,7 +86,7 @@ check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("ed
 check("Dependencies toggle and editor need editJobs", SRC, { has: ["{showDepToggle && can(\"editJobs\") && <button", '{isOp && can("editJobs") && (() => {'] });
 
 check("Panel approval-step menu (edit / remove the chain) needs editJobs", SRC, { has: ['const openApprCtx = (ev) => {\n                // Editing or removing a panel\'s steps changes the chain itself: editJobs.\n                if (!can("editJobs")) return'] });
-check("Project Plan Assign needs reassign", SRC.slice(SRC.indexOf("Same assign control the Gantt rows use"), SRC.indexOf("Same assign control the Gantt rows use") + 1500), { has: ['<button disabled={!can("reassign")}'], not: ['<button disabled={!can("editJobs")}'] });
+check("Job Details task Assign needs reassign", SRC.slice(SRC.indexOf("Assigning people is the reassign permission"), SRC.indexOf("Assigning people is the reassign permission") + 400), { has: ['{whoCell(op.team, can("reassign") ? e => {'], not: ['whoCell(op.team, canEdit'] });
 
 console.log("\n3. People, clients, settings");
 check("+ Add Member needs manageTeam", SRC, { has: ["{canManageTeam && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null"], not: ["{isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null"] });

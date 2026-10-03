@@ -44,18 +44,9 @@ ok("...drawn front to back so each sits over the one after it", CELL.includes("z
 ok("...with a ring to separate them", (CELL.match(/ring=\{T\.card\}/g) || []).length === 2);
 ok("a long crew is capped and counted", CELL.includes("who.slice(0, 5)") && CELL.includes("+{who.length - shown.length}"));
 ok("nobody assigned still reads Unassigned", CELL.includes("Unassigned"));
-ok("Job Details renders it too, rather than blank", S.includes('if (col.id === "assignee") {'));
-// Job Details' fallback reads node[key] and offers an inline edit. Reaching it
-// would write a junk `assignee` property onto the row and give a second, stored
-// answer for who is on it.
-// Scoped to the Job Details renderer: the Jobs grid has a select branch of its
-// own, earlier in the file, and comparing against that one would pass no matter
-// where this branch sat.
-const JD = S.slice(S.indexOf("// Same assign control the Gantt rows use"));
-const jdAssignee = JD.indexOf('if (col.id === "assignee") {');
-const jdFallback = JD.indexOf('if (col.type === "select" && (col.options || []).length > 0) {');
-ok("both branches are found inside the Job Details renderer", jdAssignee > -1 && jdFallback > -1);
-ok("...and assignee is caught BEFORE that page's editable fallback", jdAssignee < jdFallback);
+// Job Details no longer has a configurable column table (the Tasks / Gantt /
+// Split views were replaced, 2026-10-03): its Sub-jobs table draws the assignee
+// cell itself, from team. scripts/job-detail-test.mjs covers that page.
 ok("it is not groupable by default, like Team",
   !/GROUPABLE_STD = \[[^\]]*assignee/.test(S));
 

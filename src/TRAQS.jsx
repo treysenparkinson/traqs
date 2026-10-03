@@ -16,6 +16,8 @@ import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnin
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
+import { LIGHT, DARK } from "./themeTokens.js";
+import { paintPress, syncRail, isNavActive } from "./railPress.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -34,6 +36,7 @@ import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, 
          barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap, lunchHairline } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
+import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -193,11 +196,6 @@ const backfillColOrder = (saved) => {
 // name (one section per job), progress/team (don't bucket well), and client (the
 // dropdown's dedicated Clients section already covers per-client grouping).
 const GROUPABLE_STD = ["status", "pri", "due", "start", "end", "jobNum", "hrs"];
-// Job Details' own column set. JD_DEFAULT_COLS is what a machine with nothing
-// stored gets; JD_SPLIT_COLS is the fixed four the Split pane's left column
-// always shows, independent of whatever the Tasks view has been configured to.
-const JD_DEFAULT_COLS = ["name", "start", "end", "due", "status", "pri", "progress", "team"];
-const JD_SPLIT_COLS = ["name", "start", "end", "team"];
 const ADMIN_PERMS = [
   { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
   { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
@@ -811,16 +809,6 @@ animStyle.textContent = `
   0%   { opacity: 1; }
   100% { opacity: 0; }
 }
-@keyframes gridRowIn {
-  0%   { opacity: 0; transform: translateY(-7px); max-height: 0;     border-bottom-width: 0; overflow: hidden; }
-  90%  { opacity: 1; transform: translateY(0);    max-height: 80px;  border-bottom-width: 1.25px; overflow: hidden; }
-  100% { opacity: 1; transform: translateY(0);    max-height: 1000px; border-bottom-width: 1.25px; overflow: visible; }
-}
-@keyframes gridRowOut {
-  0%   { opacity: 1; transform: translateY(0);    max-height: 1000px; border-bottom-width: 1.25px; overflow: hidden; }
-  10%  { opacity: 1; transform: translateY(0);    max-height: 80px;   border-bottom-width: 1.25px; overflow: hidden; }
-  100% { opacity: 0; transform: translateY(-7px); max-height: 0;      border-bottom-width: 0;   overflow: hidden; }
-}
 @keyframes fadeScale {
   0%   { opacity: 0; transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1);    }
@@ -1395,23 +1383,6 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([di
     transition: opacity 0.18s ease-out;
   }
 }
-button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]) { position: relative; }
-button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"])::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--tq-accent-hover, rgba(65,105,225,0.07));
-  opacity: 0;
-  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1);
-  pointer-events: none;
-}
-@media (hover: hover) {
-  button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover::after {
-    opacity: 1;
-    transition: opacity 0.18s ease-out;
-  }
-}
 /* The one width exception, and it earns it. A button that fills its container has no
    fixed size to tune against: the My Clock buttons run the full width of their card at
    ~218px, so the global 1.02 moves them 4.4px where it moves the + New Job button
@@ -1767,6 +1738,16 @@ select:not(:disabled):active {
      with the cast shadow and left the whole Jobs list without one. */
   box-shadow: var(--tq-surface-edge) !important;
 }
+/* The list cards (FrostCard: the Jobs list's sections, client job cards) are
+   tinted glass WITHOUT the backdrop blur. They are page-tall and change height on
+   every expand/collapse, and each resize made Safari re-blur the card's whole area:
+   measured 2026-10-03, a job expand took 176-352ms with the blur and ~56ms
+   without, the React render (~45ms) being the same in both. The fill above stays,
+   so they still read as glass; the rail, popups and menus keep their blur. */
+.traqs-glass .tq-lglass.tq-lglass-card.tq-list-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* Sticky column headers are TEXT ONLY — no fill and no filter of their own.
    Nothing paints, so nothing can read as a band.
 
@@ -2109,7 +2090,12 @@ if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data
 // THE brand gradient — a light→dark ramp of the accent, mirroring the iOS
 // TRAQSTheme.brandGradient (default accent → the #4FACFE→#1E40AF blue colorway).
 // Derived from the accent so it follows any theme; used on primary CTAs.
-function brandGrad(a, deg = 135) { const c = a || "#3b82f6"; return `linear-gradient(${deg}deg, ${blendHex(c, 0.14)}, ${blendHex(c, -0.22)})`; }
+// The brand fill for primary buttons, active pills and selected states. It was a
+// 135° two-tone gradient of the colour; the redesign uses solid colours only, so
+// it now returns the colour itself. Kept as one helper (102 call sites) so the fill
+// stays decided in one place. A second (angle) argument some callers still pass is
+// simply ignored.
+function brandGrad(a) { return a || "#3b82f6"; }
 // hex (#rrggbb) → rgba() string with the given 0..1 alpha. Used for translucent cards/overlays.
 // ── Liquid-background colour maths ──────────────────────────────────────────
 function hexToHsl(hex) {
@@ -2318,9 +2304,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark" },
+  midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex(DARK.accent, 0.45), 0.2), hoverStrong: hexA(blendHex(DARK.accent, 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark", ...DARK },
   obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light" },
+  frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light", ...LIGHT },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -2362,10 +2348,10 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
   // site relies on that class for the shared hover, and none of them pass one.
   return <button className={`anim-btn${className ? " " + className : ""}`} onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
-// Corner radius of the content panel — the curve you see where it meets the
-// sidebar on the left and the brand strip above. LiquidBackground clips to the
-// same value, so they live in one place rather than two literals that drift.
-const SHELL_RADIUS = 45;
+// Corner radius of the content panel. LiquidBackground clips to the same value,
+// so they live in one place rather than two literals that drift. Square since the
+// redesign: the page meets the rail edge-to-edge (it was 45).
+const SHELL_RADIUS = 0;
 // Wrapper that keeps a dropdown mounted long enough to fade out cleanly after `open` toggles false.
 // Retains a snapshot of children during the fade so dropdowns driven by object state
 // (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation. Re-opening
@@ -2571,17 +2557,16 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radiusHero, border: `1px solid ${T.glassBorder}`, padding: 28, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
-// The list-card surface: jobs sections, client job cards. Its frost comes entirely
-// from the shared glass rule via the classes below — nothing is painted inline any
-// more, so the Frosted Glass toggle is the single authority on whether these are
-// translucent. Real frost rather than a faked tint: the jobs scroller pins its
-// background layer in the SAME stacking context, so backdrop-filter has something
-// to sample and the blur is aligned by construction.
+// The list-card surface: jobs sections, client job cards. Its glass fill comes
+// entirely from the shared glass rule via the classes below — nothing is painted
+// inline any more, so the Frosted Glass toggle is the single authority on whether
+// these are translucent. tq-list-card drops the backdrop blur (see that rule): a
+// page-tall card that resizes on every expand made each one cost a full re-blur.
 // `scrollRef` hands the caller the inner scrolling box. The Jobs list uses it to
 // tie every grid card's horizontal position together; everywhere else leaves it off
 // and the card scrolls on its own as before.
 const FrostCard = ({ children, onClick, border, scrollRef, style: sx = {} }) => (
-  <div className="tq-lglass tq-lglass-card" style={{
+  <div className="tq-lglass tq-lglass-card tq-list-card" style={{
     position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
     // Solid. The frost is the glass rule's job now (tq-lglass-card above), which is
@@ -3314,7 +3299,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
         </div>); })()}
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
         {filtered.map((o, oi) => { const act = multi ? values.includes(o.value) : value === o.value; return <div key={o.value} onClick={() => { if (multi) { onChangeMulti(values.includes(o.value) ? values.filter(v => v !== o.value) : [...values, o.value]); } else { onChange(o.value); setOpen(false); setQ(""); } }}
-          style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+          style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = (o.color || T.accent) + "18"} onMouseLeave={e => e.currentTarget.style.background = act ? (o.color || T.accent) + "12" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 8, background: o.color || T.accent, flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{o.label}</span>
@@ -3374,7 +3359,7 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
   const row = (active, dot, label, onClick, idx) => (
     <div key={label + idx} onClick={onClick}
-      style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${idx * 38}ms both ease-out` }}
+      style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent" }}
       onMouseEnter={e => e.currentTarget.style.background = (dot || T.accent) + "18"}
       onMouseLeave={e => e.currentTarget.style.background = active ? (dot || T.accent) + "12" : "transparent"}>
       {dot ? <div style={{ width: 10, height: 10, borderRadius: 8, background: dot, flexShrink: 0 }} /> : peopleIcon(active ? T.accent : T.textDim)}
@@ -3429,7 +3414,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
       {options.map((r, ri) => {
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
-          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
@@ -3533,7 +3518,7 @@ function AssigneeDrop({ value, onChange, people }) {
     <FadeOnClose open={open && !!anchor}>{open && anchor && createPortal(
       <div ref={menuRef} className="tq-lglass" style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
         {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
-          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
@@ -3577,7 +3562,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
     setOpen(true);
   };
   const menu = <div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, width: anchor?.width, zIndex: 10060, maxHeight: anchor?.maxHeight ?? 260 } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 260 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
-    {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+    {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
       <span style={{ width: 8, height: 8, borderRadius: 8, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
       <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
     </div>; })}
@@ -3648,7 +3633,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
     const sel = isSel(type, o.id);
     const dot = type === "column" ? T.accent : (o.color || T.accent);
     return <div key={type + ":" + o.id} onClick={() => onToggle({ type, id: o.id })}
-      style={{ margin: "4px 8px", padding: "9px 12px", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "1e" : "transparent", transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+      style={{ margin: "4px 8px", padding: "9px 12px", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "1e" : "transparent", transition: "background-color 0.2s ease, color 0.2s ease" }}
       onMouseEnter={e => e.currentTarget.style.background = dot + "26"} onMouseLeave={e => e.currentTarget.style.background = sel ? dot + "1e" : "transparent"}>
       <div style={{ width: 9, height: 9, borderRadius: 8, background: dot, flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
@@ -3786,7 +3771,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
           const dotColor = personObj?.color || T.accent;
           const isOn = value && value.toLowerCase() === o.name.toLowerCase();
           return <div key={o.name} onClick={() => { onChange(o.name); setOpen(false); setQ(""); }}
-            style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+            style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent" }}
             onMouseEnter={e => e.currentTarget.style.background = dotColor + "18"}
             onMouseLeave={e => e.currentTarget.style.background = isOn ? dotColor + "12" : "transparent"}>
             <div style={{ width: 8, height: 8, borderRadius: 8, background: dotColor, flexShrink: 0 }} />
@@ -3818,7 +3803,7 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
     </button>
     <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", minWidth: 220, padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {templates.map((tpl, ti) => (
-        <div key={tpl.id} style={{ display: "flex", alignItems: "center", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
+        <div key={tpl.id} style={{ display: "flex", alignItems: "center" }}>
           <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "8px 0 0 8px" }}
             onMouseEnter={e => e.currentTarget.style.background = T.hover}
             onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -3927,12 +3912,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
   // Draft theme edited inside the Customize modal — only applied to the live theme on Save.
-  const [draftSidebar, setDraftSidebar] = useState("hover");
   const [previewView, setPreviewView] = useState("jobs"); // which page the Customize mockup shows: jobs | schedule
   // The view actually RENDERED — lags previewView by one beat so the swap happens at the midpoint
   // of the dip overlay (while it's fully covering), giving a clean fade-out-then-fade-in.
   const [displayedPreview, setDisplayedPreview] = useState("jobs");
-  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); setDisplayedPreview("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setPreviewView("jobs"); setDisplayedPreview("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (previewView === displayedPreview) return;
     const t = setTimeout(() => setDisplayedPreview(previewView), 230); // remove the old (fading) layer once its fade-out finishes
@@ -4824,24 +4808,16 @@ Extraction rules:
   // A Set does not survive JSON, so these two translate it at the boundary.
   const UI_SET = { revive: a => new Set(Array.isArray(a) ? a : []), freeze: x => [...x] };
 
-  // Button mode starts OPEN. Read straight from localStorage rather than letting
-  // the sync effect below do it, so a button-mode reload paints expanded instead
-  // of flashing the collapsed rail and animating open on the first frame.
-  const [sidebarExpanded, setSidebarExpanded] = useState(() => localStorage.getItem("tq_sidebar_mode") === "button");
-  // Sidebar behavior preference: "hover" auto-expands on mouse-enter, "button" keeps it
-  // open/closed via the hamburger toggle until the user clicks it again.
-  const [sidebarMode, setSidebarMode] = useState(() => {
-    const saved = localStorage.getItem("tq_sidebar_mode");
-    return saved === "button" ? "button" : "hover";
-  });
-  useEffect(() => { localStorage.setItem("tq_sidebar_mode", sidebarMode); }, [sidebarMode]);
-  // Follow the preference whenever it CHANGES — switching to button in Settings
-  // opens the sidebar, switching to hover collapses it back to the rail (hover
-  // expands it on mouse-enter, so leaving it pinned open there would be wrong).
-  // Keyed on sidebarMode only, so a manual toggle — which moves sidebarExpanded,
-  // not sidebarMode — is never overridden.
-  useEffect(() => { setSidebarExpanded(sidebarMode === "button"); }, [sidebarMode]);
-  const toggleSidebar = () => setSidebarExpanded(p => !p);
+  // The sidebar is a fixed icon rail and never expands (redesign pass 1). The old
+  // hover/button behaviour preference is gone with it; a stale `tq_sidebar_mode`
+  // key in localStorage is simply never read.
+  // Profile menu — the avatar at the foot of the rail opens it (name, org,
+  // Upgrade, Log out), because a rail that never expands has nowhere to show them.
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  // The rail's hover label: the page name, shown just right of the hovered button
+  // and faded in/out. `left`/`top` are measured from that button, so the label
+  // sits beside the icon rather than wherever the cursor happens to be.
+  const [railTip, setRailTip] = useState({ label: "", left: 0, top: 0, on: false });
   // Sidebar Settings tree — expand the Settings group, then optionally expand one of the
   // inline sub-panels (Design or Organization Settings). Permissions/Departments just open
   // their existing modals, so they don't participate in this expanded state.
@@ -4859,7 +4835,6 @@ Extraction rules:
   // an explicit bottom Save; exiting or switching sections while dirty is guarded.
   // ═══════════════════════════════════════════════════════════════════════════
   const [priorView, setPriorView] = useState("tasks");        // view to restore on Exit
-  const [settingsOrgExpanded, setSettingsOrgExpanded] = useState(false); // the ONLY dropdown in the settings nav; starts closed
   const [settingsDraft, setSettingsDraft] = useState(null);   // per-section edit buffer (deep copy of the slice)
   const settingsPristineRef = useRef(null);                   // JSON snapshot of the draft at load, for dirty compare
   const [settingsSaving, setSettingsSaving] = useState(false);// true while a section Save is in flight
@@ -4877,7 +4852,7 @@ Extraction rules:
     const h = (e) => { if (computeSettingsDirty()) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
-  }, [settingsMode, settingsSection, settingsDraft, draftMode, draftCustom, draftSidebar]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settingsMode, settingsSection, settingsDraft, draftMode, draftCustom]); // eslint-disable-line react-hooks/exhaustive-deps
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [tasks, _setTasks] = useState([]);
@@ -5259,6 +5234,14 @@ Extraction rules:
   const [previewData, setPreviewData] = useState(null);
   const navPillRef  = useRef(null);
   const navBtnRefs  = useRef({});
+  // The rail paints a pressed button at once (railPress.js); these hold the
+  // selection and colours of the last render so every commit can put the rail
+  // back in line with React when a press did not end up navigating.
+  const railActiveKeyRef = useRef(null);
+  const railColorsRef = useRef(null);
+  useLayoutEffect(() => {
+    syncRail(navBtnRefs.current, railActiveKeyRef.current, railColorsRef.current);
+  });
   const navPillTransitioned = useRef(false);
   // Sidebar active-indicator: one shared vertical bar that slides to whichever
   // nav button matches the current view (instead of the line popping per button).
@@ -5266,13 +5249,12 @@ Extraction rules:
     const pill = navPillRef.current;
     if (!pill) return;
     // In settings mode the pill follows the active settings section button. Org
-    // children only exist in the DOM while their own sidebar page is showing
-    // (settingsOrgExpanded) — otherwise point the pill at the Organization nav
-    // button on the top-level settings page instead.
+    // children are tabs inside the Settings page, not rail buttons, so an org page
+    // points the pill at the rail's Organization button.
     let key;
     if (settingsMode) {
       const isOrgChild = settingsSection.startsWith("org-");
-      key = (isOrgChild && !settingsOrgExpanded) ? "settings:org-parent" : "settings:" + settingsSection;
+      key = isOrgChild ? "settings:org-parent" : "settings:" + settingsSection;
     } else {
       key = view;
     }
@@ -5305,7 +5287,7 @@ Extraction rules:
     const t2 = setTimeout(placeNavPill, 280);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, sidebarExpanded, sidebarTimeOpen, sidebarSettingsOpen, sidebarMode, settingsMode, settingsSection, settingsOrgExpanded]);
+  }, [view, sidebarTimeOpen, sidebarSettingsOpen, settingsMode, settingsSection]);
   const [timeOffModal, setTimeOffModal] = useState(false);
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
@@ -5334,35 +5316,13 @@ Extraction rules:
   // In Grouping mode rows default to expanded — these sets track per-person collapse state.
   // Keys are `<personId>:<itemId>` so two people sharing a panel/job don't collapse together.
   const [groupCollapsed, setGroupCollapsed] = usePersistedUI("groupCollapsed", new Set(), UI_SET);
-  const [groupClosing, setGroupClosing]   = useState(new Set());
+  // Jobs-list dropdowns open and close instantly: no staggered rows in or out,
+  // so there is no mid-collapse phase to wait for before committing.
   const toggleGroupCollapse = (key) => {
-    setGroupCollapsed(prev => {
-      if (prev.has(key)) {
-        // Currently collapsed → expanding: drop immediately so the gridRowIn animation plays.
-        const n = new Set(prev); n.delete(key); return n;
-      }
-      // Currently expanded → collapsing: mark as closing so children animate out, then commit.
-      setGroupClosing(c => new Set(c).add(key));
-      setTimeout(() => {
-        setGroupCollapsed(p => new Set(p).add(key));
-        setGroupClosing(p => { const n = new Set(p); n.delete(key); return n; });
-      }, 320);
-      return prev;
-    });
+    setGroupCollapsed(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   };
-  const [closingJobs, setClosingJobs] = useState(new Set());
   const toggleJobExpand = useCallback((id) => {
-    setExpandedJobs(prev => {
-      if (prev.has(id)) {
-        setClosingJobs(c => new Set(c).add(id));
-        setTimeout(() => {
-          setExpandedJobs(p => { const n = new Set(p); n.delete(id); return n; });
-          setClosingJobs(p => { const n = new Set(p); n.delete(id); return n; });
-        }, 320);
-        return prev;
-      }
-      const n = new Set(prev); n.add(id); return n;
-    });
+    setExpandedJobs(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }, []);
   const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 200, 150, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
@@ -5441,7 +5401,7 @@ Extraction rules:
   const exportCancelRef = useRef(false); // set on Escape so the blur-commit is skipped
   const [exportSelId, setExportSelId] = useState(null); // block selected for the properties inspector
   const [exportAddOpen, setExportAddOpen] = useState(false); // left-rail "+ Add Element" palette open state
-  const [exportAddSeq, setExportAddSeq] = useState(0); // bumped on each open to re-fire the staggered cascade
+  const [exportAddSeq, setExportAddSeq] = useState(0); // bumped on each open to remount the palette list
   const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
   const [exportPtoMode, setExportPtoMode] = useState(false); // hours export: click day cells to toggle PTO highlight
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
@@ -7451,6 +7411,7 @@ Extraction rules:
   const lastMarkedReadRef = useRef({});
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
+  const profileRef = useRef(null);
   // Desktop Web Push (Windows toast notifications). pushPerm tracks the
   // browser Notification permission so the "Enable alerts" button can hide
   // once granted. canWebPush is false on native (Capacitor → OneSignal) and
@@ -7522,166 +7483,22 @@ Extraction rules:
   const [panelPhotoPrompt, setPanelPhotoPrompt] = useState(null); // { jobId, panelId, panelTitle, opId }
   const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
-  const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
-  // Which Job Details sections are collapsed, by key. Information, Panels and
-  // Project Plan open by default; Notes/Attachments/Analytics closed. Persisted
-  // per machine like the other view preferences -- a section you rolled up
-  // should stay rolled up on the next open, not just the next render.
+  // Which Job Details cards are collapsed, keyed "jd-<card>". Each card has its
+  // own default (see jdCard); a key is only stored once someone toggles it.
+  // Persisted per machine like the other view preferences.
   const [detailSecClosed, setDetailSecClosed] = usePersistedUI("detailSecClosed", { notes: true, att: true, analytics: true });
-  // The right-hand information column. Open by default; collapses to a tab on
-  // the right edge that pokes out and reopens it.
-  const [detailSideOpen, setDetailSideOpen] = usePersistedUI("detailSideOpen", true);
-  // Project Plan board (Job Details centre panel): which view, the bar being
-  // dragged right now (committed on pointerup, so state stays clean mid-drag),
-  // and which item name is being renamed inline.
-  const [planView, setPlanView] = usePersistedUI("planView", "gantt");
-  const [planDrag, setPlanDrag] = useState(null);   // { id, days }
-  const [planEdit, setPlanEdit] = useState(null);   // { id, pid }
-  // Assign-people picker opened from a Project Plan row: { id, pid, title, team, x, y, up }
+  // Assign-people picker opened from a Job Details task row: { id, pid, title, team, x, y, up }
   const [planAssign, setPlanAssign] = useState(null);
   // Search text and which department accordions are open inside that picker.
   // Component-level rather than local because the popover is inline JSX, not a
   // component of its own, so it cannot hold hooks. Both reset on open.
   const [planAssignQ, setPlanAssignQ] = useState("");
   const [planAssignSec, setPlanAssignSec] = useState({});
-  // Job Details view: tasks | gantt | split. Persisted per machine like every
-  // other view preference -- the page you left it on is the page you come back
-  // to. The design persists this too (localStorage "traqs-jobdetail-view").
-  const [jobDetailView, setJobDetailView] = usePersistedUI("jobDetailView", "tasks");
-  // Split ratio, as a fraction of the width given to the task list. Clamped on
-  // drag rather than at read time so a stored value from a wider window still
-  // lands somewhere usable.
-  const [jobDetailSplit, setJobDetailSplit] = usePersistedUI("jobDetailSplit", 0.42);
-  // Which phases are rolled up on the Job Details page. Shared by the Tasks list
-  // and the Gantt so collapsing in one collapses in the other, which is what the
-  // design does across its three views.
-  const [jdPhaseClosed, setJdPhaseClosed] = usePersistedUI("jdPhaseClosed", {});
-  // Phases mid-collapse, so children can play gridRowOut before they unmount --
-  // the same two-step the Jobs list uses for its own rows. jdPhaseOpening is the
-  // mirror of it: without a flag saying "this phase was just expanded" there is
-  // no way to tell a real expand from an ordinary mount, and the rows replayed
-  // the stagger every time the view changed.
-  const [jdPhaseClosing, setJdPhaseClosing] = useState({});
-  const [jdPhaseOpening, setJdPhaseOpening] = useState({});
-  const JD_STAG_CAP = 10;                                   // rows past this share the last offset
-  const jdInMs  = (i) => Math.min(i, JD_STAG_CAP) * 22;
-  const jdOutMs = (i) => Math.min(i, JD_STAG_CAP) * 18;
-  // Long enough for the LAST row to finish leaving, whatever the row count.
-  const jdCloseMs = (n) => jdOutMs(Math.max(0, n - 1)) + 200;
-  const toggleJdPhase = (id, count = 0) => {
-    if (jdPhaseClosed[id]) {
-      setJdPhaseClosed(p => ({ ...p, [id]: false }));
-      setJdPhaseOpening(o => ({ ...o, [id]: true }));
-      setTimeout(() => setJdPhaseOpening(o => { const n = { ...o }; delete n[id]; return n; }), jdInMs(count) + 200);
-      return;
-    }
-    setJdPhaseClosing(c => ({ ...c, [id]: true }));
-    setTimeout(() => {
-      setJdPhaseClosed(p => ({ ...p, [id]: true }));
-      setJdPhaseClosing(c => { const n = { ...c }; delete n[id]; return n; });
-    }, jdCloseMs(count));
-  };
-  // Job Details' own column set -- deliberately NOT the Jobs page's. Same shape
-  // so the cell renderer is shared, but its own order, labels and custom columns.
-  // revive, not just a fallback: a machine that already stored an EMPTY order --
-  // removing columns one by one goes all the way to zero -- would otherwise keep
-  // reading [] back forever, and a table with no columns has no header left to
-  // right-click to get one back. Only emptiness is corrected; a deliberately
-  // trimmed order is left exactly as saved.
-  const [jdColOrder, setJdColOrder] = usePersistedUI("jdColOrder", JD_DEFAULT_COLS,
-    { revive: v => (Array.isArray(v) && v.length ? v : JD_DEFAULT_COLS) });
-  const [jdColLabels, setJdColLabels] = usePersistedUI("jdColLabels", {});
-  // COLUMN WIDTHS, KEYED BY COLUMN ID -- not by position.
-  //
-  // The Jobs page stores its widths as an ARRAY indexed by position, and pays for
-  // it: adding or removing a column there has to splice the width array at the
-  // matching index in two places (setColWidths/setEngColWidths), and any reorder
-  // would silently hand each column its neighbour's width. This grid can be
-  // reordered by dragging, so an array would scramble on the first drag.
-  //
-  // A missing id just means "not resized yet" and falls back to the flexible
-  // default, so removing a column needs no cleanup and re-adding one remembers
-  // the width it had.
-  const [jdColWidths, setJdColWidths] = usePersistedUI("jdColWidths", {});
-  const JD_COL_MIN = 64;
-  const startJdColResize = (e, colId, headerEl) => {
-    e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX;
-    // Measure the rendered width rather than reading state: until a column has
-    // been dragged once it has no stored width, and starting from 0 makes the
-    // first drag jump the column to the pointer.
-    const startW = Math.round(headerEl?.getBoundingClientRect().width || JD_COL_MIN);
-    const onMove = ev => setJdColWidths(prev => ({
-      ...prev, [colId]: Math.max(JD_COL_MIN, startW + ev.clientX - startX),
-    }));
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      setJdColResizing(false);
-    };
-    // Held on the body for the duration: without it, dragging fast enough to
-    // outrun the 6px handle flips the cursor back and starts selecting text.
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-  // Drag a header onto another to move it there. Reordering jdColOrder is all it
-  // takes -- jobListCols is derived from it, and the width map is keyed by id, so
-  // both the cells and the widths follow the column rather than the slot.
-  const [jdColDrag, setJdColDrag] = useState(null);
-  const [jdColResizing, setJdColResizing] = useState(false);
-  // WHICH HEADER THE POINTER IS OVER. Without this the indicator keyed off the
-  // dragged column alone, which is true of every other column at once -- so all
-  // of them highlighted and none of them told you anything.
-  //
-  // Maintained from dragover rather than dragenter/dragleave: dragover fires
-  // continuously on whatever is under the pointer, so moving to a new header
-  // simply overwrites it. dragleave also fires when crossing into a CHILD
-  // element, which would blank the highlight every time the pointer passed over
-  // the label or the resize grip inside the header.
-  const [jdColOver, setJdColOver] = useState(null);
-  const moveJdCol = (fromId, toId) => {
-    if (!fromId || !toId || fromId === toId) return;
-    setJdColOrder(prev => {
-      const from = prev.indexOf(fromId), to = prev.indexOf(toId);
-      if (from < 0 || to < 0) return prev;
-      const next = prev.filter(id => id !== fromId);
-      const at = next.indexOf(toId);
-      // DIRECTION MATTERS. Dropping on a column to the right lands AFTER it;
-      // to the left, BEFORE it. A single "insert before the target" rule makes
-      // dragging a column onto its immediate right neighbour a no-op -- which is
-      // the first move anyone tries, and it looks like the drag is broken.
-      next.splice(from < to ? at + 1 : at, 0, fromId);
-      return next;
-    });
-  };
-  const [jdCustomCols, setJdCustomCols] = usePersistedUI("jdCustomCols", []);
-  const [jdColPicker, setJdColPicker] = useState(false);
-  // Right-click on a Job Details header: { x, y, col, subMenu }.
-  // Deliberately its own menu rather than a scoped colCtxMenu -- that one is
-  // wired throughout to the Jobs page column state and grouping, and
-  // parameterising it would put a working feature at risk for no gain here.
-  const [jdColCtx, setJdColCtx] = useState(null);
-  // Same tiny draggable rename popover the Jobs page uses (renameCol), scoped
-  // to Job Details labels: { colId, defLabel, value, x, y }.
-  const [jdRenameCol, setJdRenameCol] = useState(null);
-  const jdSetColOptions = (colId, options) =>
-    setJdCustomCols(prev => prev.map(c => c.id === colId ? { ...c, options } : c));
-  const jdAddCustomCol = (label, type, anchorId = null, side = "right") => {
-    const id = "jd" + Math.random().toString(36).slice(2, 8);
-    setJdCustomCols(prev => [...prev, { id, label: label || "New column", type: type || "text", options: [] }]);
-    setJdColOrder(prev => {
-      const at = anchorId ? prev.indexOf(anchorId) : -1;
-      if (at < 0) return [...prev, id];
-      const next = [...prev];
-      next.splice(side === "left" ? at : at + 1, 0, id);
-      return next;
-    });
-    return id;
-  };
+  // Job Details: which tab is showing, and which sub-job rows are expanded to
+  // their tasks (keyed by panel id). Session-only -- a page you reopen starts on
+  // Details with every sub-job closed.
+  const [jdTab, setJdTab] = useState("details");
+  const [jdOpenPanels, setJdOpenPanels] = useState({});
   // Add a row from the Job Details list. Same node shape the new-job form
   // builds, so a row added here is indistinguishable from one created up front.
   const jdAddOp = (jobId, panelId) => {
@@ -7705,6 +7522,18 @@ Extraction rules:
     }) }));
     toast("Task added");
   };
+  // Job Details "Duplicate": a fresh copy of the job (src/jobDetail.js says what
+  // carries over), saved the way handleSave saves a new job -- protected from the
+  // next poll, pushed into dataRef and saved at once -- then opened.
+  const duplicateJobAction = (job) => {
+    if (!can("editJobs") || !job) return;
+    const nw = duplicateJob(job, { uid, now: new Date().toISOString() });
+    protectedJobIds.current.add(nw.id);
+    setTasks(p => [...p, nw]);
+    setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0);
+    setModal(m => ({ ...m, data: nw }));
+    toast(`Duplicated as "${nw.title}"`);
+  };
   const jdAddPhase = (jobId) => {
     if (!can("editJobs")) return;
     const nid = uid();
@@ -7717,41 +7546,6 @@ Extraction rules:
       }],
     }));
     toast("Phase added");
-  };
-  // ── Job details side panel width ─────────────────────────────────────────
-  // Drag its left edge to resize. Persisted, because a width you picked for how you
-  // read job data should not reset every reload. Clamped so it can't be dragged shut
-  // or wide enough to squeeze the panel list out of the left column.
-  const DETAIL_SIDE_MIN = 260, DETAIL_SIDE_MAX = 760;
-  const [detailSideW, setDetailSideW] = useState(() => {
-    const v = parseInt(localStorage.getItem("tq_detail_side_w") || "", 10);
-    return Number.isFinite(v) ? Math.min(DETAIL_SIDE_MAX, Math.max(DETAIL_SIDE_MIN, v)) : 340;
-  });
-  useEffect(() => { try { localStorage.setItem("tq_detail_side_w", String(detailSideW)); } catch { /* private mode */ } }, [detailSideW]);
-  const detailResizeRef = useRef(null);
-  const startDetailResize = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    detailResizeRef.current = { x: e.clientX, w: detailSideW };
-    // Listeners go on the window, not the handle: the pointer routinely outruns a 6px
-    // strip mid-drag, and a handle-local listener would drop the drag the moment it did.
-    const move = (ev) => {
-      const d = detailResizeRef.current; if (!d) return;
-      // Panel is on the RIGHT, so dragging left (negative delta) makes it wider.
-      setDetailSideW(Math.min(DETAIL_SIDE_MAX, Math.max(DETAIL_SIDE_MIN, d.w - (ev.clientX - d.x))));
-    };
-    const up = () => {
-      detailResizeRef.current = null;
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    // Held on the body for the whole drag so the cursor doesn't flicker back to a
-    // caret over text, and so dragging can't select the page content underneath.
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
   };
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
@@ -8050,6 +7844,13 @@ Extraction rules:
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [notifOpen]);
+  // Close the rail's profile menu the same way.
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const h = (e) => { if (profileRef.current && !profileRef.current.contains(e.target)) setProfileMenuOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [profileMenuOpen]);
   // Close Time Stamp settings dropdown on outside click
   useEffect(() => {
     if (!tsSettingsOpen) return;
@@ -8402,7 +8203,6 @@ Extraction rules:
         if (remote.themeMode != null) setThemeMode(remote.themeMode);
         if (remote.customTheme && typeof remote.customTheme === "object") setCustomTheme(ct => ({ ...ct, ...remote.customTheme }));
         if (Array.isArray(remote.themePresets)) setThemePresets(remote.themePresets);
-        if (remote.sidebarMode != null) setSidebarMode(remote.sidebarMode);
         // Back-filled, exactly like the localStorage copy above. This is the read that
         // wins -- it lands after first paint and replaces whatever was painted -- so
         // without it a column shipped after this account last saved its order is
@@ -8430,7 +8230,7 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    const bundle = { themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref };
+    const bundle = { themeMode, customTheme, themePresets, colOrder, colLabels, groupColPref };
     const snapshot = JSON.stringify(bundle);
     if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
     const t = setTimeout(() => {
@@ -8439,7 +8239,7 @@ Extraction rules:
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, themePresets, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -8986,7 +8786,7 @@ Extraction rules:
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
-  useEffect(() => { const h = e => { if (e.key === "Escape") { setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setJdColCtx(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  useEffect(() => { const h = e => { if (e.key === "Escape") { setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
@@ -10851,7 +10651,10 @@ ${jobsCtx || "No jobs found."}`;
   // (40 - ICON_SLOT) / 2 to keep each icon centred in the collapsed rail and
   // concentric with the round active highlight — so changing the size here can't
   // knock the centring out.
-  const NAV_ICON = narrowViewport ? 15 : 17;
+  const NAV_ICON = narrowViewport ? 19 : 22;
+  // Width of the floating rail's lane. The rail overlays the page's left edge and
+  // the content panel is padded by the same amount, so both read this one value.
+  const RAIL_W = 88;
   const todayDateNum = new Date().getDate();
   // Vertical placement of that date inside the tile's open area, below the header
   // rule. The open area runs from 9.4 (rule at y=8.4 plus half its 2px stroke) to
@@ -12637,10 +12440,10 @@ ${jobsCtx || "No jobs found."}`;
     // refreshed on its own, so saying so was noise next to the title.
     const headerLine = `${new Date(now).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${new Date(now).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 
-    return <div style={{ display: "flex", flexDirection: "column", paddingTop: 6, gap: 0 }}>
+    return <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
       {/* Title */}
       <div className="tq-pagehdr" style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 14, minHeight: 50, flexWrap: "wrap" }}>
-        <h1 style={pageTitle()}>Admin</h1>
+        <h1 style={pageTitle()}>Admin</h1>{titleActions}
         <div style={{ fontSize: 12.5, color: T.textDim }}>{headerLine}</div>
       </div>
       {/* Stat tiles */}
@@ -12719,7 +12522,7 @@ ${jobsCtx || "No jobs found."}`;
             via a gradient overlay keeps the blur working at every background-opacity value. */}
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       </div>}
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, padding: "34px 32px 28px" }}>
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, padding: "24px 32px 28px" }}>
       {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
@@ -12739,7 +12542,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {hidden.map((c, ci) => (
                   <button key={c.id} onClick={() => { setColOrder(prev => [...prev, c.id]); setColPickerOpen(false); }}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, transition: "background 0.12s", animation: `toolDrop 0.14s ${ci * 38}ms both ease-out` }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; }}
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{colLabels[c.id] || c.label}</span>
@@ -12757,7 +12560,7 @@ ${jobsCtx || "No jobs found."}`;
             {FIELD_COL_CATALOG.map((fc, fci) => {
               const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
               return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1 }}
                 onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
@@ -12784,7 +12587,7 @@ ${jobsCtx || "No jobs found."}`;
                 setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setColPickerOpen(false);
-              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
+              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s" }}
                 onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hover; }}>
                 <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
@@ -12809,11 +12612,12 @@ ${jobsCtx || "No jobs found."}`;
       </>, document.body)}
       {/* ── Combined header bar ── */}
       <div className="tq-pagehdr" style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 50 }}>
-        <h1 style={pageTitle()}>Jobs</h1>
+        {/* One grid cell: the header grid's columns are positional. */}
+        <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
-            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
+            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
             {/* Select */}
             {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
@@ -12839,8 +12643,8 @@ ${jobsCtx || "No jobs found."}`;
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                <div style={{}}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
+                <div style={{}}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 <div style={{ marginBottom: 14 }}>
                   <div onClick={() => setFDeptEqTitle(v => !v)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 0" }}>
                     <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${fDeptEqTitle ? T.accent : T.border}`, background: fDeptEqTitle ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
@@ -13525,11 +13329,9 @@ ${jobsCtx || "No jobs found."}`;
           return { ...t, subs: keptPanels };
         };
 
-        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished, idx = 0, alwaysExpand = false, groupPrefix = "", ancestorClosing = false }) => {
+        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished, idx = 0, alwaysExpand = false, groupPrefix = "" }) => {
           const groupExpKey = groupPrefix ? `${groupPrefix}:${item.id}` : item.id;
           const isExpanded = alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id);
-          // True if THIS row is mid-collapse — used so descendants inherit the closing state.
-          const selfClosing = alwaysExpand ? groupClosing.has(groupExpKey) : closingJobs.has(item.id);
           const hasSubs = (item.subs || []).length > 0;
           // All levels share the parent job's clear look (transparent over the frosted section);
           // hierarchy is conveyed by indentation, not by per-level background tints.
@@ -13553,14 +13355,9 @@ ${jobsCtx || "No jobs found."}`;
           const pid = level === 2 ? panelId : level === 1 ? jobId : null;
           const isDragTarget = level === 0 && rowDragOverId === item.id && rowDragRef.current && rowDragRef.current !== item.id;
           const parentId = level === 1 ? jobId : level === 2 ? panelId : null;
-          const parentCloseKey = groupPrefix && parentId != null ? `${groupPrefix}:${parentId}` : parentId;
           // Once for the whole row. Every standard cell below reads from this rather
           // than recomputing the row's rollups and lookups for itself.
           const cellCtx = stdCellCtx(item, level, jobId, alwaysExpand, groupPrefix);
-          const immediateParentClosing = parentId != null && (alwaysExpand ? groupClosing.has(parentCloseKey) : closingJobs.has(parentId));
-          // Any ancestor closing → this row plays the exit animation too (prevents a panel
-          // sliding out while its ops are still mid-enter, which read as a glitch).
-          const parentClosing = immediateParentClosing || ancestorClosing;
 
           return <Fragment key={item.id}>
             <div
@@ -13569,7 +13366,7 @@ ${jobsCtx || "No jobs found."}`;
               onDragOver={level === 0 ? e => { e.preventDefault(); if (rowDragRef.current && rowDragRef.current !== item.id) setRowDragOverId(item.id); } : undefined}
               onDrop={level === 0 ? e => { e.preventDefault(); if (!rowDragRef.current || rowDragRef.current === item.id) return; const dragId = rowDragRef.current; rowDragRef.current = null; setRowDragOverId(null); setTaskOrder(prev => { const base = prev.length ? prev : activeTasks.map(t => t.id); const from = base.indexOf(dragId); const to = base.indexOf(item.id); if (from < 0 || to < 0) return base; const next = [...base]; next.splice(from, 1); next.splice(to, 0, dragId); return next; }); } : undefined}
               onDragEnd={level === 0 ? () => { rowDragRef.current = null; setRowDragOverId(null); } : undefined}
-              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}), ...(level > 0 ? { animation: parentClosing ? `gridRowOut 0.18s ${idx * 18}ms both ease-in` : `gridRowIn 0.14s ${idx * 22}ms both ease-out` } : {}) }}
+              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}) }}
               onMouseEnter={e => { e.currentTarget.style.background = condBg || T.accent + "0d"; }}
               onMouseLeave={e => { e.currentTarget.style.background = condBg || rowBg; }}
               onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); } }}
@@ -13698,7 +13495,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
 
             {/* Sub-rows */}
-            {isExpanded && (item.subs || []).map((sub, sidx) => GridRow({ item: sub, level: level + 1, jobId: level === 0 ? item.id : jobId, panelId: level === 1 ? item.id : panelId, jobColor: level === 0 ? (sub.color || "#94a3b8") : jobColor, isFinished, idx: sidx, alwaysExpand, groupPrefix, ancestorClosing: parentClosing || selfClosing }))}
+            {isExpanded && (item.subs || []).map((sub, sidx) => GridRow({ item: sub, level: level + 1, jobId: level === 0 ? item.id : jobId, panelId: level === 1 ? item.id : panelId, jobColor: level === 0 ? (sub.color || "#94a3b8") : jobColor, isFinished, idx: sidx, alwaysExpand, groupPrefix}))}
           </Fragment>;
         };
 
@@ -13988,7 +13785,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top bar */}
       <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 50, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-        <h1 style={pageTitle()}>Clients</h1>
+        <h1 style={pageTitle()}>Clients</h1>{titleActions}
           <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
             <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
@@ -14104,7 +13901,7 @@ ${jobsCtx || "No jobs found."}`;
             size, at the same 34/32 offset every other page title uses. Actions trail on
             the right. No rule and no surface fill, so the page background carries through. */}
         {asPage
-          ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>
+          ? <div style={{ padding: "24px 32px 0", flexShrink: 0 }}>
               {pageHead(sel.name, { onBack: closeClient, right: (
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                   {can("manageClients") && <Btn size="sm" onClick={() => openClientEdit(sel, { stack: true })}>Edit</Btn>}
@@ -14370,7 +14167,8 @@ ${jobsCtx || "No jobs found."}`;
   const pageActionIconBtn = { width: 34, height: 34, padding: 0, flexShrink: 0 };
   const pageTitleStyle = {
     margin: 0,
-    fontSize: isMobile ? 28 : 44,
+    // The dashboard greeting's size ("Hello, <org>"), so every page title matches it.
+    fontSize: isMobile ? 32 : 52,
     fontWeight: 900,
     letterSpacing: "-0.07em",
     lineHeight: 1.1,
@@ -14391,8 +14189,27 @@ ${jobsCtx || "No jobs found."}`;
   const pageHeader = (title, right = null, extra = {}, back = null) => (
     <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50, ...extra }}>
       {back}
-      <h1 style={pageTitleStyle}>{title}</h1>
+      <h1 style={pageTitleStyle}>{title}</h1>{titleActions}
       {right && <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{right}</div>}
+    </div>
+  );
+  // Undo / redo, beside every page title. They lived in the top brand strip; the
+  // redesign has no strip (the rail carries the mark, notifications and the
+  // profile menu), so they ride in the title row of whatever page is showing. The
+  // save state moved to the rail, just above the bell (saveMark there).
+  // Placed right after each <h1> -- scripts/shell-redesign-test.mjs checks that no
+  // page title is missing them.
+  const titleIconBtn = (on) => ({
+    width: 30, height: 30, padding: 0, borderRadius: "50%", flexShrink: 0,
+    border: `1px solid ${on ? T.borderLight : "transparent"}`, background: on ? T.surface : "transparent",
+    color: T.textSec, cursor: on ? "pointer" : "default", opacity: on ? 1 : 0.35,
+    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1,
+  });
+  // Desktop only: the brand strip they came from never rendered on mobile either.
+  const titleActions = isMobile ? null : (
+    <div className="tq-title-actions" style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginRight: 4 }}>
+      <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={titleIconBtn(canUndo)}>↩</button></Tip>
+      <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={titleIconBtn(canRedo)}>↪</button></Tip>
     </div>
   );
 
@@ -14429,14 +14246,14 @@ ${jobsCtx || "No jobs found."}`;
     </button>
   );
   // THE page header for every stacked page — Back pill, then the title in
-  // pageTitleStyle, at the same 34/32 offset frostScroll uses. One implementation on
+  // pageTitleStyle, at the same 24/32 offset frostScroll uses. One implementation on
   // purpose: a second hand-rolled copy drifted by 0.8px because it omitted minHeight,
   // and the title visibly jumped when you moved between pages. Anything that needs a
   // page header calls this and passes its own onBack.
   const pageHead = (title, { onBack, right = null, center = null } = {}) => (
     <div style={{ position: "relative", display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
       {backBtn(onBack)}
-      <h1 style={pageTitleStyle}>{title}</h1>
+      <h1 style={pageTitleStyle}>{title}</h1>{titleActions}
       <div style={{ flex: 1, minWidth: 0 }} />
       {/* Absolutely centred on the ROW, so it stays put regardless of how long
           the title is or how many action buttons sit on the right. Desktop only:
@@ -14452,7 +14269,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>
   ) : null;
 
-  const frostScroll = (children, pad = "34px 32px 28px", title = null) => (
+  const frostScroll = (children, pad = "24px 32px 28px", title = null) => (
     <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
       {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
@@ -15214,6 +15031,12 @@ ${jobsCtx || "No jobs found."}`;
             Hello,{greetName ? " " : ""}{greetName || " there"}
           </span>
         </div>
+        {/* The title-row actions. Not inside the greeting: that element is
+            pointer-events:none and travels, so they sit in the same row's
+            right-hand corner instead and appear once the greeting has landed. */}
+        <div className="dash-greeting-actions" style={{ position: "absolute", zIndex: 3, top: padTop, right: padX, minHeight: isMobile ? 35 : 57, display: "flex", alignItems: "center", opacity: atTop ? 1 : 0, pointerEvents: atTop ? "auto" : "none", transition: `opacity 0.3s ease ${atTop ? DASH_TRAVEL_MS : 0}ms` }}>
+          {titleActions}
+        </div>
       </div>
     );
   };
@@ -15828,7 +15651,7 @@ ${jobsCtx || "No jobs found."}`;
           was 6px shorter than every other page's and its contents, buttons included,
           sat 3px higher once alignItems centred them. */}
       <div className="tq-pagehdr" style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
-        <h1 style={pageTitle()}>Schedule</h1>
+        <h1 style={pageTitle()}>Schedule</h1>{titleActions}
         {can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" variant={barSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
@@ -15862,7 +15685,7 @@ ${jobsCtx || "No jobs found."}`;
                   }} style={{ flex: 1, padding: "4px 0", borderRadius: T.radiusPill, border: `1.5px solid ${tMode === m ? T.accent : T.border}`, background: tMode === m ? T.accent + "22" : "transparent", color: tMode === m ? T.accent : T.text, fontSize: 11, fontWeight: tMode === m ? 700 : 500, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{m}</button>)}
                 </div>
               </div>
-              <div style={{ animation: `toolDrop 0.14s 19ms both ease-out` }}>
+              <div style={{}}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Status</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? sFStat.length === 0 : sFStat.includes(s); return <button key={s} onClick={() => s === "All" ? setSFStat([]) : setSFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
@@ -15872,25 +15695,25 @@ ${jobsCtx || "No jobs found."}`;
                   visibility switch rather than a filter value: completed work is on the
                   board by default and this takes it off, which is the reverse of every
                   chip above. Mirrors the Overloaded Only switch's shape. */}
-              <div style={{ animation: `toolDrop 0.14s 28ms both ease-out`, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Show Completed</span>
                 <button className="tq-noanim" onClick={() => setShowCompleted(p => !p)} aria-label="Show completed work"
                   style={{ width: 36, height: 20, borderRadius: T.radiusPill, background: showCompleted ? T.accent : T.border, border: "none", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}>
                   <div style={{ position: "absolute", top: 2, left: showCompleted ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
                 </button>
               </div>
-              <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}>
+              <div style={{}}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Client</div>
                 <SearchSelect multi compact portal values={sFClient} onChangeMulti={setSFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))} placeholder="Search clients..." emptyLabel="All Clients" noneLabel="All Clients" />
               </div>
-              <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}>
+              <div style={{}}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>People {sFPers.length > 0 && <span style={{ color: T.accent }}>({sFPers.length})</span>}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {people.map(p => { const active = sFPers.includes(String(p.id)); return <button key={p.id} onClick={() => setSFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : T.surface, color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: brandGrad(T.accent), flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
                   {sFPers.length > 0 && <button onClick={() => setSFPers([])} style={{ padding: "3px 7px", borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
                 </div>
               </div>
-              <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}>
+              <div style={{}}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Role / Area</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {["All", ...uniqueRoles].map(r => { const active = r === "All" ? sFRole.length === 0 : sFRole.includes(r); return <button key={r} onClick={() => r === "All" ? setSFRole([]) : setSFRole(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{r}</button>; })}
@@ -18342,7 +18165,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       );
       const bar = (v, color) => (
-        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? `linear-gradient(to top, ${color}, ${blendHex(color, 0.35)})` : T.surface, borderRadius: "8px 8px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
+        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? color : T.surface, borderRadius: "8px 8px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
       );
       const empty = totalPay === 0 && totalProd === 0;
       return (
@@ -18448,7 +18271,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Header — employee picker (left) · period pill (centered across the page). Hours export moved to the Time Clock page. */}
       <div className="tq-pagehdr" style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 50, flexShrink: 0 }}>
-        <h1 style={pageTitle()}>Analytics</h1>
+        <h1 style={pageTitle()}>Analytics</h1>{titleActions}
         {employeePicker}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           {periodButtons}
@@ -20968,7 +20791,7 @@ ${jobsCtx || "No jobs found."}`;
       const asPage = !isMobile;
       const node = (
         <div className={asPage ? "" : "anim-modal-overlay"} style={asPage
-          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", background: "transparent", padding: "34px 32px 28px", fontFamily: T.font }
+          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", background: "transparent", padding: "24px 32px 28px", fontFamily: T.font }
           : { position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={asPage ? undefined : closePastLogs}>
           {/* Header sits OUTSIDE the capped column, so the title and Back pill land at
               the page's left edge like every other page. It was inside it, which centred
@@ -21311,7 +21134,7 @@ ${jobsCtx || "No jobs found."}`;
                       {tree.map((jNode, ji) => {
                         const jobOpen = isJobOpen(section.key, jNode.job.id);
                         return (
-                          <div key={`${section.key}-${jNode.job.id}`} style={{ marginBottom: 8, animation: `toolDrop 0.14s ${ji * 38}ms both ease-out` }}>
+                          <div key={`${section.key}-${jNode.job.id}`} style={{ marginBottom: 8 }}>
 
                             {/* L1 — Job row */}
                             <button className="tq-listrow"
@@ -21334,7 +21157,7 @@ ${jobsCtx || "No jobs found."}`;
                               const isLastPanel = pi === jNode.panels.length - 1;
                               const l2Radius = !panelOpen && isLastPanel ? `0 0 ${T.radiusSm}px ${T.radiusSm}px` : 0;
                               return (
-                                <div key={`${section.key}-${jNode.job.id}-${pNode.panel.id}`} style={{ animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
+                                <div key={`${section.key}-${jNode.job.id}-${pNode.panel.id}`}>
                                   <button className="tq-listrow"
                                     onClick={() => togglePanel(section.key, jNode.job.id, pNode.panel.id)}
                                     style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px 8px 26px", background: T.bg, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l2Radius, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }}
@@ -21535,7 +21358,7 @@ ${jobsCtx || "No jobs found."}`;
                 Past Logs
               </button>
             )}
-            <h1 style={{ ...pageTitleStyle, flex: 1 }}>Time Clock</h1>
+            <h1 style={{ ...pageTitleStyle, flex: 1 }}>Time Clock</h1>{titleActions}
             {isAdmin && (
               <button onClick={openSettings} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusPill, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "15" : "none", cursor: "pointer", color: tsSettingsOpen ? T.accent : T.textDim, transition: "all 0.15s" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -22063,7 +21886,7 @@ ${jobsCtx || "No jobs found."}`;
             Sheet are admin-only and simply absent for everyone else. */}
           <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-              <h1 style={pageTitleStyle}>Time Clock</h1>
+              <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
               {/* Secondary. Was a hand-rolled outline on a T.surface fill, 1.5px ring;
                   Export Hours beside it was a near-miss of the same idea at 1px and a
                   55-alpha ring. Both are the shared variant now, so the two read as one
@@ -23353,8 +23176,8 @@ ${jobsCtx || "No jobs found."}`;
       {/* ─── Thread list ─── */}
       {showList && <div className="tq-frost" style={{ width: isMobile ? "100%" : 380, flexShrink: 0, height: "100%", borderRight: `1px solid ${T.glassBorder}`, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", overflowX: "hidden", background: hexA(T.surface, 0.55), backdropFilter: "blur(28px) saturate(1.4)", WebkitBackdropFilter: "blur(28px) saturate(1.4)" }}>
         {/* Header */}
-        <div style={{ padding: "30px 16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 8 }}>
-          <h1 style={{ ...pageTitleStyle, fontSize: isMobile ? 28 : 44 }}>Messages</h1>
+        <div style={{ padding: "24px 16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 8 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, minWidth: 0 }}><h1 style={pageTitleStyle}>Messages</h1>{titleActions}</span>
           {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 34, display: "flex", alignItems: "center", padding: "0 14px", background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
         </div>
         {convoThreads.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No conversations yet</div>}
@@ -23786,908 +23609,6 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ MODALS ═══════════════════
 
-  // ══ Project Plan board ═══════════════════════════════════════════════════
-  // The Job Details page's centre panel. Phases are the job's PANELS and items
-  // are their OPS — the tree TRAQS already stores, not a second planning model.
-  // Nothing here is seeded: an empty job renders an empty board.
-  //
-  // It is deliberately the one surface that shows work the Schedule cannot. The
-  // Schedule's rows are people, so an op with no team has nowhere to appear, and
-  // an op with no dates has nowhere to sit; both show here instead, tagged
-  // UNASSIGNED / NO DATES, and both stay editable from here.
-  const PLAN_ROW_H = { phase: 38, item: 42, empty: 36 };
-
-  const planWindow = (job) => {
-    // The window spans the job's real extent, backed up to a Monday so every
-    // column header is a whole week. Undated work contributes nothing (it has no
-    // dates to contribute), so a job of only undated ops falls back to a window
-    // around today rather than collapsing to zero width.
-    const ds = [];
-    const eat = n => { if (n && n.start) ds.push(n.start); if (n && n.end) ds.push(n.end); };
-    eat(job);
-    (job.subs || []).forEach(pn => { eat(pn); (pn.subs || []).forEach(eat); });
-    if (job.dueDate) ds.push(job.dueDate);
-    if (!ds.length) return { start: addD(TD, -7), end: addD(TD, 69), weeks: 11 };
-    const sorted = ds.slice().sort();
-    const lo = sorted[0], hi = sorted[sorted.length - 1];
-    const start = addD(lo, -(((new Date(lo + "T12:00:00").getDay()) + 6) % 7));
-    const weeks = Math.max(4, Math.min(26, Math.ceil((Math.max(7, diffD(start, hi) + 1)) / 7)));
-    return { start, end: addD(start, weeks * 7 - 1), weeks };
-  };
-
-  // The design's five status chips, driven by real status + assignment state.
-  // UNASSIGNED and NO DATES are the two that matter most here: they are exactly
-  // the items the Schedule drops, and this is where they surface.
-  const PLAN_CHIP = {
-    done: { bg: "#E3F5EA", fg: "#1C8A4E" },
-    inp:  { bg: "#E7F2FF", fg: "#1D6FD8" },
-    pend: { bg: "#FFF4E0", fg: "#B47A12" },
-    ns:   { bg: "rgba(16,24,40,0.06)", fg: "#8B8A91" },
-    blk:  { bg: "#FBE0EA", fg: "#B5124A" },
-  };
-  const planChipFor = (n, status) => {
-    if (status === "Finished") return { k: "done", label: "DONE" };
-    // Unassigned gets NO pill. A status on work nobody owns is noise -- "NOT
-    // STARTED" is the only thing it could ever say -- and on a job that is
-    // mostly unassigned the column turned into a wall of identical grey pills.
-    // The dimmed bar is what marks it now, which is why `dim` below no longer
-    // reads the chip to decide. A FINISHED unassigned task still says DONE:
-    // that is real information, and the check above it runs first.
-    if (!(n.team || []).length) return null;
-    if (!n.start || !n.end) return { k: "pend", label: "NO DATES" };
-    if (status === "In Progress") return { k: "inp", label: "IN PROGRESS" };
-    if (status === "On Hold") return { k: "blk", label: "ON HOLD" };
-    if (status === "Pending") return { k: "pend", label: "PENDING" };
-    return { k: "ns", label: String(status || "Not Started").toUpperCase() };
-  };
-
-  const renderProjectPlan = (job, opts = {}) => {
-    if (!job) return null;
-    // labelless: no Item column; the Split's task list is the label column.
-    const labelless = !!opts.labelless;
-    const ROW_H = labelless ? 39 : null;        // null = intrinsic (PLAN_ROW_H)
-    const HDR_H = labelless ? 38 : null;
-    const win = planWindow(job);
-    const total = win.weeks * 7;
-    const pctOf = (d) => Math.max(0, Math.min(100, (diffD(win.start, d) / total) * 100));
-    const dayPct = 100 / total;
-    const panels = (job.subs || []).filter(s => s && !s.deletedAt);
-    const isGantt = labelless ? true : planView === "gantt";
-    // No section chevron in the Split -- there is no header to hang it on, so
-    // the body must not be collapsible there.
-    const planOpen = labelless ? true : !detailSecClosed.plan;
-    const canMove = can("moveJobs");
-    const canEditJ = can("editJobs");
-
-    // ── Row geometry, computed rather than measured ─────────────────────────
-    // The mock's connector script reads getBoundingClientRect on every bar and
-    // redraws on resize. It does not need to here: this component owns the row
-    // heights, so y is a running sum of PLAN_ROW_H and x comes from the same
-    // date→percent maths the bars use. No measurement pass, no resize listener,
-    // nothing to fall out of sync with the layout on the frame after a re-render.
-    const rowH_ = (kind) => ROW_H || PLAN_ROW_H[kind];
-    const jdAnimating = panels.some(pn => jdPhaseClosing[pn.id] || jdPhaseOpening[pn.id]);
-    const rows = [];
-    let yAcc = 0;
-    for (const pn of panels) {
-      rows.push({ kind: "phase", node: pn, y: yAcc, h: rowH_("phase") });
-      yAcc += rowH_("phase");
-      // Mid-close the rows are still mounted so they can animate out, so only a
-      // settled `closed` drops them.
-      const collapsed = !!jdPhaseClosed[pn.id];
-      const ops = collapsed ? [] : (pn.subs || []).filter(o => o && !o.deletedAt);
-      if (!collapsed && !ops.length) { rows.push({ kind: "empty", node: pn, y: yAcc, h: rowH_("empty") }); yAcc += rowH_("empty"); }
-      ops.forEach((op, oi) => {
-        rows.push({ kind: "item", node: op, panelId: pn.id, tint: pn.color, oi, closing: !!jdPhaseClosing[pn.id], opening: !!jdPhaseOpening[pn.id], y: yAcc, h: rowH_("item") });
-        yAcc += rowH_("item");
-      });
-    }
-    // A phase drag carries its tasks, so the live preview has to move them too --
-    // planDrag holds every id the drag affects, not just the one under the cursor.
-    const dragDays = (n) => (planDrag && planDrag.ids && planDrag.ids.has(String(n && n.id)) ? planDrag.days : 0);
-    // Bar extent in percent, drag included so a connector tracks the bar it is
-    // attached to while that bar is being dragged.
-    const barGeo = (n) => {
-      if (!n.start || !n.end) return null;
-      const d = dragDays(n);
-      const l0 = pctOf(addD(n.start, d));
-      const r = Math.min(100, Math.max(l0 + 1.2, pctOf(addD(n.end, d)) + dayPct));
-      return { l: Math.max(0, Math.min(l0, r - 1.2)), r };
-    };
-    const itemRows = rows.filter(r => r.kind === "item");
-    const itemById = new Map(itemRows.map(r => [String(r.node.id), r]));
-
-    // ── Dependency connectors ──────────────────────────────────────────────
-    // `deps` holds an item's PREDECESSORS, so an arrow runs dep → item.
-    //
-    // Drawing every edge would be unreadable on real data: the only panels that
-    // carry dependencies have all four ops depending on all three siblings — a
-    // complete graph, twelve edges for four rows. The mock draws a chain, and a
-    // chain is also the honest reading: of an item's predecessors, the one that
-    // finishes LAST is the constraint actually holding its start, so that is the
-    // single edge worth a line. K4 collapses to the three links that mean
-    // something, and an explicitly sequenced chain draws exactly as authored.
-    const conns = [];
-    for (const r of itemRows) {
-      const n = r.node;
-      const g = barGeo(n);
-      if (!g) continue;                                  // undated: nothing to point at
-      // Only a predecessor that actually FINISHES BY this item's start is a
-      // real constraint. Without that filter a complete graph draws backwards:
-      // Cut's "latest-finishing predecessor" is Wire, which starts weeks after
-      // Cut ends, so the arrow ran right-to-left into the earliest bar. Verified
-      // against the two panels in production that carry deps -- the filter turns
-      // three backwards arrows per panel into the Cut->Labels->Layout->Wire chain.
-      const preds = (n.deps || [])
-        .map(id => itemById.get(String(id)))
-        .filter(p => p && p.node.id !== n.id && barGeo(p.node) && p.node.end <= n.start);
-      let from = preds.length
-        ? preds.reduce((a, b) => (b.node.end > a.node.end ? b : a))
-        : null;
-      // Sequence fallback. Requiring an explicit `deps` record meant the lines
-      // appeared on exactly two panels in the whole org -- 8 of 280 ops carry
-      // deps, so an ordinary job showed a clean staircase of bars and nothing
-      // joining them. The order of items within a phase IS the running order
-      // (it is what the scheduler chains unassigned work along), so the
-      // preceding item in the same phase is the predecessor unless a `deps`
-      // record says otherwise. Explicit data still wins where it exists.
-      if (!from) {
-        const mine = itemRows.filter(x => x.panelId === r.panelId);
-        const at = mine.indexOf(r);
-        const prev = at > 0 ? mine[at - 1] : null;
-        // Same finishes-by-start test as above, so genuinely concurrent items
-        // get no line rather than a finish-to-start arrow that lies about them.
-        if (prev && barGeo(prev.node) && prev.node.end && prev.node.end <= n.start) from = prev;
-      }
-      if (!from) continue;
-      conns.push({ key: `${from.node.id}->${n.id}`, from, to: r });
-    }
-
-    // An elbow as absolutely-positioned divs rather than SVG. x is a percentage
-    // of the timeline column and y is pixels; a viewBox would have to pick one
-    // unit and distort the other, while two CSS properties can each keep their
-    // own. Segments are axis-aligned, so every one is a 1.6px-thin rectangle.
-    const CW = 1.6;                                       // connector weight
-    const elbow = (c) => {
-      const a = barGeo(c.from.node), b = barGeo(c.to.node);
-      const ay = c.from.y + c.from.h / 2, by = c.to.y + c.to.h / 2;
-      const segs = [];
-      const hseg = (x1, x2, y) => segs.push({ h: true, left: Math.min(x1, x2), w: Math.abs(x2 - x1), top: y - CW / 2 });
-      const vseg = (x, y1, y2) => segs.push({ h: false, left: x, top: Math.min(y1, y2), hgt: Math.abs(y2 - y1) });
-      const gap = Math.max(dayPct * 0.6, 1.1);            // elbow column, in percent
-      // The step handles every DOWNWARD link, including back-to-back bars and a
-      // small overlap: the vertical segment does the work, so a tiny or slightly
-      // negative horizontal gap is harmless. Requiring a full `gap` of clearance
-      // (the first cut of this) pushed ordinary chain links -- Cut ends 6/30,
-      // Labels starts 7/02 -- into the detour below, which is for concurrency,
-      // not for adjacency. Verified on both panels in production that carry deps.
-      if (b.l >= a.r - gap * 3) {
-        // Out along the predecessor's row, down just short of the successor,
-        // then right into its left edge so the arrowhead reads as entering it.
-        //
-        // The stub only exists when there is room for it. Back-to-back items
-        // put the predecessor's right edge exactly on the successor's left
-        // (Netlify ends Aug 4, iOS App starts Aug 5 -- one day apart, so
-        // pctOf(end)+dayPct === pctOf(start)), and subtracting a gap there sent
-        // the line backwards and then forwards again in a visible zigzag. With
-        // no room the elbow collapses to a single vertical drop at the shared
-        // edge, which is what a finish-to-start link should look like.
-        const xm = (b.l - a.r) > gap ? b.l - gap : b.l;
-        hseg(a.r, xm, ay); vseg(xm, ay, by); hseg(xm, b.l, by);
-      } else {
-        // Genuinely concurrent: the successor starts well before its
-        // predecessor ends, so a straight step would run backwards THROUGH the
-        // predecessor's own bar. Drop under the successor's row and come up into
-        // its left edge -- the same two-case shape the mock's script draws,
-        // minus the measuring pass.
-        const under = by + rowH_("item") / 2 - 6;
-        const xm = a.r + gap;
-        const xin = Math.max(0, b.l - gap);
-        hseg(a.r, xm, ay); vseg(xm, ay, under); hseg(xm, xin, under); vseg(xin, under, by);
-      }
-      return (
-        <Fragment key={c.key}>
-          {segs.map((s, i) => (
-            <span key={i} style={{
-              position: "absolute", background: T.accent, opacity: 0.45, borderRadius: 1,
-              left: `${s.left}%`, top: s.top,
-              ...(s.h ? { width: `${s.w}%`, height: CW } : { width: CW, height: s.hgt }),
-            }} />
-          ))}
-          {/* arrowhead, in the accent so it reads as one object with the line */}
-          <span style={{
-            position: "absolute", left: `calc(${b.l}% - 5px)`, top: by - 4,
-            width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent",
-            borderLeft: `6px solid ${T.accent}`, opacity: 0.55,
-          }} />
-        </Fragment>
-      );
-    };
-
-    // Drag a bar to reschedule. Pointer events rather than HTML5 drag: this is a
-    // slider, not a transfer, so there is no ghost image or drop target. The
-    // commit is a single updTask, so it rides the same autosave path and lands in
-    // the same undo entry as every other edit.
-    // `kin` are the ids that move with `node`. For a phase that is its ops, so
-    // the whole group tracks the cursor instead of the parent sliding out from
-    // under its children. The COMMIT still needs only one call: updTask on a
-    // panel with equal start and end deltas already shifts its ops (see the
-    // level-1 branch), so the drag does not walk the tree itself.
-    const onBarDown = (e, node, panelId, kin) => {
-      if (e.button !== 0) return;
-      const jump = () => goToScheduleJob(job.id, node);
-      if (!canMove || !node.start || !node.end) {
-        // Read-only, or undated: nothing to drag, so a press is only ever a
-        // click. Bind on the element so a press that drifts off it still counts.
-        e.preventDefault(); e.stopPropagation();
-        const x0c = e.clientX, y0c = e.clientY;
-        const upOnly = (ev) => {
-          document.removeEventListener("pointerup", upOnly);
-          if (Math.abs(ev.clientX - x0c) < 4 && Math.abs(ev.clientY - y0c) < 4) jump();
-        };
-        document.addEventListener("pointerup", upOnly);
-        return;
-      }
-      e.preventDefault(); e.stopPropagation();
-      const track = e.currentTarget.parentElement;
-      if (!track) return;
-      const w = track.getBoundingClientRect().width;
-      if (!w) return;
-      const x0 = e.clientX;
-      const len = diffD(node.start, node.end);
-      const ids = new Set([String(node.id), ...(kin || []).map(String)]);
-      let shifted = 0;
-      const move = (ev) => {
-        const days = Math.round(((ev.clientX - x0) / w) * total);
-        if (days === shifted) return;
-        shifted = days;
-        setPlanDrag({ id: node.id, days, ids });
-      };
-      const up = () => {
-        document.removeEventListener("pointermove", move);
-        document.removeEventListener("pointerup", up);
-        setPlanDrag(null);
-        // Never moved -> it was a click, not a drag.
-        if (!shifted) { jump(); return; }
-        const ns = addD(node.start, shifted);
-        updTask(node.id, { start: ns, end: addD(ns, len) }, panelId);
-      };
-      document.addEventListener("pointermove", move);
-      document.addEventListener("pointerup", up);
-    };
-
-    // One item row: label cell + timeline cell. A zero-length item draws the
-    // design's milestone diamond; an undated item draws no bar at all rather
-    // than a bar on a date nobody chose.
-    const itemRow = (r) => {
-      const n = r.node, panelId = r.panelId;
-      const status = getOpDisplayStatus(n);
-      const chip = planChipFor(n, status);
-      const c = chip ? PLAN_CHIP[chip.k] : null;
-      // Computed independently of the chip, because an unassigned row now has no
-      // chip to read and the dimming is the ONLY thing left telling you it is
-      // unassigned. The chip clause preserves the previous behaviour for
-      // assigned rows (Pending and unknown statuses dimmed too).
-      const dim = !(n.team || []).length || !(n.start && n.end) || (chip && (chip.k === "ns" || chip.k === "pend"));
-      const g = barGeo(n);
-      const isMile = !!g && n.start === n.end;
-      const pct = _opPct(n);
-      // Finished work is green with a tick, whatever colour its phase carries.
-      // Status is the one thing you scan a plan for, and the phase tint says
-      // which group a task belongs to -- not whether it is done.
-      const done = getOpDisplayStatus(n) === "Finished";
-      const col = done ? "#10b981" : elColor(n.color || r.tint || "#9A99A0");
-      const editing = planEdit && planEdit.id === n.id && planEdit.col === "title";
-      const depCount = (n.deps || []).length;
-      return (
-        <div key={n.id} onContextMenu={e => handleCtx(e, { ...n, isSub: true, pid: panelId, grandPid: job.id, level: 2, panelTitle: (tasks.flatMap(j => j.subs || []).find(pp => pp.id === panelId) || {}).title || "" }, "job-detail")} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box",
-          // Only a real toggle animates -- see toggleJdPhase.
-          animation: r.closing ? `gridRowOut 0.18s ${jdOutMs(r.oi || 0)}ms both ease-in`
-            : r.opening ? `gridRowIn 0.14s ${jdInMs(r.oi || 0)}ms both ease-out`
-            : "none" }}>
-          {!labelless && <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px 0 31px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
-            {/* No colour dot on a task row -- the phase above it carries the
-                colour for the whole group, and repeating it on every child made
-                the Item column a column of dots. The 31px left padding above is
-                14 + the dot's 8 + its 9px flex gap, so the label does not shift. */}
-            {editing
-              ? <input className="tq-sq tq-bare" autoFocus defaultValue={n.title}
-                  onBlur={e => { commitCellEdit(n.id, "title", e.target.value, panelId); setPlanEdit(null); }}
-                  onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
-                  style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
-              : <span title={n.title} onDoubleClick={() => canEditJ && setPlanEdit({ id: n.id, pid: panelId, col: "title" })}
-                  style={{ fontSize: 12.5, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, cursor: canEditJ ? "text" : "default" }}>{n.title}</span>}
-            {depCount > 0 && <Tip label={`${depCount} dependenc${depCount === 1 ? "y" : "ies"} — the latest-finishing one is drawn`}>
-              <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
-            </Tip>}
-            {!isGantt && g && <span style={{ fontSize: 11.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(n.start)} – {fm(n.end)}</span>}
-            {/* Status stays, but only where it says something a glance cannot:
-                an assigned row that is not simply "not started". */}
-            {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
-            {/* Assign control, the row's last control before Delete. Grey
-                "+ Assign" with nobody on it, accent-tinted with the assignee's
-                name once there is. This is the row-level way to put a person on
-                work -- the Edit page's picker is the other. */}
-            {(() => {
-              const team = (n.team || []).map(pp => people.find(q => sameId(q.id, pp))).filter(Boolean);
-              const assigned = team.length > 0;
-              const label = !assigned ? "+ Assign"
-                : team.length === 1 ? team[0].name.split(" ")[0]
-                : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
-              const tone = assigned ? elColor(team[0].color || T.accent) : T.textDim;
-              return (
-                <button title={assigned ? `Assigned to ${team.map(q => q.name).join(", ")}` : "Assign someone"}
-                  disabled={!canEditJ}
-                  onClick={e => {
-                    e.stopPropagation();
-                    const r = e.currentTarget.getBoundingClientRect();
-                    const pl = placePopover(r, Math.min(people.length + 1, 9), 35, 300);
-                    setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: n.id, pid: panelId, title: n.title, start: n.start || null, end: n.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight });
-                  }}
-                  style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", flexShrink: 0,
-                    border: `1px solid ${assigned ? tone + "55" : T.border}`,
-                    background: assigned ? tone + "1f" : "transparent",
-                    color: tone, cursor: canEditJ ? "pointer" : "default", fontFamily: T.font, maxWidth: 118, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {label}
-                </button>
-              );
-            })()}
-            {canEditJ && <button title="Delete item" onClick={() => delTask(n.id, panelId)}
-              style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>}
-          </span>}
-          {isGantt && <span style={{ position: "relative", height: "100%" }}>
-            {!g
-              ? <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>no dates yet — set them in Edit</span>
-              : isMile
-                ? <>
-                    <span onPointerDown={e => onBarDown(e, n, panelId)} title={done ? "Finished. Click to show on the Schedule" : "Click to show on the Schedule"} style={{ position: "absolute", top: "50%", left: `${g.l}%`, width: 11, height: 11, transform: "translateY(-50%) rotate(45deg)", borderRadius: 3, background: col, opacity: done ? 1 : (dim ? 0.5 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, boxShadow: done ? "0 0 0 2px rgba(16,185,129,0.35)" : "none" }} />
-                    <b style={{ position: "absolute", top: "50%", left: `calc(${g.l}% + 18px)`, transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>{fm(addD(n.start, dragDays(n)))}</b>
-                  </>
-                : <>
-                    <span onPointerDown={e => onBarDown(e, n, panelId)}
-                      title={done ? "Finished. Click to show on the Schedule" : "Click to show on the Schedule"}
-                      style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: done ? 1 : (dim ? 0.45 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, display: "flex", alignItems: "center", overflow: "hidden" }}>
-                      {/* No progress wash on a finished bar -- it would be a 100%
-                          white overlay, which just washes the green out. */}
-                      {!done && pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
-                      {done && <svg style={{ marginLeft: 4, flexShrink: 0 }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
-                    </span>
-                    {/* The diamond labels itself, so a multi-day item was the one row
-                        whose dates the Gantt never showed. Start sits off the bar's
-                        left edge and end off its right, as siblings — the bar clips
-                        its own overflow, so a child label would be cut. A bar pressed
-                        against either end of the timeline has no room outside it, so
-                        that label tucks inside the bar in white instead of running off
-                        the edge. */}
-                    {(() => {
-                      const dd = dragDays(n);
-                      const inStart = g.l < 13, inEnd = g.r > 87;
-                      const base = { position: "absolute", top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap", zIndex: 7, pointerEvents: "none" };
-                      const inside = { color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.35)" };
-                      return <>
-                        <b style={{ ...base, ...(inStart ? { left: `calc(${g.l}% + 8px)`, ...inside } : { right: `calc(${100 - g.l}% + 8px)`, color: T.textDim }) }}>{fm(addD(n.start, dd))}</b>
-                        <b style={{ ...base, ...(inEnd ? { right: `calc(${100 - g.r}% + 8px)`, ...inside } : { left: `calc(${g.r}% + 8px)`, color: T.textDim }) }}>{fm(addD(n.end, dd))}</b>
-                      </>;
-                    })()}
-                  </>}
-          </span>}
-        </div>
-      );
-    };
-
-    const phaseRow = (r) => {
-      const pn = r.node;
-      const tint = elColor(pn.color || "#9A99A0");
-      const ppct = Math.round(_panelPct(pn));
-      // Progress is only shown for a phase that has somebody on it. Percent
-      // comes from logged-vs-estimated hours, and nobody logs against work with
-      // no assignee -- so on an unassigned phase it can only ever read 0%, which
-      // is a number that looks like information and is not. Six phases all
-      // reading 0% said nothing except that the column existed. Any assigned op
-      // counts, not just a team on the panel itself: that is where the hours
-      // actually land.
-      const phaseHasAssignee = (pn.team || []).length > 0
-        || (pn.subs || []).some(o => o && (o.team || []).length > 0);
-      const g = barGeo(pn);
-      return (
-        <div key={"ph-" + pn.id} onContextMenu={e => handleCtx(e, { ...pn, isSub: true, pid: job.id, grandPid: null, level: 1 }, "job-detail")} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
-          {!labelless && <span onClick={() => toggleJdPhase(pn.id, (pn.subs || []).filter(o => o && !o.deletedAt).length)}
-            style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", height: "100%", boxSizing: "border-box", minWidth: 0, cursor: "pointer", userSelect: "none" }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
-              style={{ transition: "transform 0.2s", transform: jdPhaseClosed[pn.id] ? "rotate(-90deg)" : "none", flexShrink: 0 }}><path d="m6 9 6 6 6-6" /></svg>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
-            <b style={{ fontSize: 12.5, letterSpacing: "-0.045em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pn.title}</b>
-            <span style={{ flex: 1 }} />
-            {phaseHasAssignee && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: ppct > 0 ? PLAN_CHIP.inp.bg : PLAN_CHIP.ns.bg, color: ppct > 0 ? PLAN_CHIP.inp.fg : PLAN_CHIP.ns.fg }}>{ppct}%</span>}
-          </span>}
-          {isGantt && <span style={{ position: "relative", height: "100%" }}>
-            {/* Dragging the phase brings its tasks. pid for a PANEL is the job's
-                id, not the panel's -- updTask reads the second argument as the
-                parent, and passing the panel's own id would send it down the
-                op branch and match nothing. */}
-            {g && <span onPointerDown={e => onBarDown(e, pn, job.id, (pn.subs || []).map(o => o && o.id).filter(Boolean))}
-              title={canMove ? "Drag to move this phase and its tasks" : undefined}
-              style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 9, borderRadius: 4, opacity: 0.9, left: `${g.l}%`, width: `${g.r - g.l}%`, background: tint, cursor: canMove ? "grab" : "default", zIndex: 6 }} />}
-          </span>}
-        </div>
-      );
-    };
-
-    return (
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", marginBottom: labelless ? 0 : 26, ...(labelless ? { display: "flex", flexDirection: "column", minHeight: 0 } : {}) }}>
-        {!labelless && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-          <span onClick={() => setDetailSecClosed(pv => ({ ...pv, plan: !pv.plan }))}
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
-            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: planOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
-              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-            <b style={{ fontSize: 14.5, letterSpacing: "-0.045em", color: T.text }}>Project Plan</b>
-            {isGantt && <small style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>
-              {` · ${fm(win.start)} → ${fm(win.end)}`}
-            </small>}
-          </span>
-          <span style={{ flex: 1 }} />
-          {panels.length > 0 && <span style={{ display: "flex", gap: 14, fontSize: 11, fontWeight: 600, color: T.textDim, flexWrap: "wrap" }}>
-            {panels.slice(0, 4).map(pn => (
-              <span key={pn.id}>
-                <i style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, marginRight: 5, verticalAlign: -1, background: elColor(pn.color || "#9A99A0") }} />
-                {pn.title}
-              </span>
-            ))}
-          </span>}
-          <div style={{ display: "flex", background: T.bg, borderRadius: T.radiusPill, padding: 3, flexShrink: 0 }}>
-            {["sheet", "gantt"].map(v => (
-              <button key={v} className="tq-noanim tq-pill-seg" onClick={() => setPlanView(v)}
-                style={{ fontSize: 11.5, fontWeight: 700, border: "none", borderRadius: T.radiusPill, padding: "6px 14px", cursor: "pointer", fontFamily: T.font, background: planView === v ? T.card : "transparent", color: planView === v ? T.text : T.textDim }}>
-                {v === "sheet" ? "Sheet" : "Gantt"}
-              </button>
-            ))}
-          </div>
-        </div>}
-
-        <div style={{ display: "grid", gridTemplateRows: planOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: planOpen ? "auto" : "none" }}>
-        <div style={{ overflow: "hidden", minHeight: 0 }}>
-        {panels.length === 0
-          ? <div style={{ padding: "28px 18px", textAlign: "center", fontSize: 13, color: T.textDim }}>
-              No phases yet.{canEditJ ? " Add a panel from Edit and its operations appear here." : ""}
-            </div>
-          : <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: isGantt ? 980 : "auto" }}>
-              {isGantt && <div style={{ display: "grid", gridTemplateColumns: labelless ? `repeat(${win.weeks}, 1fr)` : `280px repeat(${win.weeks}, 1fr)`, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-                {!labelless && <span style={{ padding: "9px 14px", fontSize: 10, letterSpacing: "-0.045em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.border}` }}>Item</span>}
-                {Array.from({ length: win.weeks }, (_, i) => (
-                  <span key={i} style={{ padding: HDR_H ? 0 : "9px 0", height: HDR_H || undefined, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: T.textDim, borderLeft: `1px solid ${T.borderLight}`, boxSizing: "border-box" }}>{fm(addD(win.start, i * 7))}</span>
-                ))}
-              </div>}
-              <div style={{ position: "relative" }}>
-                {isGantt && <div style={{ position: "absolute", inset: labelless ? 0 : "0 0 0 280px", display: "grid", gridTemplateColumns: `repeat(${win.weeks}, 1fr)`, pointerEvents: "none" }}>
-                  {Array.from({ length: win.weeks }, (_, i) => <i key={i} style={{ borderLeft: `1px solid ${T.borderLight}` }} />)}
-                </div>}
-                {/* Connectors share the gridlines' box, so their percentages are
-                    against the same timeline column the bars use. Under the bars
-                    (z 4 vs 6) so a line never crosses a bar's face. */}
-                {isGantt && conns.length > 0 && <div style={{ position: "absolute", inset: labelless ? 0 : "0 0 0 280px", pointerEvents: "none", zIndex: 4, opacity: jdAnimating ? 0 : 1, transition: `opacity ${jdAnimating ? "0.1s" : "0.2s"} ease` }}>
-                  {conns.map(elbow)}
-                </div>}
-                {/* TODAY sits on the real date rather than the mock's fixed 45% */}
-                {isGantt && TD >= win.start && TD <= win.end && <div style={{ position: "absolute", top: 0, bottom: 0, left: labelless ? `${pctOf(TD)}%` : `calc(280px + (100% - 280px) * ${pctOf(TD) / 100})`, width: 2, background: `linear-gradient(180deg, ${T.accent}, ${T.accent}1f)`, zIndex: 5, pointerEvents: "none" }}>
-                  <span style={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", fontSize: 8.5, fontWeight: 700, letterSpacing: "-0.045em", color: T.accentText, background: T.accent, borderRadius: T.radiusPill, padding: "2px 8px", whiteSpace: "nowrap" }}>TODAY</span>
-                </div>}
-                {rows.map(r => r.kind === "phase" ? phaseRow(r)
-                  : r.kind === "item" ? itemRow(r)
-                  : <div key={"e-" + r.node.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
-                      <span style={{ padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", fontSize: 11.5, color: T.textDim }}>no operations</span>
-                      {isGantt && <span />}
-                    </div>)}
-              </div>
-            </div>
-          </div>}
-
-        </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ══ Job Details: Tasks list ══════════════════════════════════════════════
-  // The design's Tasks view is a table of phases and their items. It borrows the
-  // Jobs grid's cell SHAPE -- same look, same commitCellEdit write path -- but
-  // NOT its configuration: jdColOrder / jdColLabels / jdCustomCols are this
-  // page's own, so adding, renaming or removing a column here leaves the Jobs
-  // page exactly as it was, and vice versa. That separation is deliberate; the
-  // two pages are read for different reasons and were never meant to move
-  // together.
-  //
-  // What it does not reuse is GridRow itself, which lives inside renderTasks and
-  // closes over five locals declared there. Hoisting ~500 lines of the app's
-  // busiest grid belongs in its own change, not bundled with three new views.
-  const jobListCols = useMemo(() => {
-    const byId = new Map(jdCustomCols.map(c => [c.id, c]));
-    const out = [];
-    for (const key of jdColOrder) {
-      const std = STD_COL_DEFS.find(c => c.id === key);
-      if (std) { out.push({ ...std, custom: false }); continue; }
-      const cc = byId.get(key);
-      if (cc) { out.push({ ...cc, custom: true }); byId.delete(key); }
-    }
-    // Anything in jdCustomCols the order has not placed yet -- a column added
-    // before this model existed, or by a build that only pushed to jdCustomCols.
-    // Appending keeps those visible instead of silently dropping them.
-    for (const cc of jdCustomCols) if (byId.has(cc.id)) out.push({ ...cc, custom: true });
-    return out;
-  }, [jdColOrder, jdCustomCols]);
-  // Insert a column key into the order beside another one. side "right" lands
-  // after the anchor, "left" before it; an unknown anchor appends.
-  const jdInsertCol = (key, anchorId, side) => setJdColOrder(prev => {
-    const next = prev.filter(k => k !== key);
-    const at = next.indexOf(anchorId);
-    if (at < 0) return [...next, key];
-    next.splice(side === "left" ? at : at + 1, 0, key);
-    return next;
-  });
-  const jdRemoveCol = (col) => {
-    // The last column stays. With none left the grid has no cells, so every row
-    // renders as an empty div and the header offers nothing to right-click.
-    if (jobListCols.length <= 1) return;
-    setJdColOrder(prev => prev.filter(k => k !== col.id));
-    if (col.custom) setJdCustomCols(prev => prev.filter(c => c.id !== col.id));
-  };
-
-  const renderJobTaskList = (job, compact = false) => {
-    if (!job) return null;
-    const panels = (job.subs || []).filter(s => s && !s.deletedAt);
-    // Compact (the Split pane) drops to the four columns the design keeps there:
-    // name, start, end, assignee. Everything else needs width it will not have.
-    //
-    // Built straight from STD_COL_DEFS rather than by filtering jobListCols. The
-    // filter made this pane a hostage to jdColOrder: remove those same four from
-    // the Tasks view and `allCols` came back EMPTY here, at which point every task
-    // row -- whose only children are the column cells -- rendered as a zero-height
-    // div. Phase rows carry an explicit height and survived, so the pane looked
-    // permanently collapsed while the Gantt beside it, reading the very same
-    // jdPhaseClosed, opened and closed normally. jdColLabels still applies: the
-    // header reads it by id, and these carry the same ids.
-    const allCols = compact
-      ? JD_SPLIT_COLS.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean).map(c => ({ ...c, custom: false }))
-      : jobListCols;
-    const showAdd = !compact && can("editJobs");
-    // A column that has been dragged gets an exact pixel width; one that has not
-    // keeps the flexible default so the grid still fills the pane. The Split pane
-    // (compact) is deliberately excluded -- it is a narrow fixed-purpose view, and
-    // sharing the widths would mean resizing the Tasks view squeezed it.
-    const colWidthOf = (c) => {
-      const w = !compact && jdColWidths[c.id];
-      if (w > 0) return w + "px";
-      return c.id === "name"
-        ? (compact ? "minmax(150px, 1.6fr)" : "minmax(180px, 2fr)")
-        : (c.custom ? "minmax(110px, 1fr)" : "minmax(96px, 1fr)");
-    };
-    const gridCols = [
-      ...allCols.map(colWidthOf),
-      ...(showAdd ? ["34px"] : []),
-    ].join(" ");
-    const rowH = 39;   // matched to the Gantt's row height so Split lines up
-
-    // WHICH EDGE THE DROP LINE GOES ON. moveJdCol inserts after the target when
-    // you drag rightward and before it when you drag leftward, so a line always
-    // drawn on the left edge is wrong half the time -- it showed the column
-    // landing one slot back from where it actually would.
-    const _dragIdx = jdColDrag ? allCols.findIndex(x => x.id === jdColDrag) : -1;
-    const _overIdx = jdColOver ? allCols.findIndex(x => x.id === jdColOver) : -1;
-    const dropSide = (ci) => {
-      // ONE column highlights: the one under the pointer.
-      if (_dragIdx < 0 || ci !== _overIdx || _dragIdx === ci) return null;
-      return _dragIdx < ci ? "right" : "left";
-    };
-
-    const hdr = (
-      <div style={{ display: "grid", gridTemplateColumns: gridCols, background: T.surface, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 2 }}>
-        {allCols.map((c, ci) => (
-          <span key={c.id}
-            title={can("editJobs") && !compact ? "Drag to reorder · drag the edge to resize · right-click for options" : undefined}
-            // Reorder by dragging a header onto another. draggable is suspended
-            // while a resize is in flight, or the browser starts a drag as soon as
-            // the pointer leaves the 6px grip and the column jumps instead of growing.
-            draggable={can("editJobs") && !compact && !jdColResizing}
-            onDragStart={e => { if (compact) return; setJdColDrag(c.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", c.id); }}
-            onDragOver={e => { if (!jdColDrag || jdColDrag === c.id) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (jdColOver !== c.id) setJdColOver(c.id); }}
-            onDrop={e => { if (!jdColDrag) return; e.preventDefault(); moveJdCol(jdColDrag, c.id); setJdColDrag(null); setJdColOver(null); }}
-            onDragEnd={() => { setJdColDrag(null); setJdColOver(null); }}
-            onContextMenu={e => { if (!can("editJobs") || compact) return; e.preventDefault(); e.stopPropagation();
-              // Opens the options menu. It used to delete the column outright,
-              // with no confirm and no undo.
-              const r = e.currentTarget.getBoundingClientRect();
-              setJdColCtx({ x: e.clientX, y: e.clientY, col: c, subMenu: null, hdrLeft: r.left, hdrTop: r.top }); }}
-            style={{ padding: "0 12px", height: 38, display: "flex", alignItems: "center", fontSize: 9.5, letterSpacing: "-0.02em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.borderLight}`, whiteSpace: "nowrap", overflow: "hidden", cursor: can("editJobs") && !compact ? "grab" : "default", userSelect: "none", position: "relative",
-              // Where it will land: a bar on the edge the column will sit against,
-              // plus a tint across the target so the whole slot reads as the drop
-              // zone rather than a hairline that is easy to miss mid-drag.
-              boxShadow: dropSide(ci) === "left" ? `inset 3px 0 0 ${T.accent}`
-                : dropSide(ci) === "right" ? `inset -3px 0 0 ${T.accent}` : "none",
-              background: dropSide(ci) ? T.accent + "1f" : "transparent",
-              transition: "background 0.12s",
-              opacity: jdColDrag === c.id ? 0.4 : 1 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{jdColLabels[c.id] || c.label}</span>
-            {/* The resize grip: the column's own right edge, and the one part of
-                the header that does not start a reorder. */}
-            {can("editJobs") && !compact && (
-              <span onMouseDown={e => { setJdColResizing(true); startJdColResize(e, c.id, e.currentTarget.parentElement); }}
-                onDragStart={e => e.preventDefault()}
-                style={{ position: "absolute", top: 0, right: -3, width: 6, height: "100%", cursor: "col-resize", zIndex: 3 }} />
-            )}
-          </span>
-        ))}
-        {/* The design's trailing + header. Adds a column to THIS page only. */}
-        {!compact && can("editJobs") && (
-          <span style={{ height: 38, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <button title="Add a column" onClick={() => setJdColPicker(true)}
-              style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center", fontSize: 13, lineHeight: 1, fontFamily: T.font }}>+</button>
-          </span>
-        )}
-      </div>
-    );
-
-    // Task-level field behind each column. "name" is stored as `title` and "due"
-    // as `dueDate`; a custom column lives under the "_cc_" prefix the Jobs grid
-    // also uses. Getting this wrong writes a field nothing reads, which is what
-    // made renames here look like they saved and then vanish.
-    const FIELD_OF = { name: "title", due: "dueDate" };
-    const keyOf = (col) => col.fieldKey
-      || (col.custom ? "_cc_" + col.id : (FIELD_OF[col.id] || col.id));
-    const cell = (node, col, panelId, level) => {
-      const key = keyOf(col);
-      const pad = { padding: "0 12px", height: rowH, display: "flex", alignItems: "center", borderRight: `1px solid ${T.borderLight}`, borderBottom: `1px solid ${T.border}`, minWidth: 0, fontSize: 12.5, color: T.text, boxSizing: "border-box" };
-      const editing = planEdit && planEdit.id === node.id && planEdit.col === key;
-      const startEditing = () => can("editJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key });
-      const commit = v => { commitCellEdit(node.id, key, v, panelId); setPlanEdit(null); };
-
-      if (col.id === "name") {
-        return <span key={key} style={{ ...pad, paddingLeft: level === 1 ? 12 : 30, gap: 9, fontWeight: level === 1 ? 700 : 500 }}>
-          {editing
-            ? <input className="tq-sq tq-bare" autoFocus defaultValue={node.title}
-                onBlur={e => commit(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
-                style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
-            : <span onDoubleClick={startEditing} title={node.title}
-                style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: can("editJobs") ? "text" : "default" }}>{node.title}</span>}
-        </span>;
-      }
-      if (col.id === "start" || col.id === "end") {
-        const v = node[col.id];
-        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec, cursor: can("moveJobs") ? "text" : "default" }}
-          onClick={() => can("moveJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key })}>
-          {editing
-            ? <TraqsDatePicker autoOpen compact portal value={v || ""} onChange={nv => commit(nv)} onClose={() => setPlanEdit(null)} style={{ width: "100%" }} />
-            : (v ? fm(v) : "—")}
-        </span>;
-      }
-      if (col.id === "due") {
-        const v = node.dueDate;
-        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: v && v < TD ? "#ef4444" : T.textSec, cursor: can("editJobs") ? "text" : "default" }}
-          onClick={() => can("editJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key })}>
-          {editing
-            ? <TraqsDatePicker autoOpen compact portal value={v || ""} onChange={nv => commit(nv)} onClose={() => setPlanEdit(null)} style={{ width: "100%" }} />
-            : (v ? fm(v) : "—")}
-        </span>;
-      }
-      if (col.id === "status") {
-        const st = level === 1 ? getPanelDisplayStatus(node) : getOpDisplayStatus(node);
-        const c = staColorOf(st);
-        return <span key={key} style={pad}>
-          <span onClick={e => { if (!can("editJobs")) return; e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, STATUSES.length); setStatusPopover({ id: node.id, pid: panelId, current: node.status || "Not Started", x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}
-            style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: c + "20", border: `1px solid ${c}44`, color: c, textTransform: "uppercase", cursor: can("editJobs") ? "pointer" : "default", whiteSpace: "nowrap" }}>{st}</span>
-        </span>;
-      }
-      if (col.id === "pri") {
-        const pc = priColorOf(node.pri);
-        return <span key={key} style={{ ...pad, justifyContent: "center" }}>
-          <span onClick={e => { if (!can("editJobs")) return; e.stopPropagation();
-              const r = e.currentTarget.getBoundingClientRect();
-              const pl = placePopover(r, priOpts.length);
-              setCcSelectPopover({ itemId: node.id, pid: panelId, key: "pri", current: node.pri || "Medium", options: priOpts, x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}
-            style={{ cursor: can("editJobs") ? "pointer" : "default", fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: pc + "1a", border: `1px solid ${pc}44`, color: pc, textTransform: "uppercase" }}>{node.pri || "Med"}</span>
-        </span>;
-      }
-      if (col.id === "hrs") {
-        const h = level === 1 ? (node.subs || []).reduce((s, o) => s + (o.hpd || 0), 0) : (node.hpd || 0);
-        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec }}>{h ? `${Math.round(h * 10) / 10}h` : "—"}</span>;
-      }
-      if (col.id === "progress") {
-        const pct = Math.round(level === 1 ? _panelPct(node) : _opPct(node));
-        const pc = pctRampColor(pct, T.accent);
-        return <span key={key} style={{ ...pad, gap: 8 }}>
-          <b style={{ fontSize: 10.5, color: T.textDim, fontWeight: 600, minWidth: 26 }}>{pct}%</b>
-          <span style={{ flex: 1, minWidth: 24, height: 5, borderRadius: T.radiusPill, background: T.border, overflow: "hidden" }}>
-            <i style={{ display: "block", height: "100%", width: `${pct}%`, background: pc, borderRadius: T.radiusPill }} />
-          </span>
-        </span>;
-      }
-      if (col.id === "team") {
-        // Same assign control the Gantt rows use, so assigning is one behaviour
-        // wherever you do it -- including the availability strike-out.
-        const team = (node.team || []).map(v => people.find(q => sameId(q.id, v))).filter(Boolean);
-        const label = !team.length ? "+ Assign" : team.length === 1 ? team[0].name.split(" ")[0] : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
-        const tone = team.length ? elColor(team[0].color || T.accent) : T.textDim;
-        return <span key={key} style={pad}>
-          <button disabled={!can("reassign")}
-            onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, Math.min(people.length + 1, 9), 35, 300); setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: node.id, pid: panelId, title: node.title, start: node.start || null, end: node.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight }); }}
-            style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", border: `1px solid ${team.length ? tone + "55" : T.border}`, background: team.length ? tone + "1f" : "transparent", color: tone, cursor: can("editJobs") ? "pointer" : "default", fontFamily: T.font, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {label}
-          </button>
-        </span>;
-      }
-      // Assignee: the same rollup the Jobs list shows, and read-only here -- the Team
-      // cell beside it is the control, and a phase has no team of its own to write to.
-      // Caught BEFORE the fallback below, which would read node.assignee and offer an
-      // edit that wrote a junk property onto the row.
-      if (col.id === "assignee") {
-        const who = _assigneesOf(node);
-        if (!who.length) return <span key={key} style={{ ...pad, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>;
-        const label = who.length === 1 ? who[0].name : `${who[0].name.split(" ")[0]} +${who.length - 1}`;
-        return <span key={key} style={{ ...pad, color: T.textSec }} title={who.map(p => p.name).join(", ")}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-        </span>;
-      }
-      // Select columns open the shared picker popover -- the same one the Jobs
-      // grid's select cells use, so options and the apprLog side effect behave
-      // identically here.
-      if (col.type === "select" && (col.options || []).length > 0) {
-        const cur = String(node[key] ?? "");
-        const oc = cur ? (staColorOf(cur) || T.accent) : T.textDim;
-        return <span key={key} style={{ ...pad, cursor: can("editJobs") ? "pointer" : "default" }}
-          onClick={e => { if (!can("editJobs")) return; e.stopPropagation();
-            const r = e.currentTarget.getBoundingClientRect();
-            const pl = placePopover(r, (col.options || []).length + 1);
-            setCcSelectPopover({ itemId: node.id, pid: panelId, key, current: cur, options: [{ name: "—" }, ...(col.options || [])], x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}>
-          {cur
-            ? <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: oc + "1e", border: `1px solid ${oc}44`, color: oc, textTransform: "uppercase", whiteSpace: "nowrap" }}>{cur}</span>
-            : <span style={{ color: T.textDim }}>—</span>}
-        </span>;
-      }
-      if (col.id === "client" || col.id === "jobNum" || col.id === "appr") {
-        const v = col.id === "appr" ? "" : (col.id === "client" ? (job.client || "") : (job.jobNum || ""));
-        return <span key={key} style={{ ...pad, color: v ? T.textSec : T.textDim, fontFamily: col.id === "jobNum" ? T.mono : T.font }}
-          title={col.id === "appr" ? "Approvals are tracked per job, not per task" : "From the job"}>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "—"}</span>
-        </span>;
-      }
-      // Act Hrs: computed and read-only, so it is caught BEFORE the fallback below. That
-      // fallback reads node[key] and offers an edit, which for a field with nothing behind it
-      // would write a junk property onto the op and give a second answer for "worked".
-      if (col.fieldKey === "actHours") {
-        const ah = actualHoursFor(node);
-        const est = level === 1 ? (node.subs || []).reduce((a, o) => a + (o.hpd || 0), 0) : (node.hpd || 0);
-        const over = est > 0 && ah > est;
-        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec, fontWeight: over ? 700 : 400 }}
-          title={`${Math.round(ah * 10) / 10}h worked of ${Math.round(est * 10) / 10}h scheduled`}>
-          {ah > 0 ? `${Math.round(ah * 10) / 10}h` : "—"}</span>;
-      }
-      // custom + field-linked columns, committed through the same path
-      const raw = node[key] ?? "";
-      return <span key={key} style={{ ...pad, cursor: can("editJobs") ? "text" : "default" }} onDoubleClick={startEditing}>
-        {editing
-          ? <input className="tq-sq tq-bare" autoFocus defaultValue={String(raw)}
-              onBlur={e => commit(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
-              style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
-          : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: String(raw) ? T.text : T.textDim }}>{String(raw) || "—"}</span>}
-      </span>;
-    };
-
-    return (
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-        {/* The pane scrolls rather than compressing. A Split dragged narrow rolls
-            the columns under an x-scroller instead of crushing them to unreadable
-            slivers, which is what minmax() floors on every column buy. */}
-        <div style={{ overflow: "auto", minHeight: 0 }}>
-          <div style={{ minWidth: compact ? 420 : 980 }}>
-            {hdr}
-            {panels.length === 0
-              ? <div style={{ padding: "26px 14px", textAlign: "center", fontSize: 13, color: T.textDim }}>No phases yet.</div>
-              : panels.map(pn => {
-                const ops = (pn.subs || []).filter(o => o && !o.deletedAt);
-                const closed = !!jdPhaseClosed[pn.id];
-                const closing = !!jdPhaseClosing[pn.id];
-                const opening = !!jdPhaseOpening[pn.id];
-                const tint = elColor(pn.color || "#9A99A0");
-                return (
-                  <Fragment key={pn.id}>
-                    {/* Phase row — collapsible, and on the SAME grid as the item
-                        rows beneath it. It used to be a plain flex band, so its
-                        date range was pushed to the far right edge of the card by
-                        a spacer while every task's dates sat in the START and END
-                        columns. The phase's own dates now occupy those same two
-                        columns, which is all it took to line up.
-
-                        Still reads as one band: the cells carry no vertical
-                        borders, so no column separators cut across it. */}
-                    <div onClick={() => toggleJdPhase(pn.id, ops.length)}
-                      onContextMenu={e => handleCtx(e, { ...pn, isSub: true, pid: job.id, grandPid: null, level: 1 }, "job-detail")}
-                      style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch", height: rowH, background: T.surface, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", boxSizing: "border-box" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", minWidth: 0, boxSizing: "border-box" }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
-                          style={{ transition: "transform 0.2s", transform: closed ? "rotate(-90deg)" : "none", flexShrink: 0 }}><path d="m6 9 6 6 6-6" /></svg>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
-                        <b style={{ fontSize: 12.5, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pn.title}</b>
-                        <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600, flexShrink: 0 }}>{ops.length}</span>
-                        <span style={{ flex: 1 }} />
-                        {!compact && can("editJobs") && (
-                          <button title="Delete this phase" onClick={e => { e.stopPropagation(); setConfirmDelTask({ id: pn.id, parentId: job.id, title: pn.title || "phase", kind: "phase", count: ops.length }); }}
-                            style={{ width: 20, height: 20, padding: 0, marginLeft: 4, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, fontFamily: T.font }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                          </button>
-                        )}
-                      </span>
-                      {/* One cell per remaining column so the grid stays in step.
-                          Dates are the only phase-level values shown -- read-only,
-                          because the whole band is the collapse target and an
-                          editor in here would fight that click. */}
-                      {allCols.filter(c => c.id !== "name").map(c => {
-                        const dv = c.id === "start" ? pn.start : c.id === "end" ? pn.end : c.id === "due" ? pn.dueDate : null;
-                        return <span key={c.id || c.fieldKey}
-                          style={{ display: "flex", alignItems: "center", padding: "0 12px", minWidth: 0, boxSizing: "border-box", fontSize: 11.5, fontWeight: 600, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap", overflow: "hidden" }}>
-                          {dv ? fm(dv) : ""}
-                        </span>;
-                      })}
-                      {showAdd && <span />}
-                    </div>
-                    {!closed && ops.map((op, oi) => (
-                      <div key={op.id}
-                        onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: pn.id, grandPid: job.id, level: 2, panelTitle: pn.title || "" }, "job-detail")}
-                        style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch", boxSizing: "border-box",
-                        // A floor, so a row can never collapse to nothing the way it did
-                        // when the column set came back empty and the cells -- the only
-                        // things carrying a height -- stopped rendering. Dropped while a
-                        // phase animates: min-height beats max-height in the cascade, and
-                        // gridRowOut collapses by max-height, so leaving it on would pin
-                        // the exit open.
-                        minHeight: (closing || opening) ? undefined : rowH,
-                        // Only a real toggle animates -- see toggleJdPhase.
-                        animation: closing ? `gridRowOut 0.18s ${jdOutMs(oi)}ms both ease-in`
-                          : opening ? `gridRowIn 0.14s ${jdInMs(oi)}ms both ease-out`
-                          : "none" }}>
-                        {allCols.map(c => cell(op, c, pn.id, 2))}
-                        {showAdd && (
-                          <span style={{ borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <button title="Delete this task" onClick={e => { e.stopPropagation(); setConfirmDelTask({ id: op.id, parentId: pn.id, title: op.title || "task", kind: "task", count: 0 }); }}
-                              style={{ width: 20, height: 20, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center", fontFamily: T.font }}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    {!closed && ops.length === 0 && (
-                      <div style={{ padding: "0 14px", height: rowH, display: "flex", alignItems: "center", fontSize: 11.5, color: T.textDim, borderBottom: `1px solid ${T.border}` }}>no operations</div>
-                    )}
-                    {/* Compact is excluded on purpose: an extra row per phase in
-                        the Split's left pane would push it out of step with the
-                        Gantt on the right. */}
-                    {!closed && !compact && can("editJobs") && (
-                      <div style={{ padding: "0 14px 0 30px", height: rowH, display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-                        <button onClick={e => { e.stopPropagation(); jdAddOp(job.id, pn.id); }}
-                          style={{ padding: "3px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-                          + Task
-                        </button>
-                      </div>
-                    )}
-                  </Fragment>
-                );
-              })}
-            {!compact && can("editJobs") && (
-              <div style={{ padding: "0 14px", height: rowH, display: "flex", alignItems: "center", background: T.surface }}>
-                <button onClick={() => jdAddPhase(job.id)}
-                  style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-                  + Phase
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
   // ── Basic tier: the whole "New Job" flow, one step ──────────────────────────
   // Title, who's on it, one day, start/end time. No panels, no ops, no
   // auto-scheduling — writes a single level-0 leaf task directly (no subs),
@@ -25213,7 +24134,7 @@ ${jobsCtx || "No jobs found."}`;
             other stacked page uses, and the body below is capped to FIELD_COL_W and
             centred so the inputs match Edit Job rather than stretching the panel. The
             title stays full width at the top-left, outside the cap. */}
-        <div style={{ flex:1, overflowY:"auto", padding: asPage ? "34px 32px 24px" : "24px 32px" }}>
+        <div style={{ flex:1, overflowY:"auto", padding: asPage ? "24px 32px 24px" : "24px 32px" }}>
           {asPage
             ? pageHead(ed.id ? "Edit Job" : "New Job", { onBack: closeModal })
             : <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Job" : "New Job"}</h3>}
@@ -25358,7 +24279,7 @@ ${jobsCtx || "No jobs found."}`;
                           {orgSettings.roles.map((r,ri) => {
                             const isOn=unitDepartments(panel,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
                             const fk=`panel-${panel.id}-${r}`;
-                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
                               onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                 {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -25417,7 +24338,7 @@ ${jobsCtx || "No jobs found."}`;
                               {orgSettings.roles.map((r,ri) => {
                                 const isOn=unitDepartments(sub,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
                                 const fk=`sub-${sub.id}-${r}`;
-                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
                                   onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                                   <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                     {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -25467,7 +24388,7 @@ ${jobsCtx || "No jobs found."}`;
                               else { const stepsObj=Object.fromEntries(tmpl.steps.map((_,i) => [String(i),null])); updatePanel({signOffs:{...(panel.signOffs||{}),[tmpl.id]:stepsObj}}); }
                               setDropFlashKey(null);
                             },150);
-                          }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ti*38}ms both ease-out` }}
+                          }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
                             onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                             <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                               {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -25521,7 +24442,7 @@ ${jobsCtx || "No jobs found."}`;
                               const allEmpty=ns.every(s=>!(s.deps||[]).some(d=>d!=='__pending__'));
                               const depsPatch=on?(allEmpty?{depsMode:undefined}:{}):((!panel.depsMode)?{depsMode:"unlocked"}:{});
                               updatePanel({subs:ns,...depsPatch});
-                            }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, userSelect:"none", animation:`toolDrop 0.14s ${di*38}ms both ease-out` }}
+                            }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, userSelect:"none" }}
                               onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
                               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${on?T.accent:T.border}`, background:on?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                 {on && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -26277,7 +25198,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       );
       return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", ...pageFill, padding: 0 }} onClick={e => e.stopPropagation()}>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "34px 32px 28px" }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "24px 32px 28px" }}>
           {pageHead("Job Log", { onBack: closeModal, right: rows.length > 0 ? (
             <Btn size="sm" variant="secondary" onClick={openJobLogExport}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 6, verticalAlign: "-2px" }}>
@@ -26458,365 +25379,318 @@ ${jobsCtx || "No jobs found."}`;
     if (modal.type === "clientDetail") return renderClientDetailModal();
     if (modal.type === "clientEdit") return null;
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
-      // Job-level detail (existing)
-      const parent = tasks.find(x => x.id === fresh.id);
-      const dPanels = (parent && parent.subs) || [];
-      const dTotalAtt = dPanels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
-      const dCanEdit = can("editJobs");
-      // The design's three-view switcher, centred in the header row.
-      //
-      // The selected fill is a separate opacity layer rather than the button's
-      // own background, because background-image is not an interpolatable
-      // property -- `transition: background` across a gradient snaps instead of
-      // fading. Giving each segment its own always-mounted gradient span and
-      // animating only its opacity means pressing a new option fades the old
-      // segment's fill out while the new one's fades in, on the same curve, with
-      // no reflow. Nothing outside the control moves: the views themselves swap
-      // instantly, which is what was asked for.
-      const jdViewSeg = (
-        <div style={{ display: "flex", alignItems: "center", height: 34, boxSizing: "border-box", background: T.bg, borderRadius: T.radiusPill, padding: 3, flexShrink: 0 }}>
-          {[["tasks", "Tasks"], ["gantt", "Gantt"], ["split", "Split"]].map(([v, label]) => {
-            const on = jobDetailView === v;
-            return (
-              <button key={v} className="tq-noanim tq-pill-seg" onClick={() => setJobDetailView(v)}
-                style={{ position: "relative", height: 28, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, border: "none", borderRadius: T.radiusPill, padding: "0 18px", cursor: "pointer", fontFamily: T.font,
-                  background: "transparent", boxShadow: "none",
-                  // The label crossfades with the fill so the text never sits at
-                  // full accent-on-accent contrast mid-transition.
-                  color: on ? T.accentText : T.textDim, transition: "color 0.22s ease" }}>
-                <span aria-hidden="true" style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: brandGrad(T.accent), opacity: on ? 1 : 0, transition: "opacity 0.22s ease", pointerEvents: "none" }} />
-                <span style={{ position: "relative", zIndex: 1 }}>{label}</span>
-              </button>
-            );
-          })}
-        </div>
-      );
-      const dClient = fresh.clientId ? clients.find(c => sameId(c.id, fresh.clientId)) : null;
-      // ── Analytics ──────────────────────────────────────────────────────────
-      const dJob = parent || fresh;
-      const dOps = dPanels.flatMap(p => p.subs || []);
-      // Actual hours worked = confirmed/clocked time logged against this job's ops (uncapped).
-      const dLoggedH = dOps.reduce((s, op) => s + timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((a, e) => a + (e.hours || 0), 0), 0);
-      const dEstH = _jobHrs(dJob);
-      const dPct = _jobPct(dJob);
-      const dDoneOps = dOps.filter(op => op.status === "Finished").length;
-      const dTeamIds = [...new Set(dOps.flatMap(op => op.team || []))];
-      const dHealth = healthOf(dJob);
-      const dHealthColor = HEALTH_DOT[dHealth];
-      const dIsDone = dHealth === "done" || fresh.status === "Finished";
-      const dHealthLabel = dHealth === "ontime" ? "On Time" : dHealth === "behind" ? "Behind" : dHealth === "critical" ? "Late" : "Done";
-      const dDeadline = fresh.dueDate || fresh.end;
-      const dDaysLeft = dDeadline ? Math.round((new Date(dDeadline + "T12:00:00") - new Date(TD + "T12:00:00")) / 86400000) : null;
-      const dPctColor = pctRampColor(dPct, T.accent);
-      const infoRow = (label, node) => <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</span>
-        <span style={{ fontSize: 14, color: T.text, fontWeight: 400 }}>{node}</span>
-      </div>;
-      // Collapsible right-sidebar section with the TRAQS expand/collapse animation. Large header,
-      // chevron that rotates, body that grid-rows-animates open/closed. `extra` renders inline on
-      // the right of the header (e.g. the attachments view toggle).
-      // Main-column collapsible. Same grid-rows 0fr<->1fr animation as `sec`
-      // below, but sized for the centre column rather than the sidebar: a
-      // smaller header, no 34px section gap, and the chevron sits inline with
-      // the title so the row reads as one control.
-      const sec = (key, title, body, extra, first) => {
-        const open = !detailSecClosed[key];
-        return <div style={{ paddingTop: first ? 0 : 34 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer", userSelect: "none" }} onClick={() => setDetailSecClosed(p => ({ ...p, [key]: !p[key] }))}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-              <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              <span style={{ fontSize: 18, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-            </div>
-            {extra ? <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>{extra}</div> : null}
+      // ── Job Details (hi-fi Direction C, page 8) ──────────────────────────────
+      // Header, tabs, and on Details a General card of in-place fields, the
+      // Sub-jobs table (panels, each expanding to its tasks), collapsed Hours &
+      // approvals and History cards, and a Summary rail. Only data TRAQS stores:
+      // the design's Lead / Category / Location, Invoicing, Comments and edit
+      // history have no backing fields, so they are not drawn.
+      // scripts/job-detail-test.mjs
+      const job = tasks.find(x => x.id === fresh.id) || fresh;
+      const canEdit = can("editJobs");
+      const panels = (job.subs || []).filter(p => p && !p.deletedAt);
+      const pm = people.find(p => sameId(p.id, job.projectManagerId));
+      const jdRows = jobSessions(job, productionHours, sameId);
+      const crew = crewHours(jdRows).map(c => ({ ...c, person: people.find(p => sameId(p.id, c.pid)) }));
+      const hrs = _jobHoursPair(job);
+      const pct = _jobPct(job);
+      const appr = apprStateFor(job, 0, job.id, null) || { done: 0, total: 0 };
+      const totalAtt = panels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
+      const jdSave = (key, val) => commitCellEdit(job.id, key, val);
+      const fmtH = n => (Math.round((Number(n) || 0) * 10) / 10).toFixed(1);
+      const dayOf = r => r.date || String(r.clockIn || "").slice(0, 10);
+
+      const chipEl = (label, color) => label ? <span style={{ display: "inline-flex", alignItems: "center", fontSize: 11, fontWeight: 700, borderRadius: T.radiusPill, padding: "3px 10px", background: hexA(color, 0.16), color: elColor(color), whiteSpace: "nowrap", flexShrink: 0 }}>{label}</span> : null;
+      const countChip = n => <span style={{ fontSize: 10.5, fontWeight: 700, borderRadius: T.radiusPill, padding: "1px 7px", background: T.surface, color: T.textSec }}>{n}</span>;
+      const capLabel = { fontSize: 10.5, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" };
+      // The list-card surface the Jobs page uses: glass fill under Frosted Glass,
+      // and no backdrop blur (tq-list-card) -- these cards change height.
+      const cardCls = "tq-lglass tq-lglass-card tq-list-card";
+      const cardSx = { background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, padding: "16px 20px", minWidth: 0 };
+      // Collapsible card. Opens and closes instantly; open state rides on
+      // detailSecClosed like the old sections did. `defOpen` false = starts closed.
+      const jdCard = (key, title, body, { right = null, defOpen = true, flush = false } = {}) => {
+        const k = "jd-" + key;
+        const open = detailSecClosed[k] === undefined ? defOpen : !detailSecClosed[k];
+        return <div className={cardCls} style={cardSx}>
+          <div onClick={() => setDetailSecClosed(p => ({ ...p, [k]: open }))} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "none" : "rotate(-90deg)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
+            <b style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{title}</b>
+            <span style={{ flex: 1 }} />
+            {right && <div onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8 }}>{right}</div>}
           </div>
-          {/* grid-rows 0fr↔1fr is the only animated property; the top gap lives INSIDE the clipped
-              area (padding) so it collapses with the content instead of snapping. */}
-          <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
-            {/* overflow:hidden is what makes the collapse animate, and it clips at the
-                PADDING box — with no padding it sliced the hover halo off the controls
-                in here (the glow is a 22px blur): both sides, and the bottom off the
-                last field in the section. Padding on all four edges grows the clip box;
-                the equal negative margin on each pulls it back, so the content column
-                does not move and the row still measures to its content. The collapse
-                is unaffected — it is driven by grid-template-rows, and the padding is
-                cancelled to net zero in both states. */}
-            {/* pointerEvents none on the clip box, auto on the content: the 26px of
-                padding above overlaps the header row, and as a transparent hit target it
-                swallowed clicks on the title — you could open a section but only the
-                chevron would close it. The padding must not catch anything; the content
-                inside it still does. */}
-            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26, pointerEvents: "none" }}>
-              <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease", pointerEvents: "auto" }}>{body}</div>
+          {open && <div style={{ marginTop: 12, ...(flush ? { margin: "12px -20px -16px" } : {}) }}>{body}</div>}
+        </div>;
+      };
+
+      // ── General: in-place fields, each saved through commitCellEdit ─────────
+      const fieldBox = { display: "flex", alignItems: "center", width: "100%", boxSizing: "border-box", minHeight: 36, padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" };
+      const jdField = (key, label, kind = "text", opts = {}) => {
+        const val = job[key];
+        let control;
+        if (kind === "select") {
+          control = canEdit
+            ? <SimpleDrop pill portal key={job.id + key} value={opts.toValue ? opts.toValue(val) : (val ?? "")} placeholder="—" options={opts.options} onChange={v => jdSave(key, opts.fromValue ? opts.fromValue(v) : v)} />
+            : <div style={fieldBox}>{opts.display ? opts.display(val) : (val || "—")}</div>;
+        } else if (kind === "date") {
+          control = canEdit
+            ? <DateField compact portal value={val || ""} placeholder="—" onChange={v => jdSave(key, v || null)} />
+            : <div style={fieldBox}>{val ? fm(val) : "—"}</div>;
+        } else {
+          const num = kind === "number";
+          const commit = e => {
+            const raw = e.target.value;
+            const next = num ? (raw.trim() === "" ? null : Math.max(0, Number(raw) || 0)) : raw;
+            if (String(next ?? "") !== String(val ?? "")) jdSave(key, next);
+          };
+          control = kind === "area"
+            ? <textarea key={job.id + key + (val ?? "")} defaultValue={val ?? ""} disabled={!canEdit} rows={2} placeholder="—" onBlur={commit}
+                style={{ ...fieldBox, borderRadius: T.radiusSm, resize: "vertical", minHeight: 60, lineHeight: 1.5 }} />
+            : <input key={job.id + key + (val ?? "")} type={num ? "number" : "text"} min={num ? 0 : undefined} step={num ? "0.5" : undefined} defaultValue={val ?? ""} disabled={!canEdit} placeholder="—"
+                onBlur={commit} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} style={fieldBox} />;
+        }
+        return <label key={key} style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, ...(opts.span ? { gridColumn: opts.span } : {}) }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.textDim }}>{label}</span>
+          {control}
+        </label>;
+      };
+      const readField = (label, text) => <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: T.textDim }}>{label}</span>
+        <div style={{ ...fieldBox, color: T.textSec, background: "transparent" }}>{text}</div>
+      </div>;
+      // The org's list, plus the job's own value when it is not on it (an older or
+      // imported value like "finished") -- otherwise the field reads "—" while the
+      // header chip shows the real value.
+      const withCurrent = (list, cur) => [...(cur && !list.includes(cur) ? [cur] : []), ...list].map(v => ({ value: v, label: v }));
+      const clientOpts = [{ value: "", label: "—" }, ...clients.map(c => ({ value: String(c.id), label: c.name }))];
+      const pmOpts = [{ value: "", label: "—" }, ...people.map(p => ({ value: String(p.id), label: p.name }))];
+      const general = <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: "12px 28px" }}>
+        {jdField("jobNumber", "Job #")}
+        {jdField("clientId", "Client", "select", { options: clientOpts, toValue: v => (v == null ? "" : String(v)), fromValue: v => (v ? (clients.find(c => String(c.id) === v)?.id ?? v) : null), display: v => clients.find(c => sameId(c.id, v))?.name || "—" })}
+        {jdField("status", "Status", "select", { options: withCurrent(STATUSES, job.status) })}
+        {jdField("title", "Name")}
+        {jdField("projectManagerId", "Project manager", "select", { options: pmOpts, toValue: v => (v == null ? "" : String(v)), fromValue: v => (v ? (people.find(p => String(p.id) === v)?.id ?? v) : null), display: () => pm?.name || "—" })}
+        {jdField("pri", "Priority", "select", { options: withCurrent(PRIORITIES, job.pri) })}
+        {jdField("poNumber", "PO #")}
+        {readField("Start", job.start ? fm(job.start) : "—")}
+        {jdField("dueDate", "Due", "date")}
+        {jdField("hpd", "Est. hours / day", "number")}
+        {readField("End", job.end ? fm(job.end) : "—")}
+        <span />
+        {jdField("notes", "Notes", "area", { span: isMobile ? undefined : "1 / -1" })}
+      </div>;
+
+      // ── Sub-jobs: one row per panel, expanding (instantly) to its tasks ─────
+      const COLS = "104px minmax(150px, 2fr) minmax(130px, 1fr) 124px 78px 78px 64px 72px 36px";
+      const th = { padding: "9px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", background: T.surface, whiteSpace: "nowrap" };
+      const td = { padding: "9px 10px", fontSize: 12.5, color: T.text, display: "flex", alignItems: "center", gap: 7, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", borderTop: `1px solid ${T.border}` };
+      const statusChip = (node, pid) => {
+        const s = node.status || "Not Started";
+        return <span onClick={canEdit ? e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, STATUSES.length); setStatusPopover({ id: node.id, pid, current: s, x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); } : undefined}
+          style={{ cursor: canEdit ? "pointer" : "default", display: "inline-flex" }}>{chipEl(s, STA_C[s] || "#94a3b8")}</span>;
+      };
+      const whoCell = (ids, onPick) => {
+        const ps = (ids || []).map(id => people.find(p => sameId(p.id, id))).filter(Boolean);
+        return <div style={{ ...td, cursor: onPick ? "pointer" : "default" }} onClick={onPick}>
+          {ps.length === 0 ? <span style={{ color: T.textDim, fontStyle: "italic" }}>Unassigned</span>
+            : <><PersonAvatar person={ps[0]} size={20} /><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ps[0].name}</span>{ps.length > 1 && <span style={{ color: T.textDim }}>+{ps.length - 1}</span>}</>}
+        </div>;
+      };
+      const rowMenu = (node, parentId, kind, count) => canEdit ? <div style={{ ...td, justifyContent: "center", overflow: "visible" }}>
+        <button title="Rename" onClick={e => { e.stopPropagation(); setAskText({ title: `Rename ${kind}`, placeholder: "Name", value: node.title || "", cta: "Rename", onCommit: v => { const nm = String(v || "").trim(); if (nm) updTask(node.id, { title: nm }, parentId); } }); }}
+          style={{ width: 24, height: 24, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+        </button>
+        <button title={`Delete this ${kind}`} onClick={e => { e.stopPropagation(); setConfirmDelTask({ id: node.id, parentId, title: node.title || kind, kind: kind === "sub-job" ? "phase" : "task", count }); }}
+          style={{ width: 24, height: 24, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /></svg>
+        </button>
+      </div> : <div style={td} />;
+      const subJobs = <div style={{ overflowX: "auto" }}><div style={{ display: "grid", gridTemplateColumns: COLS, minWidth: 860 }}>
+        {["Sub-job", "Name", "Assignee", "Status", "Start", "End", "Est. h", "Actual h", ""].map((h, i) => <div key={i} style={th}>{h}</div>)}
+        {panels.map((panel, pi) => {
+          const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
+          const open = !!jdOpenPanels[panel.id];
+          const ph = _panelHoursPair(panel);
+          const teamIds = [...new Set([...(panel.team || []), ...ops.flatMap(o => o.team || [])].map(String))];
+          return <Fragment key={panel.id}>
+            <div style={{ ...td, cursor: "pointer", color: T.textDim, fontFamily: T.mono, fontSize: 12 }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "none" : "rotate(-90deg)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
+              {subJobNumber(job.jobNumber, pi) || "—"}
             </div>
+            <div style={{ ...td, cursor: "pointer" }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}><b style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{panel.title || "Untitled"}</b>{ops.length > 0 && countChip(ops.length)}</div>
+            {whoCell(teamIds)}
+            <div style={td}>{statusChip(panel, job.id)}</div>
+            <div style={{ ...td, fontFamily: T.mono }}>{panel.start ? fm(panel.start) : "—"}</div>
+            <div style={{ ...td, fontFamily: T.mono }}>{panel.end ? fm(panel.end) : "—"}</div>
+            <div style={{ ...td, fontFamily: T.mono }}>{ph.est ? fmtH(ph.est) : "—"}</div>
+            <div style={{ ...td, fontFamily: T.mono, color: ph.est > 0 && ph.logged > ph.est ? "#f59e0b" : T.accent, fontWeight: 600 }}>{fmtH(ph.logged)}</div>
+            {rowMenu(panel, job.id, "sub-job", ops.length)}
+            {open && ops.map(op => {
+              const oh = _opHoursPair(op);
+              return <Fragment key={op.id}>
+                <div style={td} />
+                <div style={{ ...td, paddingLeft: 26, color: T.textSec }}>{op.title || "Untitled"}</div>
+                {/* Assigning people is the reassign permission, not editJobs. */}
+                {whoCell(op.team, can("reassign") ? e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, Math.min(people.length + 1, 9), 35, 300); setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: op.id, pid: panel.id, title: op.title, start: op.start || null, end: op.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight }); } : undefined)}
+                <div style={td}>{statusChip(op, panel.id)}</div>
+                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{op.start ? fm(op.start) : "—"}</div>
+                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{op.end ? fm(op.end) : "—"}</div>
+                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{oh.est ? fmtH(oh.est) : "—"}</div>
+                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{fmtH(oh.logged)}</div>
+                {rowMenu(op, panel.id, "task", 0)}
+              </Fragment>;
+            })}
+            {open && canEdit && <div style={{ ...td, gridColumn: "1 / -1", paddingLeft: 140, color: T.textDim, fontWeight: 600, cursor: "pointer" }} onClick={() => jdAddOp(job.id, panel.id)}>+ Add task</div>}
+          </Fragment>;
+        })}
+        {panels.length === 0 && <div style={{ ...td, gridColumn: "1 / -1", color: T.textDim, justifyContent: "center", padding: 18 }}>No sub-jobs yet.</div>}
+        {canEdit && <div style={{ ...td, gridColumn: "1 / -1", color: T.textDim, fontWeight: 600, cursor: "pointer" }} onClick={() => jdAddPhase(job.id)}>+ Add sub-job</div>}
+      </div></div>;
+
+      // ── Hours (also the History card and the rail's activity) ───────────────
+      const sessionRow = r => {
+        const p = people.find(pp => sameId(pp.id, r.personId));
+        const op = panels.flatMap(pn => pn.subs || []).find(o => sameId(o.id, r.opId));
+        return <div key={r.id || `${r.personId}-${r.clockIn || r.date}-${r.hours}`} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${T.border}`, fontSize: 12.5 }}>
+          {p ? <PersonAvatar person={p} size={22} /> : <span style={{ width: 22 }} />}
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+            <b style={{ fontSize: 12.5, color: T.text }}>{p?.name || "Someone"} · {fmtH(r.hours)}h</b>
+            <span style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{op?.title || "Job time"} · {dayOf(r) ? fm(dayOf(r)) : "—"}</span>
           </div>
         </div>;
       };
-      const statCard = (label, val, color) => <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "9px 11px" }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: color || T.text, marginTop: 3, fontFamily: T.mono }}>{val}</div>
-      </div>;
-      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...(asPage ? pageFill : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
-        {/* ── Left: panel / operation details ── */}
-        {/* 34/32 as a page — the same padding frostScroll gives every other view, so this
-            title sits in the identical spot as the Schedule and Employees titles. */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", scrollbarGutter: "stable", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
-          {asPage
-            ? pageHead(fresh.title, {
-                center: jdViewSeg,
-                onBack: closeModal,
-                right: <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  {/* Export opens the standard export sheet already scoped to this job.
-                      Drawn icon, not an emoji — it inherits currentColor so it tracks the
-                      button's text in every theme. */}
-                  <Btn size="sm" variant="secondary" onClick={() => openJobExport(fresh)}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      Export
-                    </span>
-                  </Btn>
-                  {/* Stacks, so Back returns to this details page. */}
-                  <Btn size="sm" variant="secondary" onClick={() => pushModal({ type: "jobLog", data: fresh, parentId: null })}>Job Log</Btn>
-                  {dCanEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
-                </div>,
-              })
-            : <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
-                <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
-                <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
-                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh); closeModal(); }}>Edit</Btn>}
-              </div>}
-          {/* Meta summary only. The view switcher lives in the page header,
-              centred on the row, which is where the design puts it. */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>Project Plan</span>
-          </div>
-
-          {jobDetailView === "tasks" && renderJobTaskList(parent || fresh, false)}
-          {jobDetailView === "gantt" && renderProjectPlan(parent || fresh)}
-          {jobDetailView === "split" && (() => {
-            // Draggable divider. The panes are sized by FRACTION but each carries a
-            // hard min-width, and each scrolls internally -- so dragging past the
-            // floor rolls a pane's content under its own scroller instead of
-            // crushing the columns into slivers. That is the "roll over the
-            // information instead of squeezing it" behaviour: the divider simply
-            // stops travelling once a pane is at its floor.
-            const onGrip = (e) => {
-              e.preventDefault();
-              const host = e.currentTarget.parentElement;
-              if (!host) return;
-              const box = host.getBoundingClientRect();
-              const move = (ev) => {
-                const frac = (ev.clientX - box.left) / Math.max(1, box.width);
-                // Floors expressed as fractions of the CURRENT width, so a narrow
-                // window cannot drag either pane below what it can show.
-                const minL = Math.min(0.62, 300 / Math.max(1, box.width));
-                const minR = Math.min(0.62, 320 / Math.max(1, box.width));
-                setJobDetailSplit(Math.max(minL, Math.min(1 - minR, frac)));
-              };
-              const up = () => {
-                document.removeEventListener("pointermove", move);
-                document.removeEventListener("pointerup", up);
-                document.body.style.cursor = "";
-              };
-              document.body.style.cursor = "col-resize";
-              document.addEventListener("pointermove", move);
-              document.addEventListener("pointerup", up);
-            };
-            const f = Math.max(0.2, Math.min(0.8, Number(jobDetailSplit) || 0.42));
-            return <div style={{ display: "flex", alignItems: "stretch", gap: 0, minHeight: 380 }}>
-              <div style={{ width: `calc(${f * 100}% - 5px)`, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                {renderJobTaskList(parent || fresh, true)}
-              </div>
-              {/* 10px of grab area, with three bars so it is discoverable -- the
-                  same affordance the details sidebar's resize handle uses. */}
-              <div onPointerDown={onGrip} title="Drag to resize"
-                onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
-                onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
-                style={{ width: 10, flexShrink: 0, cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none" }}>
-                <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35, transition: "opacity 0.15s" }}>
-                  {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 3, height: 3, borderRadius: 3, background: T.textSec }} />)}
-                </div>
-              </div>
-              <div style={{ width: `calc(${(1 - f) * 100}% - 5px)`, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                {renderProjectPlan(parent || fresh, { labelless: true })}
-              </div>
-            </div>;
-          })()}
-
-          {/* No Panels card here. The v2 design has none -- the three views ARE
-              the page, and the Tasks list already names every phase and its
-              range. detailSecClosed still drives the right column. */}
+      const crewList = crew.length === 0
+        ? <div style={{ fontSize: 12.5, color: T.textDim }}>No hours logged yet.</div>
+        : crew.map(c => <div key={c.pid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", fontSize: 12.5 }}>
+            {c.person ? <PersonAvatar person={c.person} size={22} /> : <span style={{ width: 22 }} />}
+            <span style={{ color: T.text }}>{c.person?.name || "Someone"}</span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontFamily: T.mono, color: T.textSec }}>{fmtH(c.h)}h</span>
+          </div>);
+      const hoursTab = <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "300px 1fr", gap: 14, alignItems: "start" }}>
+        <div className={cardCls} style={cardSx}><div style={{ ...capLabel, marginBottom: 8 }}>By person</div>{crewList}</div>
+        <div className={cardCls} style={cardSx}>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}><div style={capLabel}>Sessions</div><span style={{ flex: 1 }} /><span style={{ fontSize: 12, color: T.textSec }}>{fmtH(jdRows.reduce((s, r) => s + (Number(r.hours) || 0), 0))}h total</span></div>
+          {jdRows.length === 0 ? <div style={{ fontSize: 12.5, color: T.textDim, paddingTop: 6 }}>No sessions recorded.</div> : jdRows.map(sessionRow)}
         </div>
-        {/* ── Right: Information · Notes · Attachments ── */}
-        {/* Resize handle — a sibling flex item, so it is full height for free and needs
-            no positioning tricks. 7px to be grabbable (a 1px border is not), pulled back
-            over the panel's border with a negative margin so it costs no layout width.
-            The three bars are the affordance: without them the handle is invisible and
-            nobody discovers the panel resizes. Centred vertically, dimmed until hover. */}
-        {!isMobile && detailSideOpen && <div onMouseDown={startDetailResize} title="Drag to resize"
-          onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
-          onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
-          style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35, transition: "opacity 0.15s ease", pointerEvents: "none" }}>
-            {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 3, height: 3, borderRadius: 3, background: T.textDim }} />)}
-          </div>
-        </div>}
-        {/* 30px of side padding, not 22. This panel scrolls, and an overflow scroller
-            clips at its padding box — so the hover halo on the controls inside
-            (.tq-drop is `0 6px 22px`, a 22px blur) was being sliced off at the right
-            edge. The padding has to clear the blur radius for the glow to survive. */}
-        {/* Collapsed on desktop: a tab poking out of the right edge. It keeps the
-            full height so it is easy to hit anywhere down the side, and the
-            chevron points LEFT -- the direction the panel travels when it comes
-            back. Mobile has no column to collapse (the sections stack under the
-            content), so the tab is desktop-only. */}
-        {!isMobile && !detailSideOpen && (
-          <div onClick={() => setDetailSideOpen(true)} title="Show information"
-            style={{ width: 22, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m14 6-6 6 6 6" /></svg>
-          </div>
-        )}
-        {(isMobile || detailSideOpen) && <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
-          {/* Collapse control, at the top of the column. Chevron points RIGHT --
-              where the panel is going. Sits above the section list rather than
-              beside a section title so it reads as acting on the whole column. */}
-          {!isMobile && <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, paddingTop: asPage ? 0 : 8 }}>
-            <button onClick={() => setDetailSideOpen(false)} title="Collapse information"
-              style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m10 6 6 6-6 6" /></svg>
-            </button>
-          </div>}
-          {/* Close-button header band — keeps the ✕ on its own row so the Information section
-              header doesn't sit level with it. Not needed as a page: the ✕ became a Back
-              pill in the LEFT column's title row, so reserving 56px here is dead space. */}
-          {!isMobile && !asPage && <div style={{ height: 56, flexShrink: 0 }} />}
-          {/* Information */}
-          {sec("info", "Information", <>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 8, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
-              {infoRow("Schedule", <span style={{ fontFamily: T.mono }}>{fm(fresh.start)} → {fm(fresh.end)}</span>)}
-              {infoRow("Est. hours", fresh.hpd > 0 ? `${fresh.hpd}h` : "—")}
-              {fresh.dueDate && infoRow("Customer Due Date", <span style={{ fontFamily: T.mono, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text }}>{fm(fresh.dueDate)}{fresh.dueDate < TD ? " · OVERDUE" : ""}</span>)}
-              {fresh.jobNumber && infoRow("Job #", <span style={{ fontFamily: T.mono }}>{fresh.jobNumber}</span>)}
-              {fresh.poNumber && infoRow("PO #", <span style={{ fontFamily: T.mono }}>{fresh.poNumber}</span>)}
-              {fresh.status && infoRow("Status", fresh.status)}
-              {fresh.pri && infoRow("Priority", fresh.pri)}
-              {/* Hours per panel, as "actual of needed". Enriches the existing Information
-                  rows rather than adding a Panels card — the v2 detail page deliberately
-                  has none (see the note in the left column), the three views are the page.
-                  Both figures come from _panelHoursPair, so this agrees with the progress
-                  percentage shown everywhere else instead of being a second calculation.
-                  Over-run panels read amber and past 100%, matching _panelPct. */}
-              {dPanels.length > 0 && <>
-                <div style={{ height: 1, background: T.border, margin: "4px 0 2px" }} />
-                {dPanels.map(panel => {
-                  const ph = _panelHoursPair(panel);
-                  const pOver = ph.est > 0 && ph.logged > ph.est;
-                  return infoRow(panel.title, (
-                    <span style={{ fontFamily: T.mono, color: pOver ? "#f59e0b" : T.text, whiteSpace: "nowrap" }}>
-                      {ph.logged.toFixed(1)} of {ph.est.toFixed(1)} hours
-                    </span>
-                  ));
-                })}
-              </>}
+      </div>;
+
+      // ── Files: panel attachments ───────────────────────────────────────────
+      const filesTab = <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {panels.length === 0 && <div className={cardCls} style={{ ...cardSx, color: T.textDim, fontSize: 12.5 }}>No sub-jobs to attach files to.</div>}
+        {panels.map(panel => {
+          const atts = panel.attachments || [];
+          return <div key={panel.id} className={cardCls} style={cardSx}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <b style={{ fontSize: 13.5, color: T.text }}>{panel.title || "Untitled"}</b>{countChip(atts.length)}
+              <span style={{ flex: 1 }} />
+              {canEdit && <label style={{ fontSize: 12, fontWeight: 700, color: T.accent, cursor: "pointer" }}>
+                <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: job.id, panelId: panel.id, opId: null })} />
+                + Add
+              </label>}
             </div>
-            {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-              {customCols.filter(c => !c.fieldKey).map(col => {
-                const key = "_cc_" + col.id;
-                const val = fresh[key] || "";
-                return <div key={col.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{col.label}</span>
-                  {col.type === "select" && (col.options || []).length > 0
-                    ? <SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => commitCellEdit(fresh.id, key, v)} />
-                    : col.type === "date"
-                    ? <DateField compact value={val || ""} placeholder="—" onChange={v => commitCellEdit(fresh.id, key, v)} />
-                    // No tq-sq here. That class is the opt-out from the app-wide pill
-                    // rule and exists for inline GRID-CELL editors, where a pill reads as
-                    // a floating chip in a table. This is the detail side panel, not a
-                    // cell — it should match the pill controls above it.
-                    : <input key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
-                </div>;
-              })}
-            </div>}
-          </>, null, true)}
-          {/* Notes */}
-          {sec("notes", "Notes", <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.bg})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.bgText, fontSize: 14, padding: "12px 14px", fontFamily: T.font, fontWeight: 400, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />)}
-          {/* Attachments */}
-          {sec("att", `Attachments${dTotalAtt ? ` (${dTotalAtt})` : ""}`, <>
-            {dPanels.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No panels to attach photos to.</div>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {dPanels.map(panel => {
-                const atts = panel.attachments || [];
-                return <div key={panel.id}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7, gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{panel.title} <span style={{ color: T.textDim, fontWeight: 500 }}>({atts.length})</span></span>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: T.accent, cursor: "pointer", flexShrink: 0 }}>
-                      <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: fresh.id, panelId: panel.id, opId: null })} />
-                      + Add
-                    </label>
-                  </div>
-                  {atts.length === 0
-                    ? <div style={{ fontSize: 11, color: T.textDim, paddingBottom: 2 }}>No photos.</div>
-                    : attView === "list"
-                      ? <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {atts.map(a => <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg }}>
-                            <span style={{ flexShrink: 0, lineHeight: 0 }}>{a.mimeType?.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
-                            <span onClick={() => setLightboxAtt(a)} title="View" style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "underline" }}>{a.filename}</span>
-                            {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: "none", background: T.danger + "22", color: T.danger, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
-                          </div>)}
-                        </div>
-                      : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {atts.map(a => <div key={a.key} style={{ position: "relative", width: 72 }}>
-                            <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
-                              {a.mimeType?.startsWith("image/")
-                                ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>}
-                            </div>
-                            {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
-                          </div>)}
-                        </div>}
-                </div>;
-              })}
-            </div>
-          </>, <div style={{ display: "flex", gap: 2, background: T.bg, borderRadius: T.radiusPill, padding: 2, border: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: T.radiusPill, border: "none", background: attView === "large" ? T.accent : T.surface, color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
-            <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: T.radiusPill, border: "none", background: attView === "list" ? T.accent : T.surface, color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
-          </div>)}
-          {/* Analytics */}
-          {sec("analytics", "Analytics", <>
-            {/* Progress */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Progress</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: dHealthColor, background: dHealthColor + "15", border: `1px solid ${dHealthColor}33`, borderRadius: 12, padding: "1px 8px" }}><span style={{ width: 7, height: 7, borderRadius: 8, background: dHealthColor }} />{dHealthLabel}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: dPctColor }}>{dPct}%</span>
-                </span>
+            {atts.length === 0 ? <div style={{ fontSize: 12, color: T.textDim }}>No files.</div>
+              : <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {atts.map(a => <div key={a.key} style={{ position: "relative", width: 88 }}>
+                    <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 88, height: 88, borderRadius: 14, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
+                      {a.mimeType?.startsWith("image/")
+                        ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <div style={{ width: "100%", height: "100%", display: "grid", placeItems: "center", color: T.textDim, fontSize: 11, padding: 6, textAlign: "center", overflow: "hidden" }}>{a.filename}</div>}
+                    </div>
+                    {canEdit && <button onClick={() => deletePanelAttachment({ jobId: job.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 12, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>}
+                  </div>)}
+                </div>}
+          </div>;
+        })}
+      </div>;
+
+      // ── Approvals: per sub-job sign-off state ──────────────────────────────
+      const approvalsTab = <div className={cardCls} style={cardSx}>
+        {panels.length === 0 ? <div style={{ fontSize: 12.5, color: T.textDim }}>No sub-jobs.</div> : panels.map(panel => {
+          const st = apprStateFor(panel, 1, job.id, panel.id);
+          return <div key={panel.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: `1px solid ${T.border}`, fontSize: 12.5 }}>
+            <b style={{ minWidth: 160, color: T.text }}>{panel.title || "Untitled"}</b>
+            {!st || !st.total ? <span style={{ color: T.textDim }}>No sign-off</span> : <>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
+                {(st.steps || []).map((s, i) => <span key={i} title={s.rec ? `${s.rec.byName || ""} · ${s.rec.at ? new Date(s.rec.at).toLocaleString() : ""}` : "Not signed"}>{chipEl(s.label || `Step ${i + 1}`, s.rec ? "#10b981" : "#94a3b8")}</span>)}
               </div>
-              <div style={{ height: 9, borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                <div style={{ width: `${pctBarWidth(dPct)}%`, height: "100%", background: dPctColor, borderRadius: 8, transition: "width 0.3s ease" }} />
-              </div>
+              <span style={{ fontFamily: T.mono, color: st.done === st.total ? "#10b981" : T.textSec }}>{st.done} / {st.total}</span>
+            </>}
+          </div>;
+        })}
+      </div>;
+
+      // ── Summary rail ───────────────────────────────────────────────────────
+      const stat = (v, l) => <div style={{ background: T.surface, borderRadius: T.radiusSm, padding: "10px 8px", textAlign: "center" }}>
+        <b style={{ display: "block", fontSize: 17, fontFamily: T.mono, color: T.text }}>{v}</b>
+        <small style={{ fontSize: 10.5, color: T.textDim }}>{l}</small>
+      </div>;
+      const summary = <div className={cardCls} style={{ ...cardSx, display: "flex", flexDirection: "column", alignSelf: "start" }}>
+        <div style={{ ...capLabel, marginBottom: 10 }}>Summary</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {stat(`${fmtH(hrs.logged)}h`, "Logged")}
+          {stat(`${fmtH(hrs.est)}h`, "Estimated")}
+          {stat(appr.total ? `${appr.done} / ${appr.total}` : "—", "Approved")}
+          {stat(`${pct}%`, "Progress")}
+        </div>
+        <div style={{ ...capLabel, margin: "16px 0 6px" }}>Team</div>
+        {crewList}
+        <div style={{ ...capLabel, margin: "16px 0 2px" }}>Activity</div>
+        {jdRows.length === 0 ? <div style={{ fontSize: 12.5, color: T.textDim, paddingTop: 6 }}>Nothing logged yet.</div> : jdRows.slice(0, 4).map(sessionRow)}
+      </div>;
+
+      // ── Details tab ────────────────────────────────────────────────────────
+      const lastDay = jdRows.length ? dayOf(jdRows[0]) : null;
+      const detailsTab = <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+        {jdCard("general", "General", general)}
+        {jdCard("subjobs", `Sub-jobs · ${panels.length}`, subJobs, { flush: true, right: canEdit ? <Btn size="sm" variant="secondary" onClick={() => jdAddPhase(job.id)}>+ New</Btn> : null })}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14, alignItems: "start" }}>
+          {jdCard("hoursappr", "Hours & approvals", <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, color: T.textSec }}>
+            <div>{fmtH(hrs.logged)}h logged of {fmtH(hrs.est)}h estimated · {pct}%</div>
+            <div>{appr.total ? `${appr.done} of ${appr.total} sign-off steps done` : "No sign-offs on this job"}</div>
+          </div>, { defOpen: false })}
+          {jdCard("history", "History", jdRows.length === 0 ? <div style={{ fontSize: 12.5, color: T.textDim }}>Nothing logged yet.</div> : jdRows.slice(0, 8).map(sessionRow),
+            { defOpen: false, right: lastDay ? <small style={{ color: T.textDim }}>Last logged {fm(lastDay)}</small> : null })}
+        </div>
+      </div>;
+
+      const TABS = [["details", "Details"], ["hours", "Hours"], ["files", "Files"], ["approvals", "Approvals"]];
+      const tabCount = { files: totalAtt, approvals: appr.total || 0 };
+      const tab = TABS.some(([k]) => k === jdTab) ? jdTab : "details";
+      const sta = job.status || "Not Started";
+      // Full page: pageFill stretches the box across the whole panel (no 1500px /
+      // 90vh popup pins), and the inner column is the one scroller. Every row in
+      // that column is flexShrink 0 -- a flex column squeezes overflow:auto
+      // children to nothing (the tabs row did exactly that) when content is tall.
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: "column", ...pageFill }} onClick={e => e.stopPropagation()}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: isMobile ? "visible" : "auto", scrollbarGutter: "stable", padding: isMobile ? "52px 18px 18px" : "24px 32px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Header: Back, #job + name, chips, actions. No breadcrumb. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", minHeight: isMobile ? 34 : 57, flexShrink: 0 }}>
+            {backBtn(closeModal)}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", minWidth: 0 }}>
+              <h1 style={{ ...pageTitleStyle, whiteSpace: "normal" }}>{job.jobNumber && <span style={{ fontWeight: 500, color: T.textDim, marginRight: 12 }}>#{job.jobNumber}</span>}{job.title || "Untitled job"}</h1>{titleActions}
+              {chipEl(sta, STA_C[sta] || "#94a3b8")}
+              {job.pri && chipEl(job.pri, PRI_C[job.pri] || "#94a3b8")}
             </div>
-            {/* Stats */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {statCard("Hours Worked", `${dLoggedH.toFixed(1)}h`, dHealthColor === HEALTH_DOT.critical && dLoggedH > dEstH ? "#ef4444" : undefined)}
-              {statCard("Estimated", `${dEstH.toFixed(1)}h`)}
-              {statCard("Remaining", `${Math.max(0, dEstH - dLoggedH).toFixed(1)}h`)}
-              {statCard("Operations", `${dDoneOps}/${dOps.length}`)}
-              {statCard("Panels", String(dPanels.length))}
-              {statCard("Team", String(dTeamIds.length))}
-              {statCard("Attachments", String(dTotalAtt))}
-              {statCard("Timeline", dIsDone ? "Done" : dDaysLeft == null ? "—" : dDaysLeft < 0 ? `${-dDaysLeft}d late` : `${dDaysLeft}d left`, dIsDone ? "#10b981" : dDaysLeft != null && dDaysLeft < 0 ? "#ef4444" : dDaysLeft != null && dDaysLeft <= 3 ? "#f59e0b" : undefined)}
+            <span style={{ flex: 1 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Btn size="sm" variant="secondary" onClick={() => openJobExport(fresh)}>Export</Btn>
+              {canEdit && <Btn size="sm" variant="secondary" onClick={() => duplicateJobAction(job)}>Duplicate</Btn>}
+              {canEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
             </div>
-          </>)}
-        </div>}
+          </div>
+          {/* Tabs */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, borderBottom: `1px solid ${T.border}`, overflowX: "auto", overflowY: "hidden", flexShrink: 0 }}>
+            {TABS.map(([k, label]) => <button key={k} onClick={() => setJdTab(k)}
+              style={{ padding: "9px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: tab === k ? 700 : 500, color: tab === k ? T.text : T.textDim, boxShadow: tab === k ? `inset 0 -2px 0 ${T.accent}` : "none", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+              {label}{tabCount[k] ? countChip(tabCount[k]) : null}
+            </button>)}
+          </div>
+          {tab === "details"
+            ? <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 320px", gap: 14, alignItems: "start", flexShrink: 0 }}>{detailsTab}{summary}</div>
+            : <div style={{ flexShrink: 0 }}>{tab === "hours" ? hoursTab : tab === "files" ? filesTab : approvalsTab}</div>}
+        </div>
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
@@ -26876,6 +25750,9 @@ ${jobsCtx || "No jobs found."}`;
   // "org-approval-templates" case and renderSettingsApprovalTemplates stay —
   // Business still routes there, this only removes the nav entry.
   ].filter(c => billingTier === "business" || c.key !== "org-approval-templates");
+  // The rail's single Organization button opens the first of these; the rest are
+  // tabs across the top of the Settings page (renderSettingsPage).
+  const SETTINGS_ORG_FIRST = SETTINGS_ORG_CHILDREN[0]?.key;
   // `group` is the sidebar entry you're under and becomes the page title;
   // `sub` is the specific page within it, shown small underneath. The two
   // top-level sections have no sub — their group IS the page, so nothing is
@@ -26945,8 +25822,8 @@ ${jobsCtx || "No jobs found."}`;
     } else if (section === "org-timeclock") {
       d = { payDates: [...(orgSettings.payDates || [5, 20])], payPeriodHourCap: orgSettings.payPeriodHourCap ?? 80, iosPayClockEnabled: !!orgSettings.iosPayClockEnabled, trackLunch: !!orgSettings.trackLunch, trackBreaks: !!orgSettings.trackBreaks, people: people.map(p => ({ ...p })) };
     } else if (section === "customization") {
-      // Theme uses its own draft trio (draftMode/draftCustom/draftSidebar); mirror the live theme in.
-      setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); setDisplayedPreview("jobs");
+      // Theme uses its own draft pair (draftMode/draftCustom); mirror the live theme in.
+      setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setPreviewView("jobs"); setDisplayedPreview("jobs");
     }
     setSettingsDraft(d);
     settingsPristineRef.current = d ? JSON.stringify(d) : null;
@@ -26960,7 +25837,7 @@ ${jobsCtx || "No jobs found."}`;
   // Is the current section dirty vs its pristine baseline?
   const computeSettingsDirty = () => {
     if (settingsSection === "customization") {
-      return draftMode !== themeMode || draftSidebar !== sidebarMode || (draftMode === "custom" && JSON.stringify(draftCustom) !== JSON.stringify(customTheme));
+      return draftMode !== themeMode || (draftMode === "custom" && JSON.stringify(draftCustom) !== JSON.stringify(customTheme));
     }
     if (!settingsDraft || settingsPristineRef.current == null) return false;
     return JSON.stringify(settingsDraft) !== settingsPristineRef.current;
@@ -27020,7 +25897,6 @@ ${jobsCtx || "No jobs found."}`;
       } else if (sec === "customization") {
         setThemeMode(draftMode);
         if (draftMode === "custom") setCustomTheme(draftCustom);
-        setSidebarMode(draftSidebar);
       }
       // Reset the dirty baseline: the draft we just committed is the new truth.
       if (sec !== "customization" && settingsDraft) settingsPristineRef.current = JSON.stringify(settingsDraft);
@@ -27055,16 +25931,12 @@ ${jobsCtx || "No jobs found."}`;
     setSettingsSection("general");
     loadSectionDraft("general");
     setSettingsMode(true);
-    // Always opens on the top-level settings nav, never straight into the
-    // Organization sub-page from a previous visit.
-    setSettingsOrgExpanded(false);
     runSettingsCrossfade();
   };
   const doExitSettings = () => {
     // Keep settingsDraft/pristine intact so the fading-out settings layer still shows its
     // content; the next enterSettings reloads the draft fresh.
     setSettingsMode(false);
-    setSettingsOrgExpanded(false);
     setSettingsGuard(null);
     setView(priorView || "tasks");
     runSettingsCrossfade();
@@ -27659,7 +26531,7 @@ ${jobsCtx || "No jobs found."}`;
     // Four-up grid of person tiles. Pressing a tile flips that person and leaves
     // them there; the page's own Save commits the draft, same as every other
     // control in this section.
-    const personTiles = ({ list, isOn, onToggle, animate = true }) => (
+    const personTiles = ({ list, isOn, onToggle }) => (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
         {list.map((p, i) => {
           const on = isOn(p);
@@ -27672,7 +26544,6 @@ ${jobsCtx || "No jobs found."}`;
                 border: `1.5px solid ${on ? T.accent : T.border}`,
                 background: on ? T.accent + "14" : T.surface,
                 transition: "border-color 0.14s, background 0.14s",
-                ...(animate ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` } : {}),
               }}>
               <PersonAvatar person={p} size={40} ring={on ? T.accent : null} />
               <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "—"}</span>
@@ -27727,11 +26598,9 @@ ${jobsCtx || "No jobs found."}`;
               const enabled = workers.filter(p => p.canClockInOut !== false).length;
               const setAll = (val) => patchDraft(dd => ({ people: (dd.people || []).map(p => ({ ...p, canClockInOut: val })) }));
               const setOne = (id) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, canClockInOut: p.canClockInOut === false } : p) }));
-              // Rows cascade in (staggerUp) only while open; toggling animation off↔on
-              // restarts it each time, so it replays on every expand.
-              const rowAnim = (i) => (clockAccessOpen
-                ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` }
-                : {});
+              // Rows used to cascade in (staggerUp) on every expand. Expanding
+              // lists no longer stagger (redesign pass 1); rows appear with the list.
+              const rowAnim = () => ({});
               return (<>
                 <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <div style={{ flex: 1 }}>
@@ -27756,7 +26625,6 @@ ${jobsCtx || "No jobs found."}`;
                         list: workers,
                         isOn: p => p.canClockInOut !== false,
                         onToggle: p => setOne(p.id),
-                        animate: clockAccessOpen,
                       })}
                     </div>
                   </div>
@@ -27796,7 +26664,6 @@ ${jobsCtx || "No jobs found."}`;
                       list: dp,
                       isOn: p => (p.payType || "hourly") !== "salary",
                       onToggle: (p, on) => updDraftPerson(p.id, { payType: on ? "salary" : "hourly" }),
-                      animate: payClockOpen,
                     })}
                   </div>
                 </div>
@@ -27900,23 +26767,14 @@ ${jobsCtx || "No jobs found."}`;
         `}</style>
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {/* Controls */}
-          <div style={{ width: 460, flexShrink: 0, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
-            <h1 style={{ ...pageTitleStyle, color: T.text, marginBottom: 18 }}>Customization</h1>
+          <div style={{ width: 460, flexShrink: 0, overflowY: "auto", padding: "24px 22px 20px", background: T.surfaceSolid || T.card }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}><h1 style={{ ...pageTitleStyle, color: T.text }}>Customization</h1>{titleActions}</div>
             <div style={card}>
               <div style={lbl}>Theme</div>
               <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                 {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                   const active = draftMode === th.id;
                   return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
-                })}
-              </div>
-            </div>
-            <div style={card}>
-              <div style={lbl}>Sidebar Behavior</div>
-              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                  const active = draftSidebar === opt.id;
-                  return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
                 })}
               </div>
             </div>
@@ -28092,16 +26950,11 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
                 <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
-                  <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 8, background: pSysText }} />)}
-                    </div>
-                  </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
                     {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
                   </div>
                 </div>
-                <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
+                <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", position: "relative", background: pT.bg }}>
                   {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
                     ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
                     : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
@@ -28260,7 +27113,7 @@ ${jobsCtx || "No jobs found."}`;
         {showBg && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", zIndex: 0, pointerEvents: "none" }} />}
         {/* Top row — breadcrumb + section title. Hidden on Customization so the split view fills the page. */}
         {/* Same top-left title as every other page. Padding matches frostScroll
-            (34 top / 32 left) so it lands in the identical spot when you switch
+            (24 top / 32 left) so it lands in the identical spot when you switch
             in and out of Settings. The section name + breadcrumb move to the
             RIGHT of it — they're the thing that used to sit here. */}
         {/* Title is the sidebar group you're in, with the specific page small
@@ -28272,9 +27125,24 @@ ${jobsCtx || "No jobs found."}`;
             its background run under the title, and so does this one now.
             The title switches to bgText for the same reason it does elsewhere: it sits
             on the page background, not on a card, so a surface-derived colour is wrong. */}
-        {!wide && <div style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: "34px 32px 12px", background: "transparent" }}>
-          <h1 style={pageTitleStyle}>{meta.group}</h1>
+        {!wide && <div style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: "24px 32px 12px", background: "transparent" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+            <h1 style={pageTitleStyle}>{meta.group}</h1>{titleActions}
+          </div>
           {meta.sub && <div style={{ fontSize: 13, fontWeight: 600, color: hexA(T.bgText || T.text, 0.7), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta.sub}</div>}
+          {/* Organization's pages, as tabs. They were a second list in the sidebar,
+              which a rail that never expands has no room for -- six text-only
+              entries with no icons. The rail keeps one Organization button. */}
+          {settingsSection.startsWith("org-") && <div role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 16 }}>
+            {SETTINGS_ORG_CHILDREN.map(c => { const on = settingsSection === c.key; return (
+              <button key={c.key} role="tab" aria-selected={on} onClick={() => { if (!on) navigateSection(c.key); }}
+                style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: `1px solid ${on ? T.accent : T.borderLight}`, background: on ? hexA(T.accent, 0.14) : T.surface, color: on ? T.text : T.textSec, fontSize: 12.5, fontWeight: on ? 700 : 600, cursor: on ? "default" : "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}
+                onMouseEnter={e => { if (!on) e.currentTarget.style.background = T.hover; }}
+                onMouseLeave={e => { if (!on) e.currentTarget.style.background = T.surface; }}>
+                {c.label}
+              </button>
+            ); })}
+          </div>}
         </div>}
         {/* Section body — full-bleed flex for Customization (split view), padded scroll otherwise.
             Save/Discard now render inline below the section's elements (see renderSettingsActions). */}
@@ -28319,65 +27187,8 @@ ${jobsCtx || "No jobs found."}`;
       <button onClick={() => doSaveRef.current()} style={{ padding: "6px 14px", borderRadius: T.radiusPill, border: "1px solid #fff", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Retry</button>
       <button onClick={() => setSaveError(null)} style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
     </div>}
-    {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
-    {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
-      {/* Nudged down with a relative offset rather than margin so the brand strip
-          keeps its height — a margin would grow the bar by the same 10px. */}
-      {/* Two cuts of the wordmark — the black one on paper, the white one on ink.
-          Replaces a brightness(0) filter on the white asset, which produced the same
-          pixels (it blackens colour but keeps alpha). Kept because the asset is now
-          the source of the colour instead of a filter, so a wordmark that ever stops
-          being flat single-colour will render correctly; the accent bar is a sibling
-          element and was never affected by the filter either way. */}
-      {/* Same black-or-white-on-a-surface question as text, so it uses the same rule
-          rather than its own 0.5 threshold. */}
-      {/* Same lockup as the login screen: live Space Grotesk thickened with
-          text-stroke, then the bars asset aligned to the real text baseline.
-          Was an image wordmark plus four hand-drawn divs, which is why the two
-          screens didn't match — the drawn bars were thinner, tighter and used
-          the theme accent instead of the mark's own sky. */}
-      <span
-        aria-label="TRAQS"
-        style={{
-          display: "inline-flex", alignItems: "baseline", flexShrink: 0,
-          marginLeft: 45, position: "relative", top: 5,
-          fontFamily: "'Space Grotesk', system-ui, sans-serif",
-          fontWeight: 700, letterSpacing: "-.05em", lineHeight: 1, fontSize: 40,
-          color: Tc.text,
-          WebkitTextStroke: `0.6px ${Tc.text}`,
-        }}
-      >
-        traqs
-        {/* The brand's 4-colour mark (coral/amber/sky/green — same asset the
-            signup/auth screens use, src/brand.jsx), replacing the old
-            grey-bars-plus-one-theme-accent-bar PNG. Fixed brand colours now,
-            not theme-derived, so no per-theme mask layer is needed. */}
-        {/* Sized and positioned to match the "s" glyph's own ink bounds exactly —
-            top of the mark at the top of the "s", bottom at its baseline — rather
-            than the auth lockup's ".52em" x-height ratio, which at this header's
-            smaller fontSize (40 vs the auth screen's 84) left a visible gap
-            against the letters. Measured directly: with Space Grotesk 700 40px,
-            canvas actualBoundingBoxAscent/Descent on "s" gives a 22px glyph
-            (baseline-21 to baseline+1); a zero-size baseline-aligned marker
-            placed the true baseline at screen Y, and the SVG's own rendered
-            rect was matched against it empirically rather than assumed —
-            baseline-alignment's synthesized baseline for a block-level SVG
-            shifts with the element's own height, so a value tuned at one size
-            does not carry over to another. */}
-        <TraqsBars style={{
-          height: ".55em", width: `calc(.55em * ${BARS_ASPECT})`,
-          marginLeft: ".07em", transform: "translateY(.025em)", WebkitTextStroke: 0,
-        }} />
-      </span>
-      {/* LEFT: Undo / Redo */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: 2, flexShrink: 0, marginTop: 8 }}>
-          <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${canUndo ? Tc.border : "transparent"}`, background: canUndo ? Tc.hover : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↩</button></Tip>
-          <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${canRedo ? Tc.border : "transparent"}`, background: canRedo ? Tc.hover : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↪</button></Tip>
-        </div>
-      </div>
-      {/* Flex spacer — pushes left cluster (logo + undo/redo) leftward while the center group floats absolutely. */}
-      <div style={{ flex: 1, minWidth: 0 }} />
+    {/* The top brand strip is gone (redesign pass 1): the logo mark, notifications and
+        profile moved into the rail, undo/redo and save state into each page's title row. */}
       {/* CENTER: Ask TRAQS — archived for now. Keep the markup intact so we can re-enable
           or relocate it later by flipping the `false` below to `true` (or to a real flag). */}
       {false && (
@@ -28385,7 +27196,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
             <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 240 : 110, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
               {!askExpanded
-                ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+                ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}44`, background: `${T.accent}12`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `${T.accent}22`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `${T.accent}12`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
                     Ask TRAQS
                   </button>
@@ -28399,317 +27210,162 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Tip label="Click to save now"><div onClick={() => doSave()} style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
-            {saveStatus === "saving"
-              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-              : saveStatus === "saved"
-              ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M20 6L9 17l-5-5"/></svg>
-              : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
-            <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? Tc.accent : Tc.textSec, display: "inline-block", minWidth: 52 }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
-          </div></Tip>
-        </div>
-        {/* Enable desktop (Windows) notifications — only on web, until granted */}
-        {canWebPush && pushPerm !== "granted" && (
-          <Tip label="Get Windows notifications for new messages & job updates">
-            <button onClick={async (e) => {
-              e.stopPropagation();
-              setPushBusy(true);
-              await registerAndSubscribe(getToken, orgCode);
-              setPushPerm(pushPermission());
-              setPushBusy(false);
-            }} disabled={pushBusy} style={{ background: "transparent", border: `1px solid ${Tc.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: pushBusy ? "default" : "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font, opacity: pushBusy ? 0.6 : 1 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              <span style={{ fontSize: 12, fontWeight: 600, color: Tc.textSec, letterSpacing: "-0.045em" }}>{pushBusy ? "Enabling…" : "Enable alerts"}</span>
-            </button>
-          </Tip>
-        )}
-        {/* Notification Bell */}
-        <div ref={notifRef} style={{ position: "relative" }}>
-          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusPill, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : Tc.textSec, letterSpacing: "-0.045em" }}>Notifications</span>
-            {hasNotifs && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 12, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
-          </button>
-          <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
-            <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase" }}>Notifications</div>
-              {unreadByThread.length > 0 && <button onClick={markAllThreadsRead} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
-            </div>
-            {!hasNotifs && (
-              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
-            )}
-            {timeOffNotifs.map((r, i) => (
-              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ flexShrink: 0, marginTop: 2, lineHeight: 0, color: r.type === "UTO" ? "#f59e0b" : "#10b981" }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Time off request</span>
-                    <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>Pending</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{r.personName}</strong> · {r.type} {timeOffNotifRange(r)}</div>
-                </div>
-              </div>
-            ))}
-            {unreadByThread.map((item, i) => {
-              const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
-              return <div key={item.threadKey} onClick={() => {
-                const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
-                const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
-                setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
-                setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-              }} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(timeOffNotifs.length + i) * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 8, height: 8, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 5 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-                    <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0, marginLeft: 8 }}>{item.count} new</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
-                </div>
-              </div>;
-            })}
-          </div></FadeOnClose>
-        </div>
-      </div>
-    </div>}
     {/* ── Body — sidebar + content ── */}
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: Tc.surfaceSolid }}>
-    {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {/* Shadow T with the chrome theme so the whole sidebar follows the System Color (bg + contrast
-        text/borders/hover). Nothing inside the sidebar sits on a card, so this is a clean swap. */}
-    {!isMobile && (() => { const T = Tc;
-      // Sidebar geometry. SB_W drives the <aside> below, NAV_PAD the nav column's
-      // side padding, and NAV_W the usable width between it — which is also the
-      // button width, so a collapsed button is exactly 40px and sits dead centre
-      // in the 64px rail ((64 - 40) / 2 = 12).
-      //
-      // NAV_PAD is deliberately CONSTANT. It, plus the button's own constant
-      // padding, is what fixes every icon's centre on x=32 (the rail's
-      // centreline) in BOTH states — so the icons never budge and only the pill
-      // and lettering animate. Vary either one and the icons shunt sideways as
-      // the sidebar opens.
-      //
-      // The whole chain is driven off ICON_SLOT so these three stay in sync:
-      //   NAV_PAD + (40 - ICON_SLOT)/2 + ICON_SLOT/2  ==  32, for any ICON_SLOT
-      // Change ICON_SLOT alone and the padding follows automatically; hard-coding
-      // the padding instead is what knocked the icons off-centre before.
-      const NAV_EASE = "cubic-bezier(0.22,1,0.36,1)";
-      const SB_W = sidebarExpanded ? 220 : 64;
-      const NAV_PAD = 12;
-      const NAV_W = SB_W - NAV_PAD * 2;
-      // Width of the shared icon slot. Tracks NAV_ICON — the px size the glyphs
-      // are actually rendered at — so the slot is never narrower than its glyph
-      // (a wider glyph would get flex-shrunk or clipped) and never wider (which
-      // would push the icon off the button's centre). Must stay <= 38 to leave
-      // the collapsed button a content box the slot fits inside.
-      const ICON_SLOT = NAV_ICON;
-      // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
-      // when expanded, circle when collapsed; no separate sliding indicator.
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: Tc.surfaceSolid }}>
+    {/* ── Left rail — mark, icon nav, notifications, profile ──
+        Redesign pass 1: a fixed icon rail that never expands. It took over the
+        old top brand strip, so it carries the logo mark, the notifications bell
+        and the profile menu (name, org, Upgrade, Log out); undo/redo and the save
+        state moved to each page's title row (titleActions).
+        T is shadowed with the chrome theme so the rail follows the System Color;
+        the popups it opens sit on the page, so they take the page theme (Tpage). */}
+    {!isMobile && ((Tpage) => { const T = Tpage;
+      const SB_W = RAIL_W;
+      // Every rail button is the same 54px circle, centred in the 88px rail --
+      // sized up so they are easy to hit. The active highlight IS the button's
+      // own fill, so it is a circle by construction; there is no separate
+      // sliding indicator to keep aligned.
+      const RAIL_BTN = 54;
+      // The mark sits on the same line as the page titles, which all match the
+      // dashboard greeting: 24px from the top (frostScroll's "24px 32px 28px",
+      // the greeting's padTop) in a 57px row (52px type at lineHeight 1.1), so
+      // the mark gets that row as its box and is centred in it.
+      const RAIL_PAD_TOP = 18;
+      const TITLE_ROW_TOP = 24, TITLE_ROW_H = 57;
+      // iOS-style floating nav. The column is the page itself; the nav is a
+      // frosted-glass capsule hung just under the mark (RAIL_GAP below the
+      // title row), and notifications + profile sit in a second capsule at the
+      // foot. RAIL_FOOT_CLEAR is the room the nav keeps above the bottom so it
+      // never runs into the foot: the capsule (up to 3 buttons, ~200px with its
+      // inset) plus the save mark above it (28px + 10px gap) -- past that it
+      // scrolls inside itself.
+      const RAIL_GAP = 20;
+      const RAIL_NAV_TOP = TITLE_ROW_TOP + TITLE_ROW_H + RAIL_GAP;
+      const RAIL_FOOT_CLEAR = 260;
+      // The pills follow the Frosted Glass setting (glassOn): on, a translucent
+      // page-surface fill blurred and saturated behind; off, a solid surface fill
+      // with no blur. Hairline edge either way, no drop shadow.
+      const railGlass = glassOn
+        ? { background: hexA(T.surface, 0.62), backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)", border: `1px solid ${hexA(T.text, 0.08)}` }
+        : { background: T.surface, border: `1px solid ${hexA(T.text, 0.08)}` };
       const navBtn = (active, o = {}) => ({
-        position: "relative",
-        // Left-aligned always, never `auto` margins — auto re-centres as the
-        // sidebar animates, which reads as a slide/glitch. The icon is centred
-        // in the collapsed rail by constant padding instead, so it holds its
-        // position through the whole animation rather than being pushed around.
-        // The button ANIMATES its width on the same curve and duration as the
-        // sidebar, so its overflow clips each label away progressively as the
-        // rail narrows. It used to snap from "100%" to 40px the instant the
-        // collapse began — percentages can't interpolate to px — which cut every
-        // label dead on frame one while the sidebar kept sliding for 280ms.
-        width: NAV_W,
-        height: o.h || 40,
-        // Locked to (40 - ICON_SLOT) / 2 so the icon slot exactly fills the
-        // collapsed button's content box and its centre lands on 9.5 + 10.5 = 20,
-        // i.e. half the 40px button — concentric with the circular active
-        // highlight, and on the 64px rail's centreline once NAV_PAD is added.
-        // Get this wrong and the icons sit off-centre inside their own highlight
-        // (an 11px pad with the 21px slot pushed them 2.5px right). Constant
-        // across states — see NAV_PAD above.
-        padding: `0 ${(40 - ICON_SLOT) / 2}px`,
-        // Half the height in px: a pill at full width, a true circle at 40px,
-        // and unlike radiusPill↔"50%" it interpolates instead of snapping.
-        borderRadius: (o.h || 40) / 2,
+        position: "relative", flexShrink: 0,
+        width: RAIL_BTN, height: RAIL_BTN, padding: 0,
+        borderRadius: "50%",
         border: o.border || "none",
-        background: active ? hexA(T.accent, 0.18) : (o.bg || "transparent"),
-        color: active ? T.accent : (o.color || T.text),
+        // Selected = a solid accent disc, its icon in the accent's own contrast colour.
+        background: active ? T.accent : (o.bg || "transparent"),
+        color: active ? T.accentText : (o.color || T.textSec),
         boxShadow: "none",
-        cursor: "pointer", fontFamily: T.font, fontSize: o.fs || 13,
-        fontWeight: active ? 700 : (o.fw || 500),
-        display: "flex", alignItems: "center",
-        justifyContent: "flex-start",
-        gap: 12,
-        // NOTE: no `transition` here — the universal button rule in the
-        // stylesheet overrides any inline one with !important. The width/colour
-        // transition for these buttons lives in the `.tq-sidebar button` rule.
-        overflow: "hidden", whiteSpace: "nowrap",
+        cursor: "pointer", fontFamily: T.font,
+        display: "flex", alignItems: "center", justifyContent: "center",
         ...o.extra,
       });
-      // Fixed-width, CENTRED icon slot shared by every sidebar button.
-      //
-      // Glyphs are aligned by this slot, never by their own left edge — equal left
-      // edges but unequal widths means unequal centres, which is how the toggle
-      // ended up reading ~1.5px right of the nav icons below it.
-      //
-      // The slot centres every icon on one axis and puts that axis exactly on the
-      // collapsed rail's centre: button padding + half the slot = 20px = half the
-      // 40px button. So the icons line up with each other, sit concentric inside
-      // the round active highlight, AND sit dead-centre when collapsed.
-      //
-      // The settings sub-nav still renders 15/16px glyphs into this slot — they
-      // are centred correctly, just smaller than the main nav's 21px.
-      const navIcon = { display: "flex", alignItems: "center", justifyContent: "center", width: ICON_SLOT, flexShrink: 0, lineHeight: 0 };
-      return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: SB_W, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: `width 0.28s ${NAV_EASE}`, overflow: "hidden", position: "relative", zIndex: 100 }}>
-      {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
-      {/* No borderBottom — the hairline under the toggle read as a stray seam.
-          The SPACING it sat in is deliberate and unchanged (12px bottom padding
-          + 10px margin): the toggle is a separate control from the nav list and
-          still wants that breathing room, just without a rule drawn through it.
-          `border-color` is dropped from the transition list along with it. */}
-      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
-        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
-          <span style={navIcon}>
-            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-          </span>
-        </button>
+      const navIcon = { display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 0 };
+      // Hover names the button: the label is placed just right of the button's
+      // own box and fades in; leaving fades it out (the label text is kept so it
+      // fades rather than vanishing). A press hides it at once.
+      const tipFor = (label, el) => { const r = el.getBoundingClientRect(); setRailTip({ label, left: r.right + 10, top: r.top + r.height / 2, on: true }); };
+      const railTipOff = () => setRailTip(t => (t.on ? { ...t, on: false } : t));
+      // Hover reads the selection off the DOM (data-nav-active), not a render-time
+      // `active`: between a press and the commit that closure is stale.
+      const hoverIn = (label, bg = T.hover) => e => { if (!isNavActive(e.currentTarget)) e.currentTarget.style.background = bg; tipFor(label, e.currentTarget); };
+      const hoverOut = (bg = "transparent") => e => { if (!isNavActive(e.currentTarget)) e.currentTarget.style.background = bg; railTipOff(); };
+      // Selection paint, shared by the press and the per-commit sync.
+      const railColors = { on: T.accent, onInk: T.accentText, off: "transparent", offInk: T.textSec };
+      railColorsRef.current = railColors;
+      railActiveKeyRef.current = settingsMode
+        ? "settings:" + (settingsSection.startsWith("org-") ? "org-parent" : settingsSection)
+        : view;
+      // Paint the pressed button on mouse-down so the highlight moves with the
+      // press instead of after the new page has rendered (railPress.js).
+      const pressNav = e => { railTipOff(); if (e.button !== 0) return; paintPress(e.currentTarget, Object.values(navBtnRefs.current), railColors); };
+      const divider = (m = "6px 0") => <div aria-hidden="true" style={{ width: 28, height: 1, background: T.border, margin: m, flexShrink: 0 }} />;
+      const backIcon = <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>;
+      // A popup the rail opens, to the right of the rail, anchored to the bottom.
+      const railPop = { position: "fixed", left: SB_W + 10, bottom: 14, background: Tpage.card, border: `1px solid ${Tpage.borderLight}`, borderRadius: Tpage.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.22)", zIndex: 9999, overflow: "hidden", fontFamily: Tpage.font };
+      return (<aside className="tq-sidebar" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SB_W, background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", padding: `${RAIL_PAD_TOP}px 0 14px`, boxSizing: "border-box", overflow: "hidden", zIndex: 100 }}>
+      {/* The logo mark. The wireframe's drawn bars are not ours; this is the
+          real 4-colour mark from src/brand.jsx. Its box is the page-title row. */}
+      <div aria-label="TRAQS" style={{ marginTop: TITLE_ROW_TOP - RAIL_PAD_TOP, height: TITLE_ROW_H, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 0 }}>
+        <TraqsBars style={{ width: 38, height: 38 / BARS_ASPECT }} />
       </div>
-      {/* Nav buttons */}
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? `0 ${NAV_PAD}px 0` : `12px ${NAV_PAD}px 0`, flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+      {/* The nav takes the space between the mark and the foot, and scrolls (bar
+          hidden) when that space runs out: with 54px buttons the full rail is
+          ~920px tall, more than a 14" laptop window, and overflow:hidden on the
+          rail would otherwise clip the bell and the avatar off the bottom. */}
+      <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", ...railGlass, borderRadius: T.radiusPill, padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
         {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
-        {!settingsMode && <div style={settingsNavLayer(false)}>
+        {!settingsMode && <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: 4 }}>
         {views.map(v => {
           const active = view === v.id;
-          // Time Clock is a plain nav button → the Time Sheet page. Its old "Time Settings"
-          // child moved into the full-page Settings (Organization › Time Clock).
           return (
             <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
-              style={navBtn(active)}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-              onMouseDown={() => tipCtx.hide()}>
+              aria-label={v.label} data-nav-active={active ? "1" : "0"} style={navBtn(active)}
+              onMouseEnter={hoverIn(v.label)} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
               <span style={navIcon}>{v.icon}</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
             </button>
           );
         })}
-        {/* Divider — separates the main nav from Admin/Settings below it */}
-        <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 6px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
+        {divider()}
         {/* Admin — live worker-status board (admins only) */}
         {isAdmin && (() => {
           const active = view === "admin";
           return (
             <button ref={el => { navBtnRefs.current["admin"] = el; }} onClick={() => switchView("admin")}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-              onMouseDown={() => tipCtx.hide()}
-              style={navBtn(active)}>
+              aria-label="Admin" data-nav-active={active ? "1" : "0"} style={navBtn(active)}
+              onMouseEnter={hoverIn("Admin")} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
               <span style={navIcon}>
                 <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
             </button>
           );
         })()}
         {/* Settings — enters the full-page Settings view (available to everyone) */}
-        <button onClick={enterSettings}
-          onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.hover; }}
-          onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
-          onMouseDown={() => tipCtx.hide()}
-          style={navBtn(false)}>
+        <button onClick={enterSettings} aria-label="Settings" style={navBtn(false)}
+          onMouseEnter={hoverIn("Settings")} onMouseLeave={hoverOut()} onMouseDown={railTipOff}>
           <span style={navIcon}>
             <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
-          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
         </button>
-        {/* (Old sidebar Settings dropdown removed — replaced by the full-page Settings view above.) */}
         </div>}
-        {/* ─── Settings navigation — General / Organization ▾ / Customization / FAST TRAQS ─── */}
+        {/* ─── Settings navigation — Back / General / Organization / Customization / FAST TRAQS ───
+            Organization's own pages are tabs inside the Settings page now
+            (renderSettingsPage), so the rail has one button for all of them. */}
         {settingsMode && (() => {
-          const navItem = (key, label, icon) => { const activeS = settingsSection === key; return (
-            <button key={key} ref={el => { navBtnRefs.current["settings:" + key] = el; }} onClick={() => navigateSection(key)}
-              onMouseEnter={e => { if (!activeS) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(label, e.clientX, e.clientY); }}
-              onMouseLeave={e => { if (!activeS) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-              onMouseDown={() => tipCtx.hide()}
-              style={navBtn(activeS)}>
+          const navItem = (key, label, icon, active, onClick) => (
+            <button key={key} ref={el => { navBtnRefs.current["settings:" + key] = el; }} onClick={onClick}
+              aria-label={label} data-nav-active={active ? "1" : "0"} style={navBtn(active)}
+              onMouseEnter={hoverIn(label)} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
               <span style={navIcon}>{icon}</span>
-              <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
             </button>
-          ); };
-          // Organization is its own full sidebar page now, not an inline dropdown —
-          // the same "swap the whole nav list" pattern Settings itself uses to
-          // replace the main app nav. settingsOrgExpanded is the page flag; entering
-          // and exiting Settings both reset it (enterSettings/doExitSettings) so a
-          // stale "on the Organization page" state never survives a re-entry.
-          if (settingsOrgExpanded) {
-            return (
-              <div style={settingsNavLayer(true)}>
-                {/* Back — returns to the top-level settings nav, not out of Settings.
-                    No dirty-guard needed: this only changes which nav list renders,
-                    the same as the old dropdown's expand/collapse never guarded either
-                    — navigateSection is what guards, and it still runs on every actual
-                    section click below. */}
-                <button onClick={() => setSettingsOrgExpanded(false)}
-                  onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Back", e.clientX, e.clientY); }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                  onMouseDown={() => tipCtx.hide()}
-                  style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
-                  <span style={navIcon}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
-                  <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
-                </button>
-                <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
-                {SETTINGS_ORG_CHILDREN.map(c => { const a = settingsSection === c.key; return (
-                  <button key={c.key} ref={el => { navBtnRefs.current["settings:" + c.key] = el; }} onClick={() => navigateSection(c.key)}
-                    onMouseEnter={e => { if (!a) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(c.label, e.clientX, e.clientY); }}
-                    onMouseLeave={e => { if (!a) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                    onMouseDown={() => tipCtx.hide()}
-                    style={navBtn(a)}>
-                    <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
-                  </button>
-                ); })}
-              </div>
-            );
-          }
+          );
+          const orgActive = settingsSection.startsWith("org-");
           return (
-            <div style={settingsNavLayer(true)}>
+            <div style={{ ...settingsNavLayer(true), alignItems: "center", gap: 4 }}>
               {/* Back — exits the full-page settings (guards unsaved changes) */}
-              <button onClick={requestExitSettings}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Back", e.clientX, e.clientY); }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                onMouseDown={() => tipCtx.hide()}
-                style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
-                <span style={navIcon}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
+              <button onClick={requestExitSettings} aria-label="Back" style={navBtn(false)}
+                onMouseEnter={hoverIn("Back")} onMouseLeave={hoverOut()} onMouseDown={railTipOff}>
+                <span style={navIcon}>{backIcon}</span>
               </button>
-              {/* Divider — separates Back from the settings sections */}
-              <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
-              {navItem("general", "General", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>)}
-              {/* Organization now NAVIGATES to its own sidebar page (see the
-                  settingsOrgExpanded branch above) rather than expanding in place. */}
-              {can("orgSettings") && <button ref={el => { navBtnRefs.current["settings:org-parent"] = el; }} onClick={() => setSettingsOrgExpanded(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                onMouseDown={() => tipCtx.hide()}
-                style={navBtn(false)}>
-                <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "rotate(0deg)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-              </button>}
-              {navItem("customization", "Customization", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>)}
+              {divider()}
+              {navItem("general", "General", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>, settingsSection === "general", () => navigateSection("general"))}
+              {can("orgSettings") && SETTINGS_ORG_FIRST && navItem("org-parent", "Organization", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, orgActive, () => { if (!orgActive) navigateSection(SETTINGS_ORG_FIRST); })}
+              {navItem("customization", "Customization", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>, settingsSection === "customization", () => navigateSection("customization"))}
               {/* Divider — sets FAST TRAQS apart from the settings sections */}
-              {can("editJobs") && <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "8px 12px 4px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />}
+              {can("editJobs") && divider("8px 0 4px")}
               {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "22"; if (!sidebarExpanded) tipCtx.show("FAST TRAQS", e.clientX, e.clientY); }}
-                onMouseLeave={e => { e.currentTarget.style.background = T.accent + "12"; tipCtx.hide(); }}
-                onMouseDown={() => tipCtx.hide()}
-                style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44`, fw: 700, extra: { marginTop: 6 } })}>
-                <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.045em" }}>FAST TRAQS</span>
+                aria-label="FAST TRAQS"
+                onMouseEnter={hoverIn("FAST TRAQS", T.accent + "22")}
+                onMouseLeave={hoverOut(T.accent + "12")}
+                onMouseDown={railTipOff}
+                style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44` })}>
+                <span style={navIcon}><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
               </button>}
             </div>
           );
         })()}
-      </div>
+      </nav>
       {upgradeOpen && (() => {
         const row = (label, inBasic) => (
           <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12.5, color: inBasic ? T.text : T.textDim }}>
@@ -28763,53 +27419,134 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>;
       })()}
-
-      {/* UPGRADE — bottom of Settings, above the org name and profile.
-
-          Just the button. The card that was here carried a heading and a
-          feature sentence, which is the comparison modal's job -- saying it
-          twice made the sidebar argue with the dialog it opens.
-
-          Hidden for orgs already on Business: there is nothing to upgrade to,
-          and a live Upgrade button on a paid plan reads as a billing error. */}
-      {settingsMode && sidebarExpanded && can("orgSettings") && billingTier !== "business" && (
-        <button onClick={() => setUpgradeOpen(true)} style={{
-          margin: "0 12px 10px", padding: "9px 0", flexShrink: 0,
-          borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent),
-          color: T.accentText, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-          fontFamily: T.font, boxShadow: `0 0 20px ${T.accent}55`,
-        }}>
-          Upgrade
-        </button>
-      )}
-      {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
-      <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: "22px" }}>{orgName}</div>
-      </div>
-      {/* Profile — avatar always; name + logout fade in when expanded */}
-      <div style={{ padding: "4px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ position: "relative", width: 32, height: 32, flexShrink: 0 }}>
-          <PersonAvatar person={loggedInUser} size={32} />
-          {!sidebarExpanded && <Tip label={`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`}>
-            <div style={{ position: "absolute", inset: 0 }} />
-          </Tip>}
+      {/* ─── Foot of the rail: desktop alerts, notifications, profile ─── */}
+      <div className="tq-rail-foot" style={{ position: "absolute", left: 0, right: 0, bottom: 14, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+       {/* Save state, on the background above the bell: no pill, just the mark.
+           Spinner while a save is pending or in flight (edits debounce 1s), a
+           check once saved, an X when the last save failed (saveError). Click
+           saves now. */}
+       {(() => {
+         const failed = !!saveError;
+         const busy = !failed && saveStatus !== "saved";
+         const label = failed ? "Save failed — click to retry" : busy ? "Saving…" : "Saved";
+         return (
+           <button className="tq-rail-save" onClick={() => doSave()} aria-label={label}
+             onMouseEnter={e => tipFor(label, e.currentTarget)} onMouseLeave={railTipOff}
+             style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 0, flexShrink: 0 }}>
+             {failed
+               ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="3" strokeLinecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+               : busy
+               ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" style={{ animation: "spin 1s linear infinite" }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+               : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1D7D5C" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>}
+           </button>
+         );
+       })()}
+       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 7 }}>
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, ...railGlass, borderRadius: T.radiusPill, pointerEvents: "none" }} />
+        {/* Enable desktop (Windows) notifications — only on web, until granted */}
+        {canWebPush && pushPerm !== "granted" && (
+          <button onClick={async (e) => {
+            e.stopPropagation();
+            railTipOff();
+            setPushBusy(true);
+            await registerAndSubscribe(getToken, orgCode);
+            setPushPerm(pushPermission());
+            setPushBusy(false);
+          }} disabled={pushBusy} aria-label="Enable alerts"
+            onMouseEnter={hoverIn(pushBusy ? "Enabling…" : "Get Windows notifications for new messages & job updates")} onMouseLeave={hoverOut()}
+            style={navBtn(false, { extra: { cursor: pushBusy ? "default" : "pointer", opacity: pushBusy ? 0.6 : 1 } })}>
+            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </button>
+        )}
+        {/* Notification Bell */}
+        <div ref={notifRef} style={{ position: "relative", zIndex: 1 }}>
+          <button onClick={e => { e.stopPropagation(); railTipOff(); setNotifOpen(p => !p); }} aria-label="Notifications"
+            data-nav-active={notifOpen ? "1" : "0"} onMouseEnter={hoverIn("Notifications")} onMouseLeave={hoverOut()}
+            style={navBtn(notifOpen)}>
+            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 12, background: "#ef4444", boxShadow: `0 0 0 2px ${T.surfaceSolid || T.surface}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px", boxSizing: "border-box" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
+          </button>
+          {((T) => <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ ...railPop, width: 320 }}>
+            <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase" }}>Notifications</div>
+              {unreadByThread.length > 0 && <button onClick={markAllThreadsRead} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
+            </div>
+            {!hasNotifs && (
+              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
+            )}
+            {timeOffNotifs.map((r, i) => (
+              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ flexShrink: 0, marginTop: 2, lineHeight: 0, color: r.type === "UTO" ? "#f59e0b" : "#10b981" }}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Time off request</span>
+                    <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>Pending</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{r.personName}</strong> · {r.type} {timeOffNotifRange(r)}</div>
+                </div>
+              </div>
+            ))}
+            {unreadByThread.map((item, i) => {
+              const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
+              return <div key={item.threadKey} onClick={() => {
+                const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
+                const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
+                setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
+                setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
+              }} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 5 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+                    <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0, marginLeft: 8 }}>{item.count} new</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
+                </div>
+              </div>;
+            })}
+          </div></FadeOnClose>)(Tpage)}
         </div>
-        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2, overflow: "hidden", whiteSpace: "nowrap", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>{loggedInUser.name}</div>
-          <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
-        </div>
-        <div style={{ flexShrink: 0, pointerEvents: sidebarExpanded ? "auto" : "none" }}>
-          <Tip label="Log out">
-            <button onClick={() => setConfirmLogout(true)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s, border-color 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#ef444411"; e.currentTarget.style.borderColor = "#ef444455"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>
+        {/* Profile — the avatar opens the menu that holds what the expanded
+            sidebar used to show: name and role, org, Upgrade, Log out. */}
+        <div ref={profileRef} style={{ position: "relative", zIndex: 1 }}>
+          <button onClick={e => { e.stopPropagation(); railTipOff(); setProfileMenuOpen(p => !p); }} aria-label="Profile"
+            onMouseEnter={e => { if (!profileMenuOpen) tipFor(`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`, e.currentTarget); }}
+            onMouseLeave={railTipOff}
+            style={{ width: RAIL_BTN, height: RAIL_BTN, padding: 0, border: "none", borderRadius: "50%", background: profileMenuOpen ? hexA(T.accent, 0.16) : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <PersonAvatar person={loggedInUser} size={40} />
+          </button>
+          {((T) => <FadeOnClose open={profileMenuOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ ...railPop, width: 240, padding: 14, boxSizing: "border-box" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <PersonAvatar person={loggedInUser} size={36} />
+              <div style={{ minWidth: 0, lineHeight: 1.25 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{loggedInUser.name}</div>
+                <div style={{ fontSize: 11, color: isAdmin ? T.accent : T.textDim, fontWeight: 600 }}>{isAdmin ? "Admin" : "Crew"}</div>
+              </div>
+            </div>
+            {orgName && <div style={{ marginTop: 12, fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orgName}</div>}
+            {/* Hidden for orgs already on Business: there is nothing to upgrade to,
+                and a live Upgrade button on a paid plan reads as a billing error. */}
+            {can("orgSettings") && billingTier !== "business" && (
+              <button onClick={() => { setProfileMenuOpen(false); setUpgradeOpen(true); }} style={{
+                width: "100%", marginTop: 12, padding: "9px 0",
+                borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent),
+                color: T.accentText, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font,
+              }}>
+                Upgrade
+              </button>
+            )}
+            <button onClick={() => { setProfileMenuOpen(false); setConfirmLogout(true); }} style={{ width: "100%", marginTop: 8, padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.borderLight}`, background: T.surface, color: "#ef4444", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Log out
             </button>
-          </Tip>
+          </div></FadeOnClose>)(Tpage)}
         </div>
+       </div>
       </div>
-    </aside>); })()}
-    <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderTopRightRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomRightRadius: isMobile ? 0 : SHELL_RADIUS }}>
+          {/* Hover label — fixed, so the rail's overflow:hidden does not clip it. */}
+      <div aria-hidden="true" style={{ position: "fixed", left: railTip.left, top: railTip.top, transform: "translateY(-50%)", zIndex: 10000, pointerEvents: "none", whiteSpace: "nowrap", padding: "7px 13px", borderRadius: Tpage.radiusPill, background: Tpage.text, color: Tpage.bg, fontFamily: Tpage.font, fontSize: 13, fontWeight: 600, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", opacity: railTip.on ? 1 : 0, transition: "opacity 0.12s ease" }}>{railTip.label}</div>
+    </aside>); })(T)}
+    <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, paddingLeft: isMobile ? 0 : RAIL_W, boxSizing: "border-box", borderTopLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderTopRightRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomRightRadius: isMobile ? 0 : SHELL_RADIUS }}>
       {/* base fills the layer with the page colour so the blurred blobs composite
           over something OPAQUE. Without it, blur() samples the transparent pixels
           at the panel's rounded clip edge and darkens the corners. */}
@@ -28998,15 +27735,6 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
             </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Sidebar</div>
-              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                  const active = sidebarMode === opt.id;
-                  return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "6px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
-                })}
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -29164,16 +27892,6 @@ ${jobsCtx || "No jobs found."}`;
                   })}
                 </div>
               </div>
-              {/* ── Sidebar Behavior ── */}
-              <div style={card}>
-                <div style={lbl}>Sidebar Behavior</div>
-                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                  {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                    const active = draftSidebar === opt.id;
-                    return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
-                  })}
-                </div>
-              </div>
               {isCustom && <>
                 {/* ── Colors ── */}
                 <div style={card}>
@@ -29316,13 +28034,8 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {/* row: sidebar + content */}
                 <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-                  {/* sidebar (solid chrome) — Button mode fades in a toggle on top, sliding icons down */}
+                  {/* sidebar (solid chrome) — a fixed icon rail */}
                   <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
-                    <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 8, background: pSysText }} />)}
-                      </div>
-                    </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
                       {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
                     </div>
@@ -29330,7 +28043,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* rounded content panel with the background image. Its own value, not
                       SHELL_RADIUS: the mock is about a fifth of the real panel's size, so the
                       panel's corner copied literally would read as a blob at this scale. */}
-                  <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
+                  <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", position: "relative", background: pT.bg }}>
                   {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
                     ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
                     : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
@@ -29470,7 +28183,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Changes preview live and apply only when you save.</span>
             <Btn variant="secondary" onClick={() => setCustomizationOpen(false)}>Cancel</Btn>
-            <Btn onClick={() => { setThemeMode(draftMode); if (draftMode === "custom") setCustomTheme(draftCustom); setSidebarMode(draftSidebar); setCustomizationOpen(false); }}>Save Changes</Btn>
+            <Btn onClick={() => { setThemeMode(draftMode); if (draftMode === "custom") setCustomTheme(draftCustom); setCustomizationOpen(false); }}>Save Changes</Btn>
           </div>
         </div>
       </div>;
@@ -29745,7 +28458,7 @@ ${jobsCtx || "No jobs found."}`;
                     const on = sel.has(String(p.id));
                     const salary = !isHourly(p);
                     return <div key={p.id} onClick={() => toggle(p.id)}
-                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: on ? T.accent + "10" : "transparent" }}
+                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", background: on ? T.accent + "10" : "transparent" }}
                       onMouseEnter={e => e.currentTarget.style.background = T.hover}
                       onMouseLeave={e => e.currentTarget.style.background = on ? T.accent + "10" : "transparent"}>
                       <span style={{ width: 15, height: 15, flexShrink: 0, borderRadius: 8, border: `1.5px solid ${on ? T.accent : T.border}`, background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -29776,7 +28489,7 @@ ${jobsCtx || "No jobs found."}`;
                   {confirmedPeriods.map((p, ri) => {
                     const isOn = p.start === cur.start && p.end === cur.end;
                     return <div key={p.start} onClick={() => { loadHoursPeriod(p, exportHoursPeople); setExportPeriodOpen(false); }}
-                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", background: isOn ? T.accent + "10" : "transparent" }}
                       onMouseEnter={e => e.currentTarget.style.background = T.hover}
                       onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
                       <span style={{ width: 8, height: 8, borderRadius: 8, flexShrink: 0, background: isOn ? T.accent : T.border }} />
@@ -29831,9 +28544,9 @@ ${jobsCtx || "No jobs found."}`;
                    <div style={{ overflow: "hidden", minHeight: 0 }}>
                     <div key={exportAddSeq} style={{ marginTop: exportAddOpen ? 12 : 0, transition: "margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
                     {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(grp.items[0]?.i ?? 0, 14) * 0.03}s` }}>{grp.name}</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px" }}>{grp.name}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease" }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
                       </div>
                     </div>)}
                     </div>
@@ -30051,7 +28764,7 @@ ${jobsCtx || "No jobs found."}`;
           const open = colCtxMenu.subMenu === "edit";
           const inputBase = { flex: 1, minWidth: 0, padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
           const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
-          const rowAnim = i => ({ animation: "dropIn 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 12) * 0.03}s` });
+          const rowAnim = () => ({}); // dropdown rows no longer stagger in (redesign pass 1)
           const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}66`, background: T.systemBg || T.surface, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
           const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 2 };
           const base = optBaseLenRef.current; // rows at indices >= base were added live → no stagger delay (appear instantly)
@@ -30211,7 +28924,7 @@ ${jobsCtx || "No jobs found."}`;
               if (s === "Finished" && !can("approveCompletions")) return denied("mark work Finished"); // an approval; others use right-click > Request Finish Approval
               setDropFlashKey(fk);
               setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
-            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `${statusPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(statusPopover.up ? STATUSES.length - 1 - si : si) * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
+            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : undefined, background: isCurrent ? sc + "12" : "transparent" }}
             onMouseEnter={e => { if (!isCurrent && !dropFlashKey) e.currentTarget.style.background = sc + "18"; }}
             onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? sc + "12" : "transparent"; }}>
               <span style={{ fontSize: 13, color: sc, flexShrink: 0 }}>{STA_ICON[s]}</span>
@@ -30228,183 +28941,13 @@ ${jobsCtx || "No jobs found."}`;
         shape of the tree stays stable as you work down it. */}
 
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
-    {/* Project Plan assign picker — built to the same pattern as the Grouping
+    {/* Job Details assign picker — built to the same pattern as the Grouping
         dropdown: a search field at the top, one collapsible accordion per
         department, and rows that drop in one-by-one on the shared toolDrop
         stagger. Typing force-opens every section so a search never hides a
         match behind a collapsed header, exactly as GroupingSelect does.
         Toggles membership rather than replacing it: an op can be shared, which
         is what pickTeam's "all" mode produces. */}
-    {/* -- Job Details rename column popover -- mirrors the Jobs page renameCol popover -- */}
-    <FadeOnClose open={!!jdRenameCol}>{jdRenameCol && (() => {
-      const commit = () => {
-        const v = (jdRenameCol.value || "").trim();
-        setJdColLabels(pv => { const n = { ...pv }; if (!v || v === jdRenameCol.defLabel) delete n[jdRenameCol.colId]; else n[jdRenameCol.colId] = v; return n; });
-        setJdRenameCol(null);
-      };
-      const startDrag = e => {
-        if (e.target.tagName === "INPUT") return;
-        e.preventDefault();
-        const sx = e.clientX, sy = e.clientY, ox = jdRenameCol.x, oy = jdRenameCol.y;
-        const onM = me => setJdRenameCol(r => r ? { ...r, x: ox + (me.clientX - sx), y: oy + (me.clientY - sy) } : r);
-        const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-        document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-      };
-      const left = Math.max(8, Math.min(jdRenameCol.x, window.innerWidth - 222));
-      const top = Math.max(8, jdRenameCol.y);
-      return <>
-        <div style={{ position: "fixed", inset: 0, zIndex: 10029 }} onMouseDown={commit} />
-        <div onMouseDown={startDrag} className="anim-ctx" style={{ position: "fixed", left, top, zIndex: 10030, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.45)", padding: 8, width: 206, cursor: "grab", fontFamily: T.font, userSelect: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, margin: "0 2px 6px" }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ color: T.textDim, flexShrink: 0 }}><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
-            <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Rename</span>
-          </div>
-          <input autoFocus value={jdRenameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setJdRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setJdRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
-        </div>
-      </>;
-    })()}</FadeOnClose>
-    <FadeOnClose open={!!jdColCtx}>{jdColCtx && (() => {
-      const col = jdColCtx.col;
-      const label = jdColLabels[col.id] || col.label;
-      const isSelect = !!(col.custom && col.type === "select");
-      const opts = col.custom ? ((jdCustomCols.find(c => c.id === col.id) || {}).options || []) : [];
-      const row = { width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", transition: "background-color 0.15s ease" };
-      const hov = e => { e.currentTarget.style.background = T.hover; };
-      const off = e => { e.currentTarget.style.background = "transparent"; };
-      const sub = (k) => setJdColCtx(pv => ({ ...pv, subMenu: pv.subMenu === k ? null : k }));
-      // Columns not already on the page, offered by both Add Column entries.
-      const addable = [
-        ...STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).map(c => ({ kind: "std", id: c.id, label: c.label })),
-        ...FIELD_COL_CATALOG.filter(f => !jdCustomCols.some(c => c.fieldKey === f.fieldKey)).map(f => ({ kind: "field", def: f, label: f.label })),
-      ];
-      const addPanel = (side) => (
-        <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
-          {addable.map(a => (
-            <button key={a.kind + (a.id || a.def.fieldKey)}
-              onClick={() => {
-                if (a.kind === "std") jdInsertCol(a.id, col.id, side);
-                else {
-                  const fid = "jdf_" + a.def.fieldKey;
-                  setJdCustomCols(pv => pv.some(c => c.id === fid) ? pv : [...pv, { id: fid, ...a.def }]);
-                  jdInsertCol(fid, col.id, side);
-                }
-                setJdColCtx(null);
-              }}
-              style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5 }} onMouseEnter={hov} onMouseLeave={off}>
-              {a.label}
-            </button>
-          ))}
-          <button onClick={() => { const _c = col.id, _s = side; setJdColCtx(null); setAskText({ title: "New column", blurb: "It is added to Job Details only. The Jobs page keeps its own columns.", placeholder: "Column name", value: "", cta: "Add column", onCommit: (n) => jdAddCustomCol(n, "text", _c, _s) }); }}
-            style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5, color: T.accent, fontWeight: 700 }} onMouseEnter={hov} onMouseLeave={off}>
-            Custom column...
-          </button>
-        </div>
-      );
-      return <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setJdColCtx(null)}>
-        <div onClick={e => e.stopPropagation()} className="anim-ctx"
-          style={{ position: "fixed", left: Math.min(jdColCtx.x, window.innerWidth - 250), top: Math.min(jdColCtx.y, window.innerHeight - 300), background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", width: 232, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
-          <div style={{ padding: "10px 14px 8px", fontSize: 9.5, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, borderBottom: `1px solid ${T.border}` }}>{label}</div>
-
-          <button onClick={() => { setJdRenameCol({ colId: col.id, defLabel: col.label, value: label, x: jdColCtx.hdrLeft ?? jdColCtx.x, y: Math.max(8, (jdColCtx.hdrTop ?? jdColCtx.y) - 50) }); setJdColCtx(null); }}
-            style={row} onMouseEnter={hov} onMouseLeave={off}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            Rename Column
-          </button>
-
-          {/* Selection options -- only a select column has any */}
-          {isSelect && <div>
-            <button onClick={() => sub("opts")} style={{ ...row, background: jdColCtx.subMenu === "opts" ? T.accent + "15" : "transparent" }}
-              onMouseEnter={e => { if (jdColCtx.subMenu !== "opts") hov(e); }} onMouseLeave={e => { if (jdColCtx.subMenu !== "opts") off(e); }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
-              Edit Options
-              <svg style={{ marginLeft: "auto", transform: jdColCtx.subMenu === "opts" ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-            {jdColCtx.subMenu === "opts" && (
-              <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
-                {opts.length === 0 && <div style={{ padding: "8px 14px 8px 30px", fontSize: 12, color: T.textDim }}>No options yet.</div>}
-                {opts.map((o, oi) => (
-                  <div key={oi} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 30px" }}>
-                    <span style={{ flex: 1, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{optName(o)}</span>
-                    <button title="Remove option" onClick={() => jdSetColOptions(col.id, opts.filter((_, i) => i !== oi))}
-                      style={{ width: 18, height: 18, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center" }}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-                ))}
-                <button onClick={() => { const _c = col.id, _o = opts; setAskText({ title: "New option", blurb: "Adds a choice to this column's picker.", placeholder: "Option name", value: "", cta: "Add option", onCommit: (n) => jdSetColOptions(_c, [..._o, { name: n }]) }); }}
-                  style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5, color: T.accent, fontWeight: 700 }} onMouseEnter={hov} onMouseLeave={off}>
-                  + Add option
-                </button>
-              </div>
-            )}
-          </div>}
-
-          {["left", "right"].map(side => (
-            <div key={side}>
-              <button onClick={() => sub("add" + side)} style={{ ...row, background: jdColCtx.subMenu === "add" + side ? T.accent + "15" : "transparent" }}
-                onMouseEnter={e => { if (jdColCtx.subMenu !== "add" + side) hov(e); }} onMouseLeave={e => { if (jdColCtx.subMenu !== "add" + side) off(e); }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add Column {side === "left" ? "Left" : "Right"}
-                <svg style={{ marginLeft: "auto", transform: jdColCtx.subMenu === "add" + side ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-              {jdColCtx.subMenu === "add" + side && addPanel(side)}
-            </div>
-          ))}
-
-          {/* Name is the row's identity -- removing it leaves rows with nothing
-              to read, so it is the one column that cannot be taken away. */}
-          {col.id !== "name" && (
-            <button onClick={() => { jdRemoveCol(col); setJdColCtx(null); }}
-              style={{ ...row, color: "#ef4444", padding: "10px 14px" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#ef444414"; }} onMouseLeave={off}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-              {col.custom ? "Delete Column" : "Remove Column"}
-            </button>
-          )}
-        </div>
-      </div>;
-    })()}</FadeOnClose>
-    <FadeOnClose open={jdColPicker}>{jdColPicker && (
-      <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
-        onClick={() => setJdColPicker(false)}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()}
-          style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, width: "100%", maxWidth: 420, maxHeight: "80vh", overflowY: "auto", padding: "20px 22px", fontFamily: T.font }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>Add a column</div>
-          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>
-            Job Details only. The Jobs page keeps its own columns.
-          </div>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, marginBottom: 6 }}>Standard</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).map(c => (
-              <button key={c.id} onClick={() => { setJdColOrder(p => [...p, c.id]); setJdColPicker(false); }}
-                style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-                + {c.label}
-              </button>
-            ))}
-            {STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).length === 0 && <span style={{ fontSize: 12, color: T.textDim }}>All standard columns are shown.</span>}
-          </div>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, marginBottom: 6 }}>Job fields</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {FIELD_COL_CATALOG.filter(f => !jdCustomCols.some(c => c.fieldKey === f.fieldKey)).map(f => (
-              <button key={f.fieldKey} onClick={() => { const fid = "jdf_" + f.fieldKey; setJdCustomCols(p => [...p, { id: fid, ...f }]); setJdColOrder(p => p.includes(fid) ? p : [...p, fid]); setJdColPicker(false); }}
-                style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-                + {f.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => { setJdColPicker(false); setAskText({ title: "New column", blurb: "It is added to Job Details only. The Jobs page keeps its own columns.", placeholder: "Column name", value: "", cta: "Add column", onCommit: (n) => jdAddCustomCol(n, "text") }); }}
-              style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-              Custom column…
-            </button>
-            <button onClick={() => setJdColPicker(false)}
-              style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    )}</FadeOnClose>
     <FadeOnClose open={!!planAssign}>{planAssign && (() => {
       const live = findTaskNode(planAssign.id) || {};
       const team = (live.team || []).map(String);
@@ -30465,7 +29008,7 @@ ${jobsCtx || "No jobs found."}`;
             style={{ margin: "4px 8px", padding: "8px 12px", borderRadius: 16, cursor: blocked ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13,
               color: blocked ? T.textDim : (on ? pc : T.text), fontWeight: on ? 600 : 400, background: on ? pc + "1e" : "transparent",
               opacity: blocked ? 0.55 : 1,
-              transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+              transition: "background-color 0.2s ease, color 0.2s ease" }}
             onMouseEnter={e => { if (!blocked) e.currentTarget.style.background = pc + "26"; }}
             onMouseLeave={e => { e.currentTarget.style.background = on ? pc + "1e" : "transparent"; }}>
             <PersonAvatar person={pp} size={22} style={blocked ? { filter: "grayscale(1)" } : undefined} />
@@ -30563,7 +29106,7 @@ ${jobsCtx || "No jobs found."}`;
             const isOpen = ql ? true : !!planAssignSec[g.id];
             const onCount = g.items.filter(pp => team.includes(String(pp.id))).length;
             return (
-              <div key={g.id} style={{ animation: `toolDrop 0.14s ${gi * 22}ms both ease-out` }}>
+              <div key={g.id} style={{}}>
                 <div onClick={() => { if (!ql) setPlanAssignSec(pv => ({ ...pv, [g.id]: !pv[g.id] })); }}
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: ql ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
                   <svg style={{ color: T.textDim, transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)", transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
@@ -30600,7 +29143,7 @@ ${jobsCtx || "No jobs found."}`;
           const ic = optIcon(o);
           return (
             <div key={n} onClick={() => { commitCellEdit(ccSelectPopover.itemId, ccSelectPopover.key, optVal, ccSelectPopover.pid); setCcSelectPopover(null); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `${ccSelectPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(ccSelectPopover.up ? ccSelectPopover.options.length - 1 - oi : oi) * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", background: isCurrent ? oc + "12" : "transparent" }}
               onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
               {ic ? <span style={{ width: 12, textAlign: "center", fontSize: 13, color: optVal ? oc : T.textDim, flexShrink: 0 }}>{ic}</span> : <div style={{ width: 8, height: 8, borderRadius: 8, background: optVal ? oc : T.border, flexShrink: 0 }} />}
@@ -30687,7 +29230,7 @@ ${jobsCtx || "No jobs found."}`;
                     setDropFlashKey(null);
                   }, 150);
                 }
-              }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${oi * 38}ms both ease-out`, opacity: disabled ? 0.4 : 1 }}
+              }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : undefined, opacity: disabled ? 0.4 : 1 }}
               onMouseEnter={e => { if (!disabled && !dropFlashKey) e.currentTarget.style.background = opt.color + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
                 <span style={{ fontSize: 11, color: opt.color, flexShrink: 0, width: 10, textAlign: "center" }}>{opt.icon}</span>
@@ -31357,7 +29900,7 @@ ${jobsCtx || "No jobs found."}`;
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 16, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: `${T.accent}26`, border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
           </div>
           <div>
@@ -31372,7 +29915,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Conversation */}
         <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
           {askHistory.length === 0 && <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: "40px 0" }}>
-            <div style={{ width: 56, height: 56, borderRadius: 20, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 20, background: `${T.accent}26`, border: `1px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
             </div>
             <div style={{ textAlign: "center", maxWidth: 300 }}>
@@ -31632,7 +30175,7 @@ ${jobsCtx || "No jobs found."}`;
       {fastTraqsPhase === "intro" && (
         <div className={fastTraqsExiting ? "ft-intro-exit" : "ft-intro-enter"} onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: isMobile ? 22 : 30, padding: isMobile ? "24px 20px 20px" : "44px 36px 36px", width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", border: `1px solid ${T.accent}44`, boxShadow: `0 48px 120px rgba(0,0,0,0.75), 0 0 80px ${T.accent}18`, textAlign: "center", position: "relative" }}>
           {/* Ambient glow orb */}
-          {!isMobile && <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />}
+          {!isMobile && <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: "transparent", pointerEvents: "none" }} />}
           {/* Close */}
           <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: isMobile ? 14 : 20, right: isMobile ? 16 : 24, width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
 
@@ -32075,7 +30618,7 @@ ${jobsCtx || "No jobs found."}`;
             }
             toast(isGroup ? "Group deleted" : "Chat cleared");
             setConfirmClearChat(null);
-          }} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 4px 16px rgba(239,68,68,0.35)" }}>
+          }} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 4px 16px rgba(239,68,68,0.35)" }}>
             {confirmClearChat.isGroup ? "Delete Group" : "Clear Chat"}
           </button>
         </div>
@@ -32679,7 +31222,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* As a page: the shared pageHead, and the fields capped to FIELD_COL_W and
               centred — the same treatment Edit Job gets. Title stays top-left. */}
           {_cePage
-            ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>{pageHead(ed.id ? "Edit Client" : "New Client", { onBack: closeClientEdit })}</div>
+            ? <div style={{ padding: "24px 32px 0", flexShrink: 0 }}>{pageHead(ed.id ? "Edit Client" : "New Client", { onBack: closeClientEdit })}</div>
             : <>
                 <button onClick={closeClientEdit} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
                 <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
@@ -33558,7 +32101,7 @@ ${jobsCtx || "No jobs found."}`;
                 when you move between stacked pages. marginBottom on pageHead supplies
                 the gap, so the wrapper only carries the 34/32 page offset. */}
             {_ejPage
-              ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>{pageHead("Edit Job", { onBack: closeEditJob })}</div>
+              ? <div style={{ padding: "24px 32px 0", flexShrink: 0 }}>{pageHead("Edit Job", { onBack: closeEditJob })}</div>
               : <div style={{ padding: "20px 32px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16 }}>
                   <div>
                     <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
@@ -33635,7 +32178,7 @@ ${jobsCtx || "No jobs found."}`;
                       {people.map((p, pi) => {
                         const isOn = sameId(ej.projectManagerId, p.id);
                         const fk = `editJob-pm-${p.id}`;
-                        return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                        return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : undefined }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
                           <PersonAvatar person={p} size={22} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>

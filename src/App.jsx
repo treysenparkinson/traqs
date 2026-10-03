@@ -137,7 +137,7 @@ const CARD = {
 const CARD_HEADER = {
   padding: "32px 28px 24px",
   textAlign: "center",
-  background: "linear-gradient(135deg, #4169e1, #06b6d4)",
+  background: "#4169e1",
   borderBottom: "1px solid rgba(255,255,255,0.1)",
 };
 
@@ -155,7 +155,7 @@ const CARD_FOOTER = {
 const BTN = {
   width: "100%",
   padding: "13px 0",
-  background: "linear-gradient(135deg, #4169e1, #06b6d4)",
+  background: "#4169e1",
   border: "none",
   // Pill, not a 10px rounded rect: every button on the pre-login screens is a
   // pill now, matching the org-switch and Log In / Clock In toggles that were
@@ -1073,7 +1073,7 @@ function DomainError({ userEmail, orgDomain, onLogout }) {
           <BtnPrimary
             type="button"
             onClick={onLogout}
-            style={{ marginTop: 20, background: "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
+            style={{ marginTop: 20, background: "#ef4444", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
           >
             Sign Out &amp; Try Again
           </BtnPrimary>
@@ -1500,7 +1500,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                 <button
                   type="button"
                   onClick={() => openClock("clockIn")}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(16,185,129,0.32)", transition: "all 0.2s" }}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "#10b981", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(16,185,129,0.32)", transition: "all 0.2s" }}
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(16,185,129,0.45)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(16,185,129,0.32)"; }}
                 >
@@ -1510,7 +1510,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                 <button
                   type="button"
                   onClick={() => openClock("clockOut")}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(239,68,68,0.32)", transition: "all 0.2s" }}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "#ef4444", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(239,68,68,0.32)", transition: "all 0.2s" }}
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(239,68,68,0.45)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(239,68,68,0.32)"; }}
                 >
@@ -1559,8 +1559,8 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
         const doneMeta = CLOCK_MODE_META[completedAction] || meta;
         const isClockIn = clockMode === "clockIn";
         const yesGradient = isClockIn
-          ? "linear-gradient(135deg, #10b981, #059669)"
-          : "linear-gradient(135deg, #ef4444, #dc2626)";
+          ? "#10b981"
+          : "#ef4444";
         const yesShadow = isClockIn
           ? "0 4px 20px rgba(16,185,129,0.33)"
           : "0 4px 20px rgba(239,68,68,0.33)";
@@ -1628,7 +1628,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                         type="button"
                         disabled={pinLoading}
                         onClick={() => handleClockYes("lunchEnd")}
-                        style={{ width: "100%", padding: "15px 16px", marginTop: 20, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(16,185,129,0.32)", opacity: pinLoading ? 0.7 : 1 }}
+                        style={{ width: "100%", padding: "15px 16px", marginTop: 20, background: "#10b981", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(16,185,129,0.32)", opacity: pinLoading ? 0.7 : 1 }}
                       >
                         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>← Back From Lunch</div>
                         <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Resume work for the day</div>
@@ -1650,7 +1650,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                           type="button"
                           disabled={pinLoading}
                           onClick={() => handleClockYes("lunchStart")}
-                          style={{ padding: "15px 20px", background: "linear-gradient(135deg, #f59e0b, #d97706)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                          style={{ padding: "15px 20px", background: "#f59e0b", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
                         >
                           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>Lunch</div>
                           <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Clock out, coming back later</div>
@@ -1659,7 +1659,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                           type="button"
                           disabled={pinLoading}
                           onClick={() => handleClockYes("clockOut")}
-                          style={{ padding: "15px 20px", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(239,68,68,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                          style={{ padding: "15px 20px", background: "#ef4444", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(239,68,68,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
                         >
                           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>End of Day</div>
                           <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Done for the day</div>
@@ -1720,7 +1720,7 @@ function NotInTeamError({ userEmail, onLogout }) {
           <BtnPrimary
             type="button"
             onClick={onLogout}
-            style={{ marginTop: 20, background: "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
+            style={{ marginTop: 20, background: "#ef4444", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
           >
             Sign Out
           </BtnPrimary>
@@ -1748,7 +1748,7 @@ function WrongUserError({ loggedInEmail, selectedName, selectedEmail, onLogout }
           <BtnPrimary
             type="button"
             onClick={onLogout}
-            style={{ marginTop: 20, background: "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
+            style={{ marginTop: 20, background: "#ef4444", boxShadow: "0 4px 20px rgba(239,68,68,0.33)" }}
           >
             Sign Out &amp; Try Again
           </BtnPrimary>
