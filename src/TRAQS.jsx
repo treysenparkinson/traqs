@@ -1037,6 +1037,8 @@ animStyle.textContent = `
 .rv-tbl tbody tr.on{background:var(--rv-acc-soft)}
 .rv-tbl tbody tr:last-child>td{border-bottom:0}
 .rv-tbl .rv-tc-exp>td{padding:0 16px 14px 40px;white-space:normal;cursor:default}
+.rv-row.tight{padding:4px 0;border:0}
+.rv-dn{display:flex;gap:16px;align-items:center;font-size:11.5px}
 .rv-cal{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px;text-align:center}
 .rv-cal>small{font-size:9.5px;color:var(--rv-mute);font-weight:600;padding-bottom:6px}
 .rv-cal>div{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 0;cursor:pointer}
@@ -17301,17 +17303,11 @@ ${jobsCtx || "No jobs found."}`;
       { value: "month", label: "This Month" }, { value: "year", label: "This Year" },
     ];
     const periodButtons = (
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {ANALYTICS_PERIODS.map(p => {
-          const on = analyticsPeriod === p.value;
-          return (
-            <button key={p.value} className="tq-noanim" onClick={() => setAnalyticsPeriod(p.value)}
-              style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: `1px solid ${on ? "transparent" : T.border}`, background: on ? T.accent : T.surface, color: on ? T.accentText : hexA(T.bgText || T.text, 0.8), fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", transition: "background 0.15s, color 0.15s, border-color 0.15s" }}>
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
+      <span className="rv-seg">
+        {ANALYTICS_PERIODS.map(p => (
+          <button key={p.value} className={analyticsPeriod === p.value ? "on" : undefined} onClick={() => setAnalyticsPeriod(p.value)}>{p.label}</button>
+        ))}
+      </span>
     );
     // â”€â”€ Period selector â†’ date range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const today = new Date(TD + "T12:00:00");
@@ -17416,39 +17412,25 @@ ${jobsCtx || "No jobs found."}`;
     // Operations live two levels deep: job → panel (subs) → operation (subs).
     const allOps = tasks.flatMap(j => (j.subs || [])).flatMap(p => (p.subs || []));
 
-    const cardH4 = { color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" };
-    const emptyMsg = (m) => <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>{m}</div>;
+    const emptyMsg = (m) => <div className="rv-mute" style={{ fontSize: 11.5, padding: "8px 0" }}>{m}</div>;
 
-    // Frosted KPI tile — uppercase label, big mono value, accent capsule (matches iOS AnalyticsStatTile).
-    const statTile = (label, value, accent) => (
-      <div key={label} className="tq-frost" style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font, display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
-        <div style={{ fontSize: 30, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{value}</div>
-        <div style={{ width: 32, height: 4, borderRadius: 8, background: accent }} />
-      </div>
+    // KPI — one cell of the stat strip under the title: big number, then label.
+    const statTile = (label, value) => (
+      <div key={label}><b className="rv-num">{value}</b><small>{label}</small></div>
     );
+    const kpiStrip = (tiles) => <div className="rv-kstrip" style={isMobile ? { flexWrap: "wrap" } : undefined}>{tiles}</div>;
 
     // Horizontal bar-by-category card (Jobs by Status / My Jobs by Status). data: [{ n, c }].
     const hbarCard = (title, data, colorOf, emptyText = "No data yet.") => {
       const max = Math.max(...data.map(d => d.c), 1);
-      return (
-        <Card style={{ animation: "none" }}>
-          <h4 style={cardH4}>{title}</h4>
-          {data.length === 0 ? emptyMsg(emptyText) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {data.map(d => (
-                <div key={d.n} style={{ display: "grid", gridTemplateColumns: "minmax(80px,120px) 1fr 34px", gap: 12, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: T.textSec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.n}</span>
-                  <div style={{ height: 22, background: T.surface, borderRadius: 12, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${(d.c / max) * 100}%`, minWidth: d.c > 0 ? 6 : 0, background: colorOf(d.n), borderRadius: 12, transition: "width 0.3s" }} />
-                  </div>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, textAlign: "right" }}>{d.c}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      );
+      const total = data.reduce((a, d) => a + d.c, 0);
+      return rvSx(title, data.length ? `${total} total` : "", data.length === 0 ? emptyMsg(emptyText) : data.map(d => (
+        <div key={d.n} className="rv-row tight">
+          <span style={{ width: 118, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.n}</span>
+          {rvBar((d.c / max) * 100, colorOf(d.n), 6)}
+          <b className="rv-num" style={{ width: 26, textAlign: "right", flexShrink: 0 }}>{d.c}</b>
+        </div>
+      )));
     };
 
     // Donut (SVG) — generic ring with center label + legend. entries: [{ label, value, color }].
@@ -17475,19 +17457,19 @@ ${jobsCtx || "No jobs found."}`;
         return { ...e, path };
       });
       return (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-          <svg viewBox="0 0 180 180" style={{ width: 180, height: 180, display: "block" }}>
-            {slices.map(s => <path key={s.label} d={s.path} fill={s.color} fillRule="evenodd"><title>{s.label}: {fmtVal(s.value)}</title></path>)}
-            <text x="90" y="86" textAnchor="middle" fontSize="20" fontWeight="800" fill={T.text} fontFamily={T.mono}>{centerVal}</text>
-            <text x="90" y="102" textAnchor="middle" fontSize="9" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">{centerSub}</text>
+        <div className="rv-dn">
+          <svg viewBox="0 0 180 180" style={{ width: 96, height: 96, display: "block", flexShrink: 0 }}>
+            {slices.map(s => <path key={s.label} d={s.path} fill={s.color} fillRule="evenodd" stroke="var(--rv-surface)" strokeWidth="3"><title>{s.label}: {fmtVal(s.value)}</title></path>)}
+            <text x="90" y="94" textAnchor="middle" fontSize="30" fontWeight="700" fill={T.text} fontFamily={T.font}>{centerVal}</text>
+            <text x="90" y="118" textAnchor="middle" fontSize="13" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">{centerSub}</text>
           </svg>
-          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {slices.map(s => (
-              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 8, background: s.color, flexShrink: 0 }} />
-                <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
-                <span style={{ color: T.textDim, fontFamily: T.mono }}>{fmtVal(s.value)}</span>
-                <span style={{ color: T.textDim, fontFamily: T.mono, width: 40, textAlign: "right" }}>{Math.round((s.value / Math.max(total, 1)) * 100)}%</span>
+              <div key={s.label} className="rv-row tight">
+                <span className="rv-dot" style={{ background: s.color }} />
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
+                <span className="rv-mute rv-num">{fmtVal(s.value)}</span>
+                <b className="rv-num" style={{ width: 36, textAlign: "right" }}>{Math.round((s.value / Math.max(total, 1)) * 100)}%</b>
               </div>
             ))}
           </div>
@@ -17546,49 +17528,47 @@ ${jobsCtx || "No jobs found."}`;
       // card shows the percentage and the per-day bars instead. totalBreak is
       // kept above so "of your paid time, X was breaks" needs no recomputation.
       const maxV = Math.max(...rows.flatMap(r => [r.pay, r.prod]), 1);
-      const payColor = blendHex(T.accent, 0.4), prodColor = blendHex(T.accent, -0.22); // same accent hue, light vs. dark shade
+      // Revamp: pay hours recede (the track grey), production hours carry the accent.
+      const payColor = T.borderLight, prodColor = T.accent;
       const legend = (color, text) => (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 8, background: color }} />
+          <div style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
           <span style={{ fontSize: 11, color: T.textDim }}>{text}</span>
         </div>
       );
       const bar = (v, color) => (
-        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? color : T.surface, borderRadius: "8px 8px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
+        <div style={{ flex: 1, minWidth: 0, maxWidth: 14, height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? color : "var(--rv-line)", borderRadius: "4px 4px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
       );
       const empty = totalPay === 0 && totalProd === 0;
-      return (
-        <Card style={{ animation: "none" }}>
-          <h4 style={cardH4}>Efficiency</h4>
-          {empty ? emptyMsg("No pay or production hours in this period.") : (
-            <>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
-                <span style={{ fontSize: 40, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{pct}%</span>
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{Math.round(totalProd * 10) / 10}h logged / {Math.round(totalWorking * 10) / 10}h woid</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 22, height: 150, padding: "18px 4px 0" }}>
-                {rows.map((r, i) => {
-                  const diff = r.prod - r.working;
-                  return (
-                    <div key={i} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%" }}>
-                      <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: diff < 0 ? T.danger : "#10b981" }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</span>
-                      <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 5 }}>
-                        {bar(r.pay, payColor)}
-                        {bar(r.prod, prodColor)}
-                      </div>
-                      <span style={{ fontSize: 10, color: T.textDim, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ display: "flex", gap: 16, marginTop: 14 }}>
-                {legend(payColor, "Pay hours")}
-                {legend(prodColor, "Production hours")}
-              </div>
-            </>
-          )}
-        </Card>
-      );
+      const fmtR = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return rvSx("Efficiency · pay vs production hours", `${fmtR(periodStart)} – ${fmtR(periodEnd)}`, empty ? emptyMsg("No pay or production hours in this period.") : (
+        <>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 190, borderBottom: "1px solid var(--rv-line)" }}>
+            {rows.map((r, i) => {
+              const diff = r.prod - r.working;
+              return (
+                <div key={i} title={`${r.label}: ${r.pay.toFixed(1)}h pay · ${r.prod.toFixed(1)}h production`} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%" }}>
+                  <span className="rv-num" style={{ fontSize: 9, fontWeight: 700, color: diff < 0 ? T.danger : "#1a7b58" }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</span>
+                  <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 2 }}>
+                    {bar(r.pay, payColor)}
+                    {bar(r.prod, prodColor)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            {rows.map((r, i) => <span key={i} className="rv-mute" style={{ flex: "1 1 0", minWidth: 0, fontSize: 9.5, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>)}
+          </div>
+          <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: 10 }}>
+            {legend(payColor, "Pay hours")}
+            {legend(prodColor, "Production hours")}
+            <span style={{ flex: 1 }} />
+            <span className="rv-mute rv-num" style={{ fontSize: 11 }}>{Math.round(totalProd * 10) / 10}h logged / {Math.round(totalWorking * 10) / 10}h worked</span>
+            <span style={{ fontSize: 11, color: T.textDim }}>Efficiency <b className="rv-num" style={{ color: T.text }}>{pct}%</b></span>
+          </div>
+        </>
+      ));
     };
 
     // ── Personal stat set for a single person (matches iOS "Your stats") ──
@@ -17604,24 +17584,26 @@ ${jobsCtx || "No jobs found."}`;
       const myTotal = myOps.length;
       const myCompletion = myTotal ? Math.round(myDone / myTotal * 100) : 0;
       const myStatusCounts = STATUSES.map(s => ({ n: s, c: myOps.filter(op => op.status === s).length })).filter(x => x.c > 0);
-      return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      return <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         {header}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-          {statTile(mine ? "My Jobs Done" : "Jobs Done", myDone, "#10b981")}
-          {statTile("Completion", myCompletion + "%", T.accent)}
-          {statTile("In Progress", myActive, "#3b82f6")}
-          {statTile("Total Ops", myTotal, "#f59e0b")}
+        {kpiStrip(<>
+          {statTile(mine ? "My Jobs Done" : "Jobs Done", myDone)}
+          {statTile("Completion", myCompletion + "%")}
+          {statTile("In Progress", myActive)}
+          {statTile("Total Ops", myTotal)}
+        </>)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
+          {renderEfficiency(personId)}
+          {hbarCard(mine ? "My Jobs by Status" : "Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
         </div>
-        {hbarCard(mine ? "My Jobs by Status" : "Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
-        {renderEfficiency(personId)}
       </div>;
     };
 
     // ── Non-admin: personal stats only, no picker (matches iOS "Your stats") ──
     if (!isAdmin) {
       return personalStats(currentUser,
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: T.textDim }}>Your stats</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <span className="rv-mute" style={{ fontSize: 12 }}>Your stats</span>
         </div>, true);
     }
 
@@ -17633,12 +17615,12 @@ ${jobsCtx || "No jobs found."}`;
     if (analyticsPerson) {
       const per = people.find(p => String(p.id) === String(analyticsPerson));
       return personalStats(analyticsPerson,
-        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minHeight: 34 }}>
+        <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minHeight: 50, flexWrap: "wrap" }}>
+          <h1 style={pageTitle()}>Analytics</h1>{titleActions}
           {employeePicker}
-          <span style={{ fontSize: 12, color: T.textDim }}>{per ? `${per.name.split(" ")[0]}’s stats` : "Employee stats"}</span>
-          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
-            {periodButtons}
-          </div>
+          <span className="rv-mute" style={{ fontSize: 12 }}>{per ? `${per.name.split(" ")[0]}’s stats` : "Employee stats"}</span>
+          <span style={{ flex: 1 }} />
+          {periodButtons}
         </div>, false);
     }
 
@@ -17657,122 +17639,62 @@ ${jobsCtx || "No jobs found."}`;
     const priDonut = jobPriorityCounts.map(x => ({ label: x.n, value: x.c, color: priColorOf(x.n) }));
     const priTotal = jobPriorityCounts.reduce((s, x) => s + x.c, 0);
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header — employee picker (left) · period pill (centered across the page). Hours export moved to the Time Clock page. */}
-      <div className="tq-pagehdr" style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 50, flexShrink: 0 }}>
+    // Hours by person: the pay-period hours, against the cap. Colour escalates:
+    // accent under the cap, amber within 10% of it, red over it.
+    const hoursByPerson = personRows.length === 0 ? emptyMsg("No hourly team members.") : personRows.map(({ p, logged }) => {
+      const pct = Math.min(100, (logged / PERIOD_HOUR_CAP) * 100);
+      const over = logged > PERIOD_HOUR_CAP;
+      const near = !over && logged >= PERIOD_HOUR_CAP * 0.9;
+      const barColor = over ? "#ef4444" : near ? "#f59e0b" : T.accent;
+      return (
+        <div key={p.id} className="rv-row tight">
+          <PersonAvatar person={p} size={20} />
+          <span style={{ width: 70, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
+          {rvBar(pct, barColor, 6)}
+          <b className="rv-num" style={{ color: barColor, width: 44, textAlign: "right", flexShrink: 0 }}>{logged}h</b>
+        </div>
+      );
+    });
+    const deptDonut = deptList.length === 0 ? emptyMsg("No scheduled hours in this period.")
+      : renderDonut(donutSlices.map(sl => ({ label: sl.dept, value: sl.h, color: sl.color })), `${Math.round(deptTotal)}h`, "SCHEDULED", v => `${Math.round(v)}h`);
+    const workload = teamWorkload.length === 0 ? emptyMsg("No active operations assigned.") : teamWorkload.map((d, i) => (
+      <div key={d.name + i} className="rv-row tight">
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+        <b className="rv-num">{d.count}</b><span className="rv-mute">active</span>
+      </div>
+    ));
+
+    // Revamp (TRAQS Revamp.html, screen 5): the KPIs as a stat strip under the
+    // title, one big chart, the breakdowns below — open sections, no cards.
+    return <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 50, flexShrink: 0, flexWrap: "wrap" }}>
         <h1 style={pageTitle()}>Analytics</h1>{titleActions}
         {employeePicker}
-        <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
-          {periodButtons}
+        <span style={{ flex: 1 }} />
+        {periodButtons}
+      </div>
+      {kpiStrip(<>
+          {statTile("Total Jobs", totalJobs)}
+          {statTile("Active Jobs", activeJobs.length)}
+          {statTile("Hours Logged", hoursLogged + "h")}
+          {statTile("On-Time", onTimePct + "%")}
+          {statTile("Completion", completionPct + "%")}
+          {statTile("Avg Progress", avgPct + "%")}
+          {statTile("In Progress", inProgressJobs)}
+          {statTile("Avg Ops / Person", avgOpsPerPerson.toFixed(1))}
+      </>)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
+          {renderEfficiency(null)}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 1fr 1fr", gap: isMobile ? 26 : "0 36px" }}>
+            {hbarCard("Jobs by status", jobStatusCounts, staColorOf, "No jobs yet.")}
+            {rvSx("Hours by person", `${fmtPP(payPeriod.start)} – ${fmtPP(payPeriod.end)} · ${PERIOD_HOUR_CAP}h cap`, hoursByPerson)}
+            {rvSx("Hours by department", "", deptDonut)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 2fr", gap: isMobile ? 26 : "0 36px" }}>
+            {rvSx("Jobs by priority", priTotal ? `${priTotal} jobs` : "", priDonut.length === 0 ? emptyMsg("No jobs yet.") : renderDonut(priDonut, priTotal, "JOBS"))}
+            {rvSx("Team workload · active ops", "", workload)}
+          </div>
         </div>
-      </div>
-
-      {/* KPI grid — job & operation aggregates + period hours */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        {statTile("Total Jobs", totalJobs, T.accent)}
-        {statTile("Active Jobs", activeJobs.length, "#3b82f6")}
-        {statTile("Completion", completionPct + "%", "#10b981")}
-        {statTile("Avg Progress", avgPct + "%", "#8b5cf6")}
-        {statTile("In Progress", inProgressJobs, "#f59e0b")}
-        {statTile("Avg Ops / Person", avgOpsPerPerson.toFixed(1), "#ec4899")}
-        {statTile("Hours Logged", hoursLogged + "h", T.accent)}
-        {statTile("On-Time", onTimePct + "%", onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger)}
-      </div>
-
-      {/* Jobs by Status (bars) · Jobs by Priority (donut) */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
-        {hbarCard("Jobs by Status", jobStatusCounts, staColorOf, "No jobs yet.")}
-        <Card style={{ animation: "none" }}>
-          <h4 style={cardH4}>Jobs by Priority</h4>
-          {priDonut.length === 0 ? emptyMsg("No jobs yet.") : renderDonut(priDonut, priTotal, "JOBS")}
-        </Card>
-      </div>
-
-      {/* Efficiency — team pay hours vs. production hours (ported from iOS) */}
-      {renderEfficiency(null)}
-
-      {/* Row: Per-person pay-period hours (2/3) + Department donut (1/3) */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
-        <Card style={{ animation: "none" }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, margin: "0 0 16px", flexWrap: "wrap" }}>
-            <h4 style={{ color: T.textSec, margin: 0, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Pay-Period Hours</h4>
-            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fmtPP(payPeriod.start)} – {fmtPP(payPeriod.end)} · {PERIOD_HOUR_CAP}h cap</span>
-          </div>
-          {personRows.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hourly team members.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 120px", gap: 12, alignItems: "center", fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", paddingBottom: 4, borderBottom: `1px solid ${T.border}` }}>
-                <span>Name</span>
-                <span>Progress toward {PERIOD_HOUR_CAP}h</span>
-                <span style={{ textAlign: "right" }}>hrs / cap</span>
-              </div>
-              {personRows.map(({ p, logged }) => {
-                // Fill = hours logged this pay period as a fraction of the cap (clamped
-                // at 100%). Color escalates: accent under cap, amber within 10% of it,
-                // red once the worker is over the period cap.
-                const pct = Math.min(100, (logged / PERIOD_HOUR_CAP) * 100);
-                const over = logged > PERIOD_HOUR_CAP;
-                const near = !over && logged >= PERIOD_HOUR_CAP * 0.9;
-                const barColor = over ? "#ef4444" : near ? "#f59e0b" : T.accent;
-                return (
-                  <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <PersonAvatar person={p} size={18} />
-                      <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                    </div>
-                    <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: barColor, transition: "width 0.3s" }} />
-                    </div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: barColor, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {PERIOD_HOUR_CAP}h</span>{over && <span style={{ color: "#ef4444", fontWeight: 700 }}> (+{Math.round((logged - PERIOD_HOUR_CAP) * 10) / 10})</span>}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        <Card style={{ animation: "none" }}>
-          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Department Breakdown</h4>
-          {deptList.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No scheduled hours in this period.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <svg viewBox="0 0 180 180" style={{ width: 180, height: 180, display: "block" }}>
-                {donutSlices.map(s => <path key={s.dept} d={s.path} fill={s.color}><title>{s.dept}: {Math.round(s.h)}h</title></path>)}
-                <text x="90" y="86" textAnchor="middle" fontSize="20" fontWeight="800" fill={T.text} fontFamily={T.mono}>{Math.round(deptTotal)}</text>
-                <text x="90" y="102" textAnchor="middle" fontSize="9" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">TOTAL HOURS</text>
-              </svg>
-              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
-                {donutSlices.map(s => (
-                  <div key={s.dept} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 8, background: s.color, flexShrink: 0 }} />
-                    <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.dept}</span>
-                    <span style={{ color: T.textDim, fontFamily: T.mono }}>{Math.round(s.h)}h</span>
-                    <span style={{ color: T.textDim, fontFamily: T.mono, width: 36, textAlign: "right" }}>{Math.round((s.h / deptTotal) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Team Workload: Active Ops (operations not yet finished, per person) — list view */}
-      <Card style={{ animation: "none" }}>
-        <h4 style={cardH4}>Team Workload: Active Ops</h4>
-        {teamWorkload.length === 0 ? emptyMsg("No active operations assigned.") : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {teamWorkload.map((d, i) => (
-              <div key={d.name + i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: i < teamWorkload.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                <span style={{ fontSize: 13, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
-                <span style={{ fontSize: 13, color: T.text, fontFamily: T.mono, fontWeight: 700, flexShrink: 0 }}>{d.count} <span style={{ color: T.textDim, fontWeight: 500 }}>active</span></span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
     </div>;
   };
 
@@ -21272,12 +21194,25 @@ ${jobsCtx || "No jobs found."}`;
             Every control is the one this page already had; only the arrangement and
             the styling changed. */}
         {(() => {
-          const header = (
-            <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-                <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
-              </div>
-              {isAdmin && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          // The title heads the LEFT column (above your name); the admin actions sit
+          // at the top of the right column, over the team.
+          const titleRow = (
+            <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, minWidth: 0, minHeight: 50 }}>
+              <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
+            </div>
+          );
+          // The right column's header: the view pills (Team / Timesheets / Finish
+          // Requests) on the left, the page actions on the right — all one size.
+          const actions = isAdmin ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", minHeight: 50 }}>
+                {[
+                  { id: "live", label: "Team" },
+                  { id: "timesheets", label: "Timesheets" },
+                  { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
+                ].map(tab => (
+                  <button key={tab.id} className={tsAdminTab === tab.id ? "rv-pill on" : "rv-pill"} onClick={() => setTsAdminTab(tab.id)}>{tab.label}</button>
+                ))}
+                <span style={{ flex: 1 }} />
                 <Tip label="Browse past pay-period logs">
                   <button className="rv-pill" onClick={openPastLogs}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
@@ -21294,9 +21229,8 @@ ${jobsCtx || "No jobs found."}`;
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                   Confirm Time Sheet
                 </button>
-              </div>}
-            </div>
-          );
+              </div>
+          ) : null;
 
           // ── Left column: me ──────────────────────────────────────────────────
           const cs = effectiveClockState(loggedInUser);
@@ -21392,10 +21326,10 @@ ${jobsCtx || "No jobs found."}`;
             );
           }) : <div className="rv-mute" style={{ fontSize: 11.5 }}>No pending finish requests.</div>) : null;
 
-          const left = <div className="rv-tc-left">{me}{currentJob}{period}{finishList}</div>;
+          const left = <div className="rv-tc-left">{isAdmin && titleRow}{me}{currentJob}{period}{finishList}</div>;
 
           if (!isAdmin) return <>
-            {header}
+            {titleRow}
             <div style={{ maxWidth: 420, width: "100%", margin: "0 auto" }}>{left}</div>
           </>;
 
@@ -21528,24 +21462,11 @@ ${jobsCtx || "No jobs found."}`;
           const onNow = crew.filter(p => effectiveClockState(p).isClocked);
           const offNow = crew.filter(p => !effectiveClockState(p).isClocked);
 
-          const tabs = (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {[
-                { id: "live", label: "Team" },
-                { id: "timesheets", label: "Timesheets" },
-                { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
-              ].map(tab => (
-                <button key={tab.id} className={tsAdminTab === tab.id ? "rv-pill on sm" : "rv-pill sm"} onClick={() => setTsAdminTab(tab.id)}>{tab.label}</button>
-              ))}
-            </div>
-          );
-
           return (
             <div style={{ display: "grid", gridTemplateColumns: "340px minmax(0, 1fr)", gap: "0 40px", alignItems: "start" }}>
               {left}
               <div className="rv-tc-right">
-                {header}
-                {tabs}
+                {actions}
                 {tsAdminTab === "live" && <>
                   {rvSx("On the clock", String(onNow.length), onNow.length ? teamTable(onNow) : <div className="rv-mute" style={{ fontSize: 11.5 }}>Nobody is on the clock.</div>)}
                   {rvSx("Off today", String(offNow.length), offNow.length ? teamTable(offNow) : <div className="rv-mute" style={{ fontSize: 11.5 }}>Everyone is on the clock.</div>)}
