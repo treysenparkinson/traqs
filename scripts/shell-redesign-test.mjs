@@ -118,8 +118,8 @@ check("page titles are the greeting's size and face (Manrope)", () => /fontSize:
 check("no page title overrides that size", () => !/<h1 style=\{\{ \.\.\.pageTitleStyle, [^}]*fontSize/.test(SRC) || "an <h1> overrides fontSize");
 check("no title container is still at the old 34px offset", () => !/padding: (asPage \? )?"34px 32px/.test(SRC) || "a 34px title offset remains");
 // iOS-style floating nav: the column is the page itself (no sidebar fill, no rule),
-// and the nav is a frosted-glass capsule hung just under the mark. Notifications and
-// the profile sit in their own glass capsule at the foot.
+// and the nav hangs just under the mark. Notifications and the profile sit at the
+// foot. Neither has a capsule any more: both sit straight on the page background.
 const asideOpen = (ASIDE.match(/^<aside[^>]*>/) || [""])[0];
 // No column at all: the rail is a transparent layer over the page's left edge, so
 // the page background (solid, liquid or image) runs unbroken underneath it -- a
@@ -132,15 +132,10 @@ check("the page is padded clear of the rail and paints under it", () =>
   /<div ref=\{contentPanelRef\} style=\{\{[^\n]*paddingLeft: isMobile \? 0 : RAIL_W/.test(SRC) || "content panel not padded by RAIL_W");
 check("the body row is the rail's positioning box", () => /\{\/\* ── Body — sidebar \+ content ── \*\/\}\s*<div style=\{\{ position: "relative", flex: 1/.test(RAW) || "body row not position:relative");
 check("the rail draws on the page theme (it floats over the page)", () => RAIL.startsWith("{!isMobile && ((Tpage) => { const T = Tpage;") || "rail still on the chrome theme");
-const GLASS = (RAIL.match(/const railGlass = glassOn\n\s*\? \{[^\n]*/) || [""])[0];
-const SOLID = (RAIL.match(/const railGlass = glassOn\n[^\n]*\n\s*: \{[^\n]*/) || [""])[0].split("\n").pop();
-check("the pills are glass only when Frosted Glass is on", () => (!!GLASS && !!SOLID) || "railGlass is not gated on glassOn");
-check("...and solid with no blur when it is off", () => /background: railFill[,\s]/.test(SOLID) && !/blur|hexA\(railFill/.test(SOLID) || SOLID || "no solid branch");
-check("glass: translucent fill with a backdrop blur (both engines)", () =>
-  /background: hexA\(railFill, railLight \? 0\.\d+ : 0\.\d+\)/.test(GLASS) && /backdropFilter: "blur\(\d+px\)/.test(GLASS) && /WebkitBackdropFilter: "blur\(\d+px\)/.test(GLASS) || GLASS || "no railGlass");
-check("the glass casts no drop shadow (edge only)", () => GLASS && !/boxShadow/.test(GLASS) || "railGlass has a boxShadow");
 const navOpen = (ASIDE.match(/<nav className="tq-rail-nav" style=\{\{[^\n]*/) || [""])[0];
-check("the nav is a glass capsule", () => /\.\.\.railGlass/.test(navOpen) && /borderRadius: T\.radiusPill/.test(navOpen) || navOpen.slice(0, 160) || "no <nav className=\"tq-rail-nav\">");
+// No capsule (2026-10-03): the nav sits straight on the page background.
+check("the nav has no capsule: no fill, edge or blur", () => !!navOpen && !/railGlass|background|border:|backdropFilter/.test(navOpen) || navOpen.slice(0, 160) || "no <nav className=\"tq-rail-nav\">");
+check("...and the glass styling is gone from the rail", () => !/railGlass|railFill|railEdge/.test(RAIL) || "railGlass still defined");
 check("...hung just below the mark, with a gap", () =>
   /const RAIL_GAP = 20;/.test(RAIL) && /const RAIL_NAV_TOP = TITLE_ROW_TOP \+ TITLE_ROW_H \+ RAIL_GAP;/.test(RAIL) &&
   /position: "absolute"/.test(navOpen) && /top: RAIL_NAV_TOP, transform: "translateX\(-50%\)"/.test(navOpen) && !/top: "50%"/.test(navOpen) || "nav not anchored under the mark");
@@ -148,11 +143,11 @@ check("...and scrolls inside itself instead of running into the foot", () =>
   /maxHeight: `calc\(100% - \$\{RAIL_NAV_TOP \+ RAIL_FOOT_CLEAR\}px\)`/.test(navOpen) && /overflowY: "auto"/.test(navOpen) || "no clearance");
 const footAt = ASIDE.indexOf('className="tq-rail-foot"');
 const FOOT = footAt < 0 ? "" : ASIDE.slice(footAt);
-check("notifications and profile share a glass capsule at the foot", () =>
-  footAt > 0 && FOOT.indexOf("...railGlass") > 0 && /borderRadius: T\.radiusPill/.test(FOOT.slice(FOOT.indexOf("...railGlass"), FOOT.indexOf("...railGlass") + 120)) && /ref=\{notifRef\}/.test(FOOT) && /ref=\{profileRef\}/.test(FOOT) || "no foot capsule holding both");
+check("notifications and profile sit at the foot, on the background", () =>
+  footAt > 0 && !/railGlass/.test(FOOT) && /ref=\{notifRef\}/.test(FOOT) && /ref=\{profileRef\}/.test(FOOT) || "foot missing the bell or profile, or still in a capsule");
 // Jobs expand lag: the page-tall list cards re-blurred their whole area on every
 // resize (176-352ms per expand in Safari vs ~56ms without). They keep the fill only.
-check("list cards (FrostCard) carry the no-blur class", () => /const FrostCard = [^\n]*\n\s*<div className="tq-lglass tq-lglass-card tq-list-card"/.test(SRC) || "FrostCard missing tq-list-card");
+check("list cards (FrostCard) carry the no-blur class", () => /const FrostCard = [^\n]*\n\s*<div className=\{`tq-lglass tq-lglass-card tq-list-card\$\{/.test(SRC) || "FrostCard missing tq-list-card");
 check("...and that class turns the backdrop blur off under the glass toggle", () =>
   /\.traqs-glass \.tq-lglass\.tq-lglass-card\.tq-list-card \{\s*-webkit-backdrop-filter: none;\s*backdrop-filter: none;\s*\}/.test(SRC) || "no tq-list-card blur override");
 check("rail buttons are 54px circles", () => /const RAIL_BTN = 54;/.test(RAIL) && /width: RAIL_BTN, height: RAIL_BTN/.test(RAIL) || "RAIL_BTN is not 54");
@@ -237,9 +232,9 @@ check("undo/redo/save are defined once as the title-row actions", () => /const t
 const titleActionsDef = (SRC.match(/const titleActions = [\s\S]*?\n {2}\);/) || [""])[0];
 check("titleActions carries undo and redo, not the save state", () =>
   (/onClick=\{undo\}/.test(titleActionsDef) && /onClick=\{redo\}/.test(titleActionsDef) && !/saveStatus/.test(titleActionsDef)) || "titleActions missing undo/redo, or still carries saveStatus");
-check("the save state sits on the background above the bell, outside the foot capsule", () => {
-  const at = FOOT.indexOf('className="tq-rail-save"'), glass = FOOT.indexOf("...railGlass"), bell = FOOT.indexOf("ref={notifRef}");
-  return (at > 0 && at < glass && glass < bell && /saveError/.test(FOOT.slice(0, at)) && /saveStatus/.test(FOOT.slice(0, at))) || `save ${at}, glass ${glass}, bell ${bell}`;
+check("the save state sits above the bell", () => {
+  const at = FOOT.indexOf('className="tq-rail-save"'), bell = FOOT.indexOf("ref={notifRef}");
+  return (at > 0 && at < bell && /saveError/.test(FOOT.slice(0, at)) && /saveStatus/.test(FOOT.slice(0, at))) || `save ${at}, bell ${bell}`;
 });
 check("undo is wired to a button only in titleActions", () => count(/onClick=\{undo\}/g) === 1 || `${count(/onClick=\{undo\}/g)} undo buttons`);
 const H1 = [...SRC.matchAll(/<h1 style=\{(pageTitle\(\)|pageTitleStyle|\{ \.\.\.pageTitleStyle[^}]*\})\}>/g)];

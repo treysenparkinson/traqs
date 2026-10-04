@@ -142,9 +142,11 @@ ok("#rc9c3 ...and --tq-glow-ring / --tq-glow-ring-soft, which ARE read, survive"
 // It was dead the opposite way round: written, reviewed, never put on an element. Tabs had
 // no press feedback at all, which reads as the tab being broken rather than quiet.
 const TAB_SITES = (ALL.match(/className="tq-noanim anim-tab"/g) || []).length;
-ok(`#rc9c3 .anim-tab is applied (${TAB_SITES} tab sites)`, TAB_SITES >= 4);
+// Three sites: the desktop Time Clock's admin tabs became revamp pills (rv-pill) in
+// 2026-10, which carry the app-wide button press instead; mobile keeps its tab row.
+ok(`#rc9c3 .anim-tab is applied (${TAB_SITES} tab sites)`, TAB_SITES >= 3);
 ok("#rc9c3 ...on MobileNav's bottom bar", /className="tq-noanim anim-tab" ref=\{el => \{ btnRefs\.current\[tab\.id\] = el; \}\}/.test(ALL));
-ok("#rc9c3 ...on both Time Stamp admin tab rows", (ALL.match(/className="tq-noanim anim-tab" onClick=\{\(\) => setTsAdminTab/g) || []).length === 2);
+ok("#rc9c3 ...on the mobile Time Stamp admin tab row", (ALL.match(/className="tq-noanim anim-tab" onClick=\{\(\) => setTsAdminTab/g) || []).length === 1);
 ok("#rc9c3 ...and on the settings tabs", /className="tq-noanim anim-tab" onClick=\{\(\) => setSettingsTab/.test(ALL));
 
 // The trap this would otherwise fall into: an inline style object outranks a stylesheet
@@ -173,7 +175,7 @@ for (let i = ALL.indexOf('className="tq-noanim anim-tab"'); i >= 0; i = ALL.inde
   scanned++;
   ok(`#rc9c3 ...with no inline transition to outrank the class (tab ${scanned})`, !/\btransition\s*:/.test(style));
 }
-ok(`#rc9c3 ...and all ${TAB_SITES} wired tabs were actually inspected`, scanned === TAB_SITES && scanned >= 4);
+ok(`#rc9c3 ...and all ${TAB_SITES} wired tabs were actually inspected`, scanned === TAB_SITES && scanned >= 3);
 
 const animTab = rules.find(r => r.head.trim() === ".anim-tab");
 ok("#rc9c3 .anim-tab still declares the press squeeze", !!animTab && /transition:/.test(animTab.body)

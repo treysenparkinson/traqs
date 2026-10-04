@@ -78,9 +78,9 @@ check("Undo approval needs approveCompletions (as its button)", body("const admi
 console.log("\n2. Task writes — UI gates");
 check("Engineering buttons show for admin or engineer", SRC, { not: ["isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering("] });
 check("Status → Finished needs approveCompletions", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return'], not: ['if (s === "Finished" && !isAdmin) return;'] });
-check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'],
+check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <button className={barSelectMode ? "rv-pill pri" : "rv-pill"}'],
   not: ['{isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'] });
-check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
+check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
 check("Dependencies toggle and editor need editJobs", SRC, { has: ["{showDepToggle && can(\"editJobs\") && <button", '{isOp && can("editJobs") && (() => {'] });
 
 check("Panel approval-step menu (edit / remove the chain) needs editJobs", SRC, { has: ['const openApprCtx = (ev) => {\n                // Editing or removing a panel\'s steps changes the chain itself: editJobs.\n                if (!can("editJobs")) return'] });

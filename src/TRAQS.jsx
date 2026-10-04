@@ -34,7 +34,7 @@ import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveE
 // real palette, which is the only way to test "can this be read".
 import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, barPaint,
          spentBarFill, doneBarFill, activeBarFill,
-         barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap, lunchHairline } from "./barPaint.js";
+         barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
@@ -966,6 +966,11 @@ animStyle.textContent = `
 .rv-pill.pri{background:var(--tq-accent);color:var(--rv-on-acc);border-color:var(--tq-accent)}
 .rv-pill.on{background:var(--rv-acc-soft);border-color:var(--tq-accent);color:var(--tq-accent)}
 .rv-pill.sm{padding:5px 10px;font-size:10.5px}
+.rv-pill.ic{width:34px;height:34px;padding:0;justify-content:center;position:relative}
+.rv-seg{display:inline-flex;border:1px solid var(--rv-track);border-radius:999px;overflow:hidden;background:var(--rv-surface);flex:none}
+.rv-seg>button{padding:8px 13px;font-size:11.5px;font-weight:500;color:var(--rv-mute);border:0;background:transparent;font-family:inherit;cursor:pointer;border-radius:0}
+.rv-seg>button.on{background:var(--tq-accent);color:var(--rv-on-acc);font-weight:700}
+.rv-badge{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:999px;background:var(--tq-accent);color:var(--rv-on-acc);font-size:9px;font-weight:700;line-height:15px;text-align:center}
 .rv-pill:disabled{opacity:.5;cursor:default}
 .rv-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;background:var(--rv-chip);color:var(--rv-mute);white-space:nowrap;flex:none}
 .rv-chip.g{background:var(--rv-g-bg);color:var(--rv-g-fg)}.rv-chip.y{background:var(--rv-y-bg);color:var(--rv-y-fg)}.rv-chip.b{background:var(--rv-b-bg);color:var(--rv-b-fg)}.rv-chip.r{background:var(--rv-r-bg);color:var(--rv-r-fg)}.rv-chip.o{background:var(--rv-o-bg);color:var(--rv-o-fg)}
@@ -1002,6 +1007,36 @@ animStyle.textContent = `
 .rv-lane>b{position:absolute;top:8px;height:18px;border-radius:9px;background:var(--tq-accent)}
 .rv-lane>b.lu{background:#eda412}
 .rv-lane>.now{position:absolute;top:0;bottom:0;border-left:2px solid #ff6b5b}
+.rv-lnav{display:flex;flex-direction:column;gap:2px;align-self:start;max-height:100%;overflow-y:auto}
+.rv-lnav>small{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--rv-mute);font-weight:700;padding:14px 12px 6px}
+.rv-lnav>small:first-child{padding-top:0}
+.rv-lnav>button{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:500;border:0;background:transparent;color:var(--rv-ink);font-family:inherit;cursor:pointer;text-align:left;width:100%;min-width:0}
+.rv-lnav>button em{font-style:normal;color:var(--rv-mute);font-size:11px;margin-left:auto;flex:none}
+.rv-lnav>button.on{background:var(--rv-acc-soft);color:var(--tq-accent);font-weight:700}
+.rv-lnav>button.on em{color:var(--tq-accent)}
+.rv-lnav>button.more{color:var(--rv-mute);font-size:11px}
+/* The Jobs table card scrolls inside the page height (max-height + a shrinking
+   inner scroller), so its sticky column header pins to the card's top. */
+.rv-jobs-card{display:flex;flex-direction:column;max-height:100%}
+.rv-jobs-card>.tq-card-scroll{flex:0 1 auto;min-height:0}
+.rv-sq{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:6px;color:#fff;font-size:7px;font-weight:700;flex:none}
+.rv-grp{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--rv-thead);border-bottom:1px solid var(--rv-line);font-size:11.5px;font-weight:700;color:var(--rv-ink);cursor:pointer;user-select:none}
+.rv-grp em{font-style:normal;font-weight:600;color:var(--rv-mute)}
+.rv-tc-left{border-right:1px solid var(--rv-line);padding-right:40px;display:flex;flex-direction:column;gap:30px}
+.rv-tc-right{display:flex;flex-direction:column;gap:24px;min-width:0}
+.rv-me{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:10px;color:var(--rv-ink)}
+.rv-me-name{font-size:16px;font-weight:700;margin-top:12px}
+.rv-me-name small{display:block;font-size:11px;color:var(--rv-mute);font-weight:500;margin-top:2px}
+.rv-bigtime{font-size:56px;font-weight:700;letter-spacing:-2.5px;margin:18px 0 4px;line-height:1;color:var(--rv-ink)}
+.rv-btns{display:flex;gap:6px;width:100%;margin-top:8px}
+.rv-tbl{border:1px solid var(--rv-line);border-radius:16px;overflow:hidden}
+.rv-tbl table{width:100%;border-collapse:collapse;font-size:12px;color:var(--rv-ink)}
+.rv-tbl th{text-align:left;padding:9px 12px;font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--rv-mute);font-weight:700;background:var(--rv-thead);border-bottom:1px solid var(--rv-line);white-space:nowrap}
+.rv-tbl td{padding:9px 12px;border-bottom:1px solid var(--rv-line);white-space:nowrap}
+.rv-tbl tbody tr{cursor:pointer}
+.rv-tbl tbody tr.on{background:var(--rv-acc-soft)}
+.rv-tbl tbody tr:last-child>td{border-bottom:0}
+.rv-tbl .rv-tc-exp>td{padding:0 16px 14px 40px;white-space:normal;cursor:default}
 .rv-cal{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px;text-align:center}
 .rv-cal>small{font-size:9.5px;color:var(--rv-mute);font-weight:600;padding-bottom:6px}
 .rv-cal>div{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 0;cursor:pointer}
@@ -2497,8 +2532,8 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
 // `scrollRef` hands the caller the inner scrolling box. The Jobs list uses it to
 // tie every grid card's horizontal position together; everywhere else leaves it off
 // and the card scrolls on its own as before.
-const FrostCard = ({ children, onClick, border, scrollRef, style: sx = {} }) => (
-  <div className="tq-lglass tq-lglass-card tq-list-card" style={{
+const FrostCard = ({ children, onClick, border, scrollRef, className = "", style: sx = {} }) => (
+  <div className={`tq-lglass tq-lglass-card tq-list-card${className ? " " + className : ""}`} style={{
     position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
     // Solid. The frost is the glass rule's job now (tq-lglass-card above), which is
@@ -3505,7 +3540,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
 // Compact comment input for an approval-queue row. Enter or the arrow button adds the comment.
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
-function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen, btnClass = "", onMyTasks, myTasksOn = false }) {
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, pill = false, onOpen, btnClass = "" }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -3603,19 +3638,6 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
     <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
-      {/* My Tasks — a one-click narrowing to the signed-in user's own work, sat directly
-          under the search box. It drives the People filter rather than the grouping, so
-          it narrows every view the filter feeds (Schedule and Jobs), not just this list.
-          Clicking it again clears, so it reads as a toggle rather than a trap. */}
-      {onMyTasks && <button onClick={() => onMyTasks()}
-        style={{ width: "100%", marginTop: 8, padding: "7px 10px", borderRadius: T.radiusPill, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: T.font,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          border: `1px solid ${myTasksOn ? T.accent : T.border}`,
-          background: myTasksOn ? hexA(T.accent, 0.14) : "transparent",
-          color: myTasksOn ? T.accent : T.textSec }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        {myTasksOn ? "My Tasks: on" : "My Tasks"}
-      </button>}
     </div>
     <div style={{ maxHeight: 300, overflow: "auto" }}>
       {noneMatch && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No matches for "{q}"</div>}
@@ -3627,14 +3649,17 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
       <button onClick={() => onClear()} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusPill, background: "transparent", border: `1px solid ${T.border}`, color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear grouping</button>
     </div>}
   </div></FadeOnClose>;
-  return <div style={{ position: "relative", ...(asIconButton ? { flexShrink: 0 } : {}) }}>
-    {asIconButton
-      ? <button ref={triggerRef} className={`icon-btn-glow${btnClass ? " " + btnClass : ""}`} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${(value.length > 0 || myTasksOn) ? T.accent + "88" : T.border}`, background: (value.length > 0 || myTasksOn) ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (value.length > 0 || myTasksOn) ? T.accent : T.textSec, position: "relative" }}>
+  return <div style={{ position: "relative", ...(asIconButton || pill ? { flexShrink: 0 } : {}) }}>
+    {/* pill: the revamp's round icon button (Jobs header), with a count bubble. */}
+    {pill
+      ? <button ref={triggerRef} className={value.length > 0 ? "rv-pill ic on" : "rv-pill ic"} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          {value.length > 0 && <span className="rv-badge">{value.length}</span>}
+        </button>
+      : asIconButton
+      ? <button ref={triggerRef} className={`icon-btn-glow${btnClass ? " " + btnClass : ""}`} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          {/* Counts My Tasks as well as groupings. My Tasks lives in this dropdown but
-              drives the People filter, so the badge used to appear on the Filter button
-              while the Grouping button — the one actually pressed — showed nothing. */}
-          {(value.length > 0 || myTasksOn) && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length + (myTasksOn ? 1 : 0)}</span>}
+          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
         </button>
       : <div className="tq-drop" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border 0.15s" }}>
           {value.length > 0
@@ -3917,6 +3942,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       root.setProperty("--rv-surface", T.surface);
       root.setProperty("--rv-chip", dk ? hexA(T.text, 0.1) : "#eef0f6");
       root.setProperty("--rv-acc-soft", hexA(T.accent, dk ? 0.2 : 0.12));
+      // Opaque: the Jobs table's sticky header sits over rows as they scroll.
+      root.setProperty("--rv-thead", dk ? blendHex(T.surface, 0.06) : "#f6f7fb");
       root.setProperty("--rv-on-acc", T.accentText);
       const chips = { g: ["#dcf2e6", "#15603f", "#34d399"], y: ["#fdefcf", "#7a5200", "#fbbf24"], b: ["#dcefff", "#0d5f99", "#60a5fa"], r: ["#ffe3df", "#a62e1f", "#f87171"], o: ["#ffe7d6", "#9a4a10", "#fb923c"] };
       for (const [k, [bg, fg, hue]] of Object.entries(chips)) {
@@ -5020,6 +5047,10 @@ Extraction rules:
   // been worked without reopening it. Shared by the Schedule bars, the Jobs gantt and the
   // Jobs list so "Hide completed" means the same thing everywhere. Default true = show.
   const [showCompleted, setShowCompleted] = usePersistedUI("showCompleted", true);
+  // Jobs page left column (Revamp): which fixed view is showing, and whether the
+  // client list is expanded past its first five.
+  const [jobsView, setJobsView] = usePersistedUI("jobsView", "open");
+  const [jobsClientsAll, setJobsClientsAll] = useState(false);
   const [sFClient, setSFClient] = usePersistedUI("sFClient", []);  // multi-select client IDs; empty = All
   const [sFJobNum, setSFJobNum] = usePersistedUI("sFJobNum", "");
   const [sFPers, setSFPers] = usePersistedUI("sFPers", []);
@@ -12397,6 +12428,48 @@ ${jobsCtx || "No jobs found."}`;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
     // _opHrs / _panelHrs / _jobHrs / _opPct / _jobPct are defined at component level
 
+    // ── Views (Revamp left column) ────────────────────────────────────────────
+    // Fixed views built from fields TRAQS has; the design's saved views and
+    // Archive have nothing behind them, so they are not drawn. Finished is read
+    // here whatever showCompleted says (that toggle belongs to the Schedule).
+    const hasAnyTeam = (n) => (n.team || []).some(id => id != null) || (n.subs || []).some(hasAnyTeam);
+    const finishedAll = sortTasks(filtered.filter(t => t.status === "Finished" && jobSearchMatch(t))).map(_persTrim);
+    const JOB_VIEWS = [
+      { id: "open", label: "All open", list: activeTasks },
+      { id: "mine", label: "Mine", list: loggedInUser ? activeTasks.filter(t => personOnTask(loggedInUser.id, t)) : [] },
+      { id: "unassigned", label: "Unassigned", list: activeTasks.filter(t => !hasAnyTeam(t)) },
+      { id: "finished", label: "Finished", list: finishedAll },
+    ];
+    const curJobView = JOB_VIEWS.find(v => v.id === jobsView) || JOB_VIEWS[0];
+    // Clients with open work, busiest first; five unless expanded.
+    const clientJobCount = new Map();
+    activeTasks.forEach(t => { if (t.clientId != null) clientJobCount.set(String(t.clientId), (clientJobCount.get(String(t.clientId)) || 0) + 1); });
+    const navClients = clients.filter(c => clientJobCount.has(String(c.id)))
+      .sort((a, b) => clientJobCount.get(String(b.id)) - clientJobCount.get(String(a.id)) || String(a.name).localeCompare(String(b.name)));
+    const shownClients = jobsClientsAll ? navClients : navClients.slice(0, 5);
+    const jobsLnav = (
+      <nav className="rv-lnav">
+        <small>Views</small>
+        {JOB_VIEWS.map(v => (
+          <button key={v.id} className={curJobView.id === v.id ? "on" : undefined} onClick={() => setJobsView(v.id)}>
+            {v.label}<em className="rv-num">{v.list.length}</em>
+          </button>
+        ))}
+        {navClients.length > 0 && <small>Clients</small>}
+        {shownClients.map(c => {
+          const on = fClient.length === 1 && sameId(fClient[0], c.id);
+          return (
+            <button key={c.id} className={on ? "on" : undefined} onClick={() => setFClient(on ? [] : [c.id])} title={on ? "Show every client" : `Only ${c.name}`}>
+              <span className="rv-sq" style={{ background: elColor(c.color) || "var(--rv-mute)" }}>{String(c.name || "?").slice(0, 2).toUpperCase()}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+              <em className="rv-num">{clientJobCount.get(String(c.id))}</em>
+            </button>
+          );
+        })}
+        {navClients.length > 5 && <button className="more" onClick={() => setJobsClientsAll(v => !v)}>{jobsClientsAll ? "Show fewer" : `+ ${navClients.length - 5} more`}</button>}
+      </nav>
+    );
+
 
     return <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
       {/* Pinned sharp background — lives INSIDE this scroller (the same stacking context as the
@@ -12411,7 +12484,9 @@ ${jobsCtx || "No jobs found."}`;
             via a gradient overlay keeps the blur working at every background-opacity value. */}
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       </div>}
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, padding: "24px 32px 28px" }}>
+      {/* Fixed height: the header and the right column stay put and only the table
+          scrolls, inside its own card, with its column header pinned. */}
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, padding: "24px 32px 28px", height: "100%", boxSizing: "border-box" }}>
       {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
@@ -12499,16 +12574,18 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         </div>
       </>, document.body)}
-      {/* ── Combined header bar ── */}
-      <div className="tq-pagehdr" style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 50 }}>
-        {/* One grid cell: the header grid's columns are positional. */}
-        <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
-        {/* Left: collapsible toolbar (list view only) */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {taskSubView === "list" && <>
-            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
-            {/* Select */}
-            {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
+      {/* ── Header (Revamp, Jobs) ──
+          Title, then Select and search beside it; on the right, round Filter and
+          Group buttons, align, Export, FAST TRAQS, + New Job. Every control is the
+          one this page already had, restyled. */}
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 50, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
+        </div>
+        {taskSubView === "list" && <>
+          <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
+          {/* Select */}
+          {can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</button>}
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
@@ -12521,16 +12598,23 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selJobs.size} selected</span>
               <Btn size="sm" style={{ minWidth: 78, ...outlineBtnStyle(T.danger) }} onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })}>Delete</Btn>
             </div>
-            {/* Divider between the select group and the tool cluster. Centred in
-                the 18px gap, so the cluster's own offset stays the spacing. */}
-            <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, marginLeft: 9 }} />
-            {/* Filter */}
-            <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0, marginLeft: 3 }}>
-              <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
-              </button>
-              <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+          {/* Search — always open, as in the design */}
+          <label className="rv-pill" style={{ width: 240, cursor: "text", color: taskSearchQ ? "var(--tq-accent)" : "var(--rv-mute)" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></svg>
+            <input className="tq-bare" id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs, #, client…" style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--rv-ink)", fontSize: 11.5, fontFamily: "inherit" }} />
+            {taskSearchQ && <span role="button" onClick={e => { e.preventDefault(); setTaskSearchQ(""); }} style={{ cursor: "pointer", fontSize: 14, lineHeight: 1, color: "var(--rv-mute)" }}>×</span>}
+          </label>
+        </>}
+        {/* Select + search sit with the title; everything else is pushed right. */}
+        <span style={{ flex: 1 }} />
+        {taskSubView === "list" && <>
+          {/* Filter */}
+          <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
+            <button className={activeFilterCount > 0 ? "rv-pill ic on" : "rv-pill ic"} onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg>
+              {activeFilterCount > 0 && <span className="rv-badge">{activeFilterCount}</span>}
+            </button>
+              <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
                 <div style={{}}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                 <div style={{}}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
@@ -12548,29 +12632,15 @@ ${jobsCtx || "No jobs found."}`;
                 {renderCustomColFilters()}
                 {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
-            </div>
-            {/* Grouping — its own independent button, next to Filter */}
-            <GroupingSelect asIconButton onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
+          </div>
+          {/* Grouping */}
+          <GroupingSelect pill onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
               workers={people.filter(p => groupablePersonIds.has(String(p.id))).map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
               clientOpts={clients.filter(c => groupableClientIds.has(String(c.id))).map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
               columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]}
-              myTasksOn={!!loggedInUser && fPers.length === 1 && sameId(fPers[0], loggedInUser.id)}
-              onMyTasks={loggedInUser ? () => {
-                const mine = String(loggedInUser.id);
-                setFPers(prev => (prev.length === 1 && prev[0] === mine) ? [] : [mine]);
-              } : undefined} />
-            {/* Search jobs — kept expanded on the Jobs page */}
-            <div className="tq-searchbar" onClick={e => { e.stopPropagation(); document.getElementById("taskSearchInput")?.focus(); }} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: "text", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, filter 0.2s ease", flexShrink: 0 }}>
-              <span style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0, pointerEvents: "none" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </span>
-              {(taskSearchOpen || taskSearchQ) && <>
-                <input className="tq-bare" id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-                {taskSearchQ && <button onClick={e => { e.stopPropagation(); setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
-              </>}
-            </div>
-            {/* Alignment — single cycling toggle */}
-            {(() => {
+              />
+          {/* Alignment — single cycling toggle */}
+          {(() => {
               const alignOpts = [
                 { val: "left",   svg: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg> },
                 { val: "center", svg: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg> },
@@ -12578,40 +12648,20 @@ ${jobsCtx || "No jobs found."}`;
               ];
               const cur = alignOpts.find(o => o.val === cellAlign) || alignOpts[0];
               const next = alignOpts[(alignOpts.findIndex(o => o.val === cellAlign) + 1) % alignOpts.length];
-              return <button className="icon-btn-glow" onClick={() => setCellAlign(next.val)} title={`Align: ${cellAlign} (click to cycle)`}
-                style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, outline: "none" }}
-                onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
-                onMouseLeave={e => { e.currentTarget.style.color = T.textDim; }}>
-                {cur.svg}
-              </button>;
-            })()}
-          </>}
-        </div>
-        <div />
-        {/* Right: actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP, justifyContent: "flex-end" }}>
-          {taskSubView === "list" && <>
-            {/* Export button. Tooltip says what it does rather than repeating the label,
-                which is now visible on the button itself. */}
-            <Tip label="Export jobs to PDF, CSV or Word">
-            {/* Secondary: this header's one primary is "+ New Job". A hand-rolled copy of
-                the gradient put two identical CTAs a divider apart. Btn now carries both
-                looks, so the whole thing is a variant rather than 20 inline properties;
-                the icon strokes currentColor and follows the label to the accent. */}
-            <Btn size="sm" variant="secondary" onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export
-              </span>
-            </Btn>
-            </Tip>
-          </>}
-          <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 3px" }} />
-          <Btn size="sm" variant="secondary" onClick={() => setBcModalState("open")} style={pageActionIconBtn}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-          </Btn>
-          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
-        </div>
+            return <button className="rv-pill ic" onClick={() => setCellAlign(next.val)} title={`Align: ${cellAlign} (click to cycle)`}>{cur.svg}</button>;
+          })()}
+          <Tip label="Export jobs to PDF, CSV or Word">
+            <button className="rv-pill" onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg> Export
+            </button>
+          </Tip>
+        </>}
+        <Tip label="FAST TRAQS — import or update jobs from a file">
+          <button className="rv-pill ic" onClick={() => setBcModalState("open")}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+          </button>
+        </Tip>
+        {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
       </div>
       {/* ── Cards View ── */}
       {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
@@ -12861,14 +12911,18 @@ ${jobsCtx || "No jobs found."}`;
       </div>}
 
       {/* ── List View (Grid) ── */}
-      {taskSubView === "list" && (() => {
+      {/* The views + clients column sits on the RIGHT of the table. */}
+      {taskSubView === "list" && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 200px", gridTemplateRows: "minmax(0, 1fr)", gap: "0 32px", flex: 1, minHeight: 0 }}>
+      {(() => {
         const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
         const showAssigneeCol = orderedStdCols.some(c => c.id === "assignee");
         const customWidths = colWidths.slice(CUSTOM_W0, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
-        const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
-        const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "8px 10px", background: T.surface };
+        // Revamp table: hairline rows only (no column rules), 12px cells, and an
+        // uppercase tinted header — TRAQS Revamp.html's .tbl.
+        const cellBase = { padding: "9px 12px", fontSize: 12, color: T.text, fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
+        const hdrCell = { ...cellBase, fontSize: 9.5, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "1px", padding: "9px 12px", background: "var(--rv-thead)" };
         // Display label for a standard column, honoring user renames.
         const stdColLabel = col => colLabels[col.id] || col.label;
         const doColSort = id => setColSort(prev => prev.id === id ? (prev.dir === "asc" ? { id, dir: "desc" } : { id: null, dir: "asc" }) : { id, dir: "asc" });
@@ -13036,7 +13090,7 @@ ${jobsCtx || "No jobs found."}`;
             case "pri": return (
               <div style={{ ...cellBase, cursor: "pointer", justifyContent: "center" }}
                 onClick={e => { e.stopPropagation(); if (level === 0) cyclePri(item); }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: T.radiusPill, background: priColor + "1a", border: `1px solid ${priColor}44`, fontSize: 11, fontWeight: 700, color: priColor, userSelect: "none", textTransform: "uppercase", letterSpacing: "-0.045em" }}>
+                <span className="rv-chip" style={{ background: priColor + "22", color: priColor, userSelect: "none" }}>
                   {item.pri || "Med"}
                 </span>
               </div>
@@ -13081,16 +13135,12 @@ ${jobsCtx || "No jobs found."}`;
                   : <span style={{ color: T.textDim }}>—</span>}
               </div>
             );
+            // Revamp: one line — a thin bar, then the figure. The ops count rides
+            // the tooltip, and the bar keeps the ramp colour (amber past 100%).
             case "progress": return (
-              <div style={{ ...cellBase, flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 3, padding: "6px 10px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: pc }}>{pct}%</span>
-                  {level === 0 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).flatMap(p => p.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).flatMap(p => p.subs || []).length} ops</span>}
-                  {level === 1 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).length}</span>}
-                </div>
-                <div style={{ height: 4, borderRadius: 8, background: T.border, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pctBarWidth(pct)}%`, borderRadius: 8, background: pc, transition: "width 0.3s" }} />
-                </div>
+              <div style={{ ...cellBase, gap: 8 }} title={level === 0 ? `${(item.subs || []).flatMap(p => p.subs || []).filter(o => o.status === "Finished").length}/${(item.subs || []).flatMap(p => p.subs || []).length} ops finished` : level === 1 ? `${(item.subs || []).filter(o => o.status === "Finished").length}/${(item.subs || []).length} finished` : undefined}>
+                {rvBar(pctBarWidth(pct), pc, 6)}
+                <small className="rv-num rv-mute" style={{ fontSize: 10.5, width: 34, textAlign: "right", flexShrink: 0 }}>{pct}%</small>
               </div>
             );
             case "team": return (
@@ -13255,7 +13305,7 @@ ${jobsCtx || "No jobs found."}`;
               onDragOver={level === 0 ? e => { e.preventDefault(); if (rowDragRef.current && rowDragRef.current !== item.id) setRowDragOverId(item.id); } : undefined}
               onDrop={level === 0 ? e => { e.preventDefault(); if (!rowDragRef.current || rowDragRef.current === item.id) return; const dragId = rowDragRef.current; rowDragRef.current = null; setRowDragOverId(null); setTaskOrder(prev => { const base = prev.length ? prev : activeTasks.map(t => t.id); const from = base.indexOf(dragId); const to = base.indexOf(item.id); if (from < 0 || to < 0) return base; const next = [...base]; next.splice(from, 1); next.splice(to, 0, dragId); return next; }); } : undefined}
               onDragEnd={level === 0 ? () => { rowDragRef.current = null; setRowDragOverId(null); } : undefined}
-              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}) }}
+              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}) }}
               onMouseEnter={e => { e.currentTarget.style.background = condBg || T.accent + "0d"; }}
               onMouseLeave={e => { e.currentTarget.style.background = condBg || rowBg; }}
               onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); } }}
@@ -13395,7 +13445,7 @@ ${jobsCtx || "No jobs found."}`;
             const minW = colWidths.reduce((a, b) => a + b, 0);
             const gridOnClick = () => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); };
             const ColHeaders = (hdrKey = "main") => (
-              <div className="tq-sticky-head" style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.surface, borderBottom: `1.5px solid ${T.border}` }}>
+              <div className="tq-sticky-head" style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: "var(--rv-thead)", borderBottom: `1px solid ${T.border}` }}>
                 {orderedStdCols.map((col, displayIdx) => {
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
@@ -13450,57 +13500,12 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             );
 
-            const orderedActive = taskOrder.length
-              ? taskOrder.map(id => activeTasks.find(t => t.id === id)).filter(Boolean).concat(activeTasks.filter(t => !taskOrder.includes(t.id)))
-              : activeTasks;
+            // The current view's jobs, in the saved manual order (row drag).
+            const viewList = curJobView.list;
+            const ordered = taskOrder.length
+              ? taskOrder.map(id => viewList.find(t => t.id === id)).filter(Boolean).concat(viewList.filter(t => !taskOrder.includes(t.id)))
+              : viewList;
 
-            // Grouping mode: one section per selected token (worker / client / column value).
-            // Duplicates allowed — a job appears under every section it belongs to.
-            // A column token expands to one section per distinct value of that column.
-            // Returns null for an empty group rather than a header with a 0 count.
-            // The option list above already hides people/clients with no work at
-            // all; this catches the other case -- a group whose jobs are all
-            // filtered out right now.
-            const renderGroupSection = ({ key, sKey, headerNode, countColor, activeJobs, finishedJobs, trimFn, groupPrefix }) => {
-              if (activeJobs.length === 0 && finishedJobs.length === 0) return null;
-              const isCollapsed = !!pmSectionsCollapsed[sKey];
-              const trim = trimFn || (j => j);
-              return <div key={key} style={{ marginBottom: 20 }}>
-                {/* Section header */}
-                <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sKey]: !p[sKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
-                  <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  {headerNode}
-                  <span style={{ fontSize: 11, fontWeight: 700, color: countColor, background: countColor + "22", borderRadius: 16, padding: "1px 8px" }}>{activeJobs.length}</span>
-                </div>
-                {/* Body — grid-template-rows animates retract */}
-                <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-                  <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    {activeJobs.length === 0 && finishedJobs.length === 0
-                      ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
-                      : <>
-                        {activeJobs.length > 0 && <FrostCard onClick={gridOnClick} scrollRef={registerJobsHScroll}>
-                          <div style={{ minWidth: minW }}>
-                            {ColHeaders(sKey + ":a")}
-                            {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
-                          </div>
-                        </FrostCard>}
-                        {finishedJobs.length > 0 && <div style={{ marginTop: 10 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 7px" }}>{finishedJobs.length}</span>
-                          </div>
-                          <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`} scrollRef={registerJobsHScroll}>
-                            <div style={{ minWidth: minW }}>
-                              {ColHeaders(sKey + ":f")}
-                              {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
-                            </div>
-                          </FrostCard>
-                        </div>}
-                      </>}
-                  </div>
-                </div>
-              </div>;
-            };
             // Maps a column key → (job) => { key, label } for bucketing jobs by that column's value.
             const valueForGrouping = (colKey) => {
               if (colKey.startsWith("_cc_")) {
@@ -13535,109 +13540,61 @@ ${jobsCtx || "No jobs found."}`;
               else { rest.sort((a, b) => String(a[1].label).localeCompare(String(b[1].label))); }
               return [...rest, ...empties];
             };
-            if (grouping.length > 0) {
-              const sections = [];
-              grouping.forEach((tok, ti) => {
-                if (tok.type === "person") {
-                  const person = people.find(p => String(p.id) === tok.id);
-                  if (!person) return;
-                  const color = elColor(person.color || T.textDim);
-                  const header = <>
-                    <PersonAvatar person={person} size={22} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{person.name}</span>
-                  </>;
-                  sections.push(renderGroupSection({
-                    key: `p_${tok.id}`, sKey: `__g_person__${tok.id}`, headerNode: header, countColor: color,
-                    activeJobs: orderedActive.filter(t => personOnTask(person.id, t)),
-                    finishedJobs: finishedTasks.filter(t => personOnTask(person.id, t)),
-                    trimFn: j => trimTaskToPerson(j, person.id), groupPrefix: `p_${person.id}`,
-                  }));
-                } else if (tok.type === "client") {
-                  const client = clients.find(c => c.id === tok.id);
-                  if (!client) return;
-                  const color = elColor(client.color) || T.textDim;
-                  const header = <>
-                    <div style={{ width: 14, height: 14, borderRadius: 8, background: color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{client.name}</span>
-                  </>;
-                  sections.push(renderGroupSection({
-                    key: `c_${tok.id}`, sKey: `__g_client__${tok.id}`, headerNode: header, countColor: color,
-                    activeJobs: orderedActive.filter(t => sameId(t.clientId, tok.id)),
-                    finishedJobs: finishedTasks.filter(t => sameId(t.clientId, tok.id)),
-                    groupPrefix: `c_${tok.id}`,
-                  }));
-                } else if (tok.type === "column") {
-                  const getVal = valueForGrouping(tok.id);
-                  const buckets = new Map();
-                  const add = (job, isFin) => {
-                    const { key, label } = getVal(job);
-                    if (!buckets.has(key)) buckets.set(key, { label, active: [], finished: [] });
-                    buckets.get(key)[isFin ? "finished" : "active"].push(job);
-                  };
-                  orderedActive.forEach(j => add(j, false));
-                  finishedTasks.forEach(j => add(j, true));
-                  sortBuckets(tok.id, [...buckets.entries()]).forEach(([rawKey, b]) => {
-                    const vk = encodeURIComponent(rawKey);
-                    const header = <>
-                      <div style={{ width: 10, height: 10, borderRadius: 8, background: T.accent, flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{b.label}</span>
-                    </>;
-                    sections.push(renderGroupSection({
-                      key: `col_${tok.id}_${vk}_${ti}`, sKey: `__g_col__${tok.id}__${vk}`, headerNode: header, countColor: T.accent,
-                      activeJobs: b.active, finishedJobs: b.finished, groupPrefix: `col_${tok.id}_${vk}`,
-                    }));
-                  });
-                }
-              });
-              return <>{sections.filter(Boolean)}</>;
-            }
+            // ── Sections ──────────────────────────────────────────────────────────
+            // Revamp: ONE table, each group a header row inside it (dot, name,
+            // count) — not a table per group. With no grouping chosen it groups by
+            // status, as the design does. A job appears under every section it
+            // belongs to; an empty section is not drawn.
+            const sections = [];
+            const dotHeader = (color, label) => <><span className="rv-dot" style={{ background: color }} /><span>{label}</span></>;
+            const tokens = grouping.length ? grouping : [{ type: "column", id: "status" }];
+            tokens.forEach((tok, ti) => {
+              if (tok.type === "person") {
+                const person = people.find(p => String(p.id) === tok.id);
+                if (!person) return;
+                sections.push({ key: `p_${tok.id}`, sKey: `__g_person__${tok.id}`, header: <><PersonAvatar person={person} size={18} /><span>{person.name}</span></>,
+                  jobs: ordered.filter(t => personOnTask(person.id, t)), trim: j => trimTaskToPerson(j, person.id), groupPrefix: `p_${person.id}` });
+              } else if (tok.type === "client") {
+                const client = clients.find(c => c.id === tok.id);
+                if (!client) return;
+                sections.push({ key: `c_${tok.id}`, sKey: `__g_client__${tok.id}`, header: dotHeader(elColor(client.color) || T.textDim, client.name),
+                  jobs: ordered.filter(t => sameId(t.clientId, tok.id)), groupPrefix: `c_${tok.id}` });
+              } else if (tok.type === "column") {
+                const getVal = valueForGrouping(tok.id);
+                const buckets = new Map();
+                ordered.forEach(job => {
+                  const { key, label } = getVal(job);
+                  if (!buckets.has(key)) buckets.set(key, { label, jobs: [] });
+                  buckets.get(key).jobs.push(job);
+                });
+                sortBuckets(tok.id, [...buckets.entries()]).forEach(([rawKey, bk]) => {
+                  const vk = encodeURIComponent(rawKey);
+                  const color = tok.id === "status" ? (staColorOf(rawKey) || T.textDim) : T.accent;
+                  sections.push({ key: `col_${tok.id}_${vk}_${ti}`, sKey: `__g_col__${tok.id}__${vk}`, header: dotHeader(color, bk.label),
+                    jobs: bk.jobs, groupPrefix: `col_${tok.id}_${vk}` });
+                });
+              }
+            });
+            const live = sections.filter(sec => sec.jobs.length > 0);
 
-            const pmIds = [];
-            orderedActive.forEach(t => { const pmId = t.projectManagerId != null ? String(t.projectManagerId) : "__none__"; if (!pmIds.includes(pmId)) pmIds.push(pmId); });
-
-            return <>
-              {pmIds.map(pmId => {
-                const pm = pmId !== "__none__" ? people.find(p => String(p.id) === String(pmId)) : null;
-                const pmJobs = orderedActive.filter(t => (t.projectManagerId != null ? String(t.projectManagerId) : "__none__") === pmId);
-                if (!pmJobs.length) return null;
-                const isCollapsed = !!pmSectionsCollapsed[pmId];
-                const pmLabel = pm ? pm.name : "Unassigned";
-                return <div key={pmId} style={{ marginBottom: 20 }}>
-                  {/* Section header */}
-                  <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
-                    <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    {pm && <PersonAvatar person={pm} size={22} />}
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{pmLabel}</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 16, padding: "1px 8px" }}>{pmJobs.length}</span>
-                  </div>
-                  {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
-                  <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-                    <div style={{ overflow: "hidden", minHeight: 0 }}>
-                      <FrostCard onClick={gridOnClick} scrollRef={registerJobsHScroll}>
-                        <div style={{ minWidth: minW }}>
-                          {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
-                          {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
-                        </div>
-                      </FrostCard>
+            return <FrostCard className="rv-jobs-card" onClick={gridOnClick} scrollRef={registerJobsHScroll} style={{ background: "var(--rv-surface)", borderRadius: 16 }}>
+              <div style={{ minWidth: minW }}>
+                {ColHeaders("main")}
+                {live.length === 0 && <div className="rv-mute" style={{ padding: "18px 14px", fontSize: 12 }}>No jobs in this view.</div>}
+                {live.map(sec => {
+                  const collapsed = !!pmSectionsCollapsed[sec.sKey];
+                  const trim = sec.trim || (j => j);
+                  return <Fragment key={sec.key}>
+                    <div className="rv-grp" onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sec.sKey]: !p[sec.sKey] }))}>
+                      <svg style={{ color: "var(--rv-mute)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: collapsed ? "rotate(-90deg)" : "none", flexShrink: 0 }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+                      {sec.header}
+                      <em className="rv-num">{sec.jobs.length}</em>
                     </div>
-                  </div>
-                </div>;
-              })}
-
-              {/* Finished section */}
-              {finishedTasks.length > 0 && <div style={{ marginBottom: 20 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 8px" }}>{finishedTasks.length}</span>
-                </div>
-                <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`} scrollRef={registerJobsHScroll}>
-                  <div style={{ minWidth: minW }}>
-                    {ColHeaders("finished-all")}
-                    {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
-                  </div>
-                </FrostCard>
-              </div>}
-            </>;
+                    {!collapsed && sec.jobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: job.status === "Finished" ? "#10b981" : "#94a3b8", isFinished: job.status === "Finished", alwaysExpand: false, groupPrefix: sec.groupPrefix }))}
+                  </Fragment>;
+                })}
+              </div>
+            </FrostCard>;
           })()}
         </div>;
         if (showGanttSplit && !isMobile) return (
@@ -13661,6 +13618,8 @@ ${jobsCtx || "No jobs found."}`;
         );
         return listContent;
       })()}
+      {!isMobile && jobsLnav}
+      </div>}
       {/* ── Gantt View ── */}
       </div>
     </div>;
@@ -14194,7 +14153,12 @@ ${jobsCtx || "No jobs found."}`;
     // ── Team status ──────────────────────────────────────────────────────────
     const team = people.filter(p => p.userRole === "user" || p.userRole === "admin");
     const statusOf = new Map(team.map(p => [String(p.id), personStatus(p)]));
-    const onClock = team.filter(p => statusOf.get(String(p.id)) !== "offline").length;
+    // "Clocked in now" counts the people who clock: hourly only. Salaried people
+    // (Business sets pay type per person) are not on the clock, so counting them
+    // in the total made the strip read 3 / 18 when 9 people actually clock. A
+    // person with no pay type is hourly, which is everyone on Basic.
+    const hourly = team.filter(p => (p.payType || "hourly") !== "salary");
+    const hourlyOnClock = hourly.filter(p => statusOf.get(String(p.id)) !== "offline").length;
     // The design's four chip states. On job and Clocked in are both "In".
     const ST_CHIP = { job: ["In", "g"], idle: ["In", "g"], lunch: ["Lunch", "y"], break: ["Break", "o"], offline: ["Off", ""] };
     const ST_ORDER = ["job", "idle", "lunch", "break", "offline"];
@@ -14304,9 +14268,10 @@ ${jobsCtx || "No jobs found."}`;
     const laneGrid = tlHours.length > 1
       ? { background: `linear-gradient(90deg, var(--rv-line) 1px, transparent 1px) 0 0 / ${100 / (tlHours.length - 1)}% 100%` }
       : undefined;
-    // Only people with a job scheduled today: any unfinished job, sub-job or task
-    // whose dates cover today and whose team includes them. Nobody else gets a
-    // lane — an empty row is just noise on a timeline.
+    // Who gets a lane: anyone scheduled on a job today (any unfinished job, sub-job
+    // or task whose dates cover today and whose team includes them), anyone on the
+    // clock right now, and anyone who has punched today — so clocked in and out
+    // both read at a glance. Nobody else: an empty row is just noise.
     const scheduledToday = new Set();
     const walkSched = (n) => {
       if (!n || n.deletedAt || n.status === "Finished") return;
@@ -14314,7 +14279,7 @@ ${jobsCtx || "No jobs found."}`;
       (n.subs || []).forEach(walkSched);
     };
     tasks.forEach(walkSched);
-    const tlPeople = team.filter(p => scheduledToday.has(String(p.id))).sort((a, b) =>
+    const tlPeople = team.filter(p => scheduledToday.has(String(p.id)) || statusOf.get(String(p.id)) !== "offline" || segsOf(p).length > 0).sort((a, b) =>
       ST_ORDER.indexOf(statusOf.get(String(a.id))) - ST_ORDER.indexOf(statusOf.get(String(b.id)))
       || String(a.name).localeCompare(String(b.name)));
 
@@ -14410,7 +14375,7 @@ ${jobsCtx || "No jobs found."}`;
           );
         })}
       </div>
-    ) : emptyNote("Nobody is scheduled on a job today.");
+    ) : emptyNote("Nobody is scheduled or on the clock today.");
 
     const motion = motionJobs.length ? motionJobs.map(({ j, pct }) => {
       const crew = jobTeamOf(j);
@@ -14460,7 +14425,7 @@ ${jobsCtx || "No jobs found."}`;
     );
 
     const kItems = [
-      [onClock, ` / ${team.length}`, "Clocked in now"],
+      [hourlyOnClock, ` / ${hourly.length}`, "Clocked in now"],
       [(Math.round(hoursToday * 10) / 10).toFixed(1), "h", "Hours logged today"],
       [activeJobs.length, "", "Active jobs"],
       isBasic ? [scheduledNext7.length, "", "Scheduled next 7 days"] : [dueSoon.length, "", "Due within 7 days"],
@@ -14495,7 +14460,7 @@ ${jobsCtx || "No jobs found."}`;
               {rvKstrip(kItems)}
               <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 340px", gap: isMobile ? 36 : "0 48px" }}>
                 <div style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", gap: 40, minHeight: 0 }}>
-                  {rvSx("Today · team timeline", `${tlPeople.filter(p => statusOf.get(String(p.id)) !== "offline").length} of ${tlPeople.length} scheduled clocked in`, timeline, isMobile ? undefined : { maxHeight: 34 * 9 + 50 })}
+                  {rvSx("Today · team timeline", `${tlPeople.filter(p => statusOf.get(String(p.id)) !== "offline").length} of ${tlPeople.length} clocked in`, timeline, isMobile ? undefined : { maxHeight: 34 * 9 + 50 })}
                   {rvSx("Jobs in motion", link("All jobs →", "tasks"), motion)}
                 </div>
                 <div className="rv-rail" style={isMobile ? { borderLeft: 0, paddingLeft: 0 } : undefined}>
@@ -14556,36 +14521,48 @@ ${jobsCtx || "No jobs found."}`;
   // about right now. This says whether someone is on the clock and what they are on.
   // Status and colours come from personStatus / PERSON_STATUS_META, the same pair the
   // Time Clock board and the Dashboard read, so the three can't disagree.
-  const personClockPill = (person, { size = 12 } = {}) => {
+  // The Schedule rows' status, as the Revamp's chips: In / Lunch / Break / Off,
+  // from personStatus — the same source the Time Clock board and the Dashboard
+  // read, so the three can't disagree. On a job, the job's title rides the tooltip.
+  // (`size` is accepted for the existing call sites; the chip has one size.)
+  const PERSON_CHIP = { job: ["In", "g"], idle: ["In", "g"], lunch: ["Lunch", "y"], break: ["Break", "o"], offline: ["Off", ""] };
+  const personClockPill = (person) => {
     const st = personStatus(person);
     const meta = PERSON_STATUS_META[st] || PERSON_STATUS_META.offline;
     const jc = person?.activeJobClock;
     // Only "job" carries a title — on lunch or break the job clock may still be open,
     // but naming it would read as though they were working it.
     const jobLabel = st === "job" ? (jc?.jobTitle || jc?.opTitle || null) : null;
-    return (
-      <div title={jobLabel ? `${meta.label} — ${jobLabel}` : meta.label}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: 340, padding: "3px 10px", borderRadius: T.radiusPill, background: meta.color + "18", border: `1px solid ${meta.color}44`, flexShrink: 0, boxSizing: "border-box" }}>
-        <span style={{ width: 6, height: 6, borderRadius: 6, background: meta.color, flexShrink: 0 }} />
-        <span style={{ fontSize: size, fontWeight: 700, color: meta.color, whiteSpace: "nowrap", flexShrink: 0 }}>{meta.label}</span>
-        {jobLabel && <span style={{ fontSize: size, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>· {jobLabel}</span>}
-      </div>
-    );
+    const [label, kind] = PERSON_CHIP[st] || PERSON_CHIP.offline;
+    return <span title={jobLabel ? `${meta.label} — ${jobLabel}` : meta.label} className={kind ? `rv-chip ${kind}` : "rv-chip"}>{label}</span>;
   };
   // A group has no single clock state, so it reports how many of its people are on one.
-  const groupClockPill = (members, { size = 12 } = {}) => {
+  const groupClockPill = (members) => {
     const on = (members || []).filter(p => personStatus(p) !== "offline").length;
-    const c = on > 0 ? "#10b981" : T.textDim;
-    return (
-      <div title={`${on} of ${(members || []).length} on the clock`}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: T.radiusPill, background: c + "18", border: `1px solid ${c}44`, flexShrink: 0 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 6, background: c, flexShrink: 0 }} />
-        <span style={{ fontSize: size, fontWeight: 700, color: c, whiteSpace: "nowrap", fontFamily: T.mono }}>{on}/{(members || []).length}</span>
-      </div>
-    );
+    return <span title={`${on} of ${(members || []).length} on the clock`} className={on > 0 ? "rv-chip g rv-num" : "rv-chip rv-num"}>{on}/{(members || []).length}</span>;
   };
 
+  // Switch the Schedule between day / week / month and snap the window to the
+  // period containing today. One function for both the toolbar switch and the
+  // filter panel's View buttons, so the two cannot drift.
+  const setScheduleMode = (m) => {
+    setTMode(m);
+    if (m === "day") { setTStart(TD); setTEnd(TD); }
+    else if (m === "week") { const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1)); setTStart(mon); setTEnd(addD(mon, 6)); }
+    else { const d = new Date(TD + "T12:00:00"); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+  };
   const renderTeam = () => {
+    // The range in view, as the toolbar shows it (display only).
+    const _rl = (ds, o) => new Date(ds + "T12:00:00").toLocaleDateString("en-US", o);
+    // How far the left group has grown, so the centre group can slide clear of it.
+    // Each figure is that control's expansion, on the same 0.26s curve: the search
+    // box opens 34 → 220px; Select reveals All (56px + gap) and, once something is
+    // picked, the count + Delete (up to 180px + gap).
+    const scheduleCenterShift = ((scheduleSearchOpen || scheduleSearchQ) ? 186 : 0)
+      + (barSelectMode ? 64 : 0)
+      + (barSelectMode && selBars.size > 0 ? 168 : 0);
+    const scheduleRangeLabel = tMode === "day" ? _rl(tStart, { weekday: "short", month: "short", day: "numeric" })
+      : `${_rl(tStart, { month: "short", day: "numeric" })} – ${_rl(tEnd, { month: "short", day: "numeric" })}`;
     // How far the push below could possibly move any one person's bars: the total overrun
     // sitting on their row, in whole working days. An UPPER BOUND, not the push itself —
     // deliberately, because the real push is computed per row further down and a second
@@ -15124,10 +15101,19 @@ ${jobsCtx || "No jobs found."}`;
       {/* One minHeight. It carried 50 and then 44 — the later key won, so this header
           was 6px shorter than every other page's and its contents, buttons included,
           sat 3px higher once alignItems centred them. */}
-      <div className="tq-pagehdr" style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
+      {/* Three columns on desktop: title + select / filter / search on the left,
+          Today + the view switch + the range CENTRED, page actions on the right.
+          The equal 1fr sides are what hold the middle at the true centre. */}
+      <div className="tq-pagehdr" style={isMobile
+        ? { display: "flex", gap: 6, marginBottom: 10, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }
+        : { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", columnGap: 12, marginBottom: 20, alignItems: "center", minHeight: 50, position: "relative" }}>
+        {/* Left group never wraps on desktop: when search opens or Select reveals All /
+            Delete, it grows to the right and the centre group slides over by the same
+            amount (scheduleCenterShift below), then both retract together. */}
+        <div style={{ display: "flex", gap: isMobile ? 6 : 12, alignItems: "center", minWidth: 0, flexWrap: isMobile ? "wrap" : "nowrap" }}>
         <h1 style={pageTitle()}>Schedule</h1>{titleActions}
         {can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn size="sm" variant={barSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
+          <button className={barSelectMode ? "rv-pill pri" : "rv-pill"} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</button>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
           <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
           <div style={{ display: "flex", alignItems: "center", overflow: barSelRevealed ? "visible" : "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
@@ -15143,19 +15129,16 @@ ${jobsCtx || "No jobs found."}`;
             <Btn size="sm" style={{ minWidth: 78, ...outlineBtnStyle(T.danger) }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn>
           </div>); })()}
         <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
+          <button className={scheduleFilterCount > 0 ? "rv-pill ic on" : "rv-pill ic"} onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 3H2l8 9.5V19l4 2v-8.5z"/></svg>
+            {scheduleFilterCount > 0 && <span className="rv-badge">{scheduleFilterCount}</span>}
           </button>
           <FadeOnClose open={scheduleFilterOpen}><div className="anim-drop tq-filter-panel" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>View</div>
                 <div style={{ display: "flex", gap: 4 }}>
                   {["day","week","month"].map(m => <button key={m} onClick={() => {
-                    setTMode(m);
-                    if (m === "day") { setTStart(TD); setTEnd(TD); }
-                    else if (m === "week") { const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1)); setTStart(mon); setTEnd(addD(mon, 6)); }
-                    else { const d = new Date(TD + "T12:00:00"); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+                    setScheduleMode(m);
                   }} style={{ flex: 1, padding: "4px 0", borderRadius: T.radiusPill, border: `1.5px solid ${tMode === m ? T.accent : T.border}`, background: tMode === m ? T.accent + "22" : "transparent", color: tMode === m ? T.accent : T.text, fontSize: 11, fontWeight: tMode === m ? 700 : 500, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{m}</button>)}
                 </div>
               </div>
@@ -15197,7 +15180,7 @@ ${jobsCtx || "No jobs found."}`;
             </div></FadeOnClose>
           </div>
           {/* Inline expanding search — sits right of the Schedule filter button */}
-          <div className="tq-searchbar" onClick={e => { e.stopPropagation(); if (!scheduleSearchOpen) setScheduleSearchOpen(true); setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} style={{ display: "flex", alignItems: "center", height: 34, width: scheduleSearchOpen || scheduleSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: (scheduleSearchOpen || scheduleSearchQ) ? "text" : "pointer", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, filter 0.2s ease", flexShrink: 0 }}>
+          <div className="tq-searchbar" onClick={e => { e.stopPropagation(); if (!scheduleSearchOpen) setScheduleSearchOpen(true); setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} style={{ display: "flex", alignItems: "center", height: 34, width: scheduleSearchOpen || scheduleSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : "var(--rv-track)"}`, background: "var(--rv-surface)", overflow: "hidden", cursor: (scheduleSearchOpen || scheduleSearchQ) ? "text" : "pointer", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, filter 0.2s ease", flexShrink: 0 }}>
             <span style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0, pointerEvents: "none" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             </span>
@@ -15206,14 +15189,23 @@ ${jobsCtx || "No jobs found."}`;
               {scheduleSearchQ && <button onClick={e => { e.stopPropagation(); setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
             </>}
           </div>
-          {/* Separator + Today */}
-          <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 5px" }} />
-          <Btn size="sm" variant="secondary" onClick={() => {
+        </div>}
+        </div>
+        {/* Centre: Today, the view switch and the range in view (Revamp). The switch
+            calls the same setScheduleMode as the View buttons in the filter panel.
+            Same gate as before: these sat in the editJobs group. */}
+        {can("editJobs") ? <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "center",
+          transform: `translateX(${isMobile ? 0 : scheduleCenterShift}px)`, transition: "transform 0.26s cubic-bezier(0.22,1,0.36,1)" }}>
+          <button className="rv-pill" onClick={() => {
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
-          }}>Today</Btn>
-        </div>}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP }}>
+          }}>Today</button>
+          <span className="rv-seg">
+            {["day", "week", "month"].map(m => <button key={m} className={tMode === m ? "on" : undefined} onClick={() => setScheduleMode(m)}>{m.charAt(0).toUpperCase() + m.slice(1)}</button>)}
+          </span>
+          <b className="rv-num" style={{ fontSize: 13, color: "var(--rv-ink)", whiteSpace: "nowrap" }}>{scheduleRangeLabel}</b>
+        </div> : <div />}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP, justifyContent: "flex-end" }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
@@ -15256,8 +15248,8 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7, marginRight: 5 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
-          <Btn size="sm" variant="secondary" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
-          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
+          <Tip label="FAST TRAQS — import or update jobs from a file"><button className="rv-pill ic" onClick={() => setBcModalState("open")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></button></Tip>
+          {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
         </div>
       </div>
 
@@ -15278,11 +15270,11 @@ ${jobsCtx || "No jobs found."}`;
         const isToday = tStart === TD;
         return (
           <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{width:"100%"}}>
-            <div style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+            <div style={{overflow:"hidden", border:"1px solid var(--rv-line)", borderRadius:18, background:T.surface}}>
               <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
                 {/* Hour header */}
-                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
-                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,background:T.surface,height:48,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",flexShrink:0}}>Person</div>
+                <div style={{display:"flex", borderBottom:`1px solid ${T.border}`, height:48, background:"var(--rv-thead)"}}>
+                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,background:"var(--rv-thead)",height:48,display:"flex",alignItems:"center",padding:"0 16px",fontSize:9.5,color:T.textSec,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",flexShrink:0}}>Person</div>
                   <div style={{flex:1,display:"flex"}}>
                     {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; const isDead = deadHours.has(h); return <div key={h} title={isDead ? "Lunch or break" : undefined} style={{flex:1,height:48,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:isDead?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:isDead?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
                   </div>
@@ -15294,7 +15286,7 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
                       <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,background:T.bg+"cc",cursor:"pointer",flexShrink:0}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-                        <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
+                        <span style={{fontSize:12.5,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
                         {groupClockPill(row.members, { size: 12 })}
                       </div>
                       <div style={{flex:1,display:"flex"}}>
@@ -15531,7 +15523,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{ width: "100%" }}>
-      <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: "1px solid var(--rv-line)", borderRadius: 18, background: T.surface, position: "relative", cursor: "grab" }}>
         <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:16px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
@@ -15542,25 +15534,25 @@ ${jobsCtx || "No jobs found."}`;
                 28px cell, which clipped the button along its top edge. sticky left:0 keeps
                 it pinned above the person column when the timeline pans sideways. */}
             <div style={{ display: "flex" }}>
-              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: "var(--rv-thead)", zIndex: 15, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {can("manageTeam") && <Tip label="Schedule time off for the crew">
                   {/* Secondary, not the accent-filled primary — this sits in the header
                       corner beside the day columns, not in a row of page actions, and a
                       solid accent block there competes with the bars. */}
-                  <Btn size="sm" variant="secondary" onClick={() => setTimeOffModal(true)}>
+                  <button className="rv-pill" onClick={() => setTimeOffModal(true)}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
                       Time Off
                     </span>
-                  </Btn>
+                  </button>
                 </Tip>}
               </div>
               {/* Both header rows stack in the remaining width, so the day columns still
                   line up with the timeline below exactly as they did when each row carried
                   its own lW spacer. */}
               <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex" }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.textSec, letterSpacing: "-0.045em", borderRight: `1px solid ${T.border}`, background: schedSubBg }}>{g.label}</div>)}</div>
-              <div style={{ display: "flex" }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+              <div style={{ display: "flex" }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, fontWeight: 700, color: T.textSec, letterSpacing: "0.8px", textTransform: "uppercase", borderRight: `1px solid ${T.border}`, background: "var(--rv-thead)" }}>{g.label}</div>)}</div>
+              <div style={{ display: "flex" }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.text, background: wk ? schedDisabled : "var(--rv-thead)", borderRight: gridOn ? `1px solid ${schedLine}` : "none", gap: 1 }}><span style={{ fontSize: 8.5, fontWeight: 600, color: T.textSec, letterSpacing: "0.6px", lineHeight: 1, opacity: wk ? 0.45 : 1 }}>{dayLetter}</span><span className="rv-num" style={isT ? { width: 17, height: 17, borderRadius: "50%", background: T.accent, color: T.accentText, display: "grid", placeItems: "center", fontSize: 10.5, fontWeight: 700, lineHeight: 1 } : { fontSize: 11.5, fontWeight: 700, lineHeight: 1, opacity: wk ? 0.45 : 1 }}>{dt.getDate()}</span></div>; })}</div>
               </div>
             </div>
           </div>
@@ -15572,7 +15564,7 @@ ${jobsCtx || "No jobs found."}`;
               return <div key={row.role} data-rowtype="group" data-rowid={row.role} style={{ display: "flex", height: grpH, borderBottom: `1px solid ${T.border}`, background: isGroupDrop ? T.accent + "18" : schedSubBg, outline: isGroupDrop ? `2px dashed ${T.accent}66` : "none", transition: "background 0.1s" }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : schedSubBg, zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
                   {groupClockPill(row.members, { size: 12 })}
                 </div>
                 {/* Department/title row — no day grid, just a clean band */}
@@ -17127,30 +17119,6 @@ ${jobsCtx || "No jobs found."}`;
                         failed 3:1 on every one of them, worst 1.01, since the palette is full of reds. The 1px
                         separator is barInk over the fill (>= 4.61:1) and the red sits outboard of it where its
                         job is to be recognised against the row (3.37-5.25:1). Weakest link in the chain: 3.37. */}
-                    {/* THE DAY'S UNPRODUCTIVE WINDOWS (#91), as hairlines rather than as a band or a step in
-                        the fill. Three reasons, in order of how binding they are: the fill is the progress
-                        channel and nothing else may write to it; a step in the fill cannot reach 3:1 against
-                        this palette at any usable magnitude (1.76:1 at a 0.30 step, measured); and the bar's
-                        LENGTH already accounts for lunch -- walkProductiveHours steps over it -- so what is
-                        missing is not duration but the mark of where the day pauses.
-                    
-                        Keyed to the GRID, not to the bar: a repeating gradient whose period is one day column
-                        and whose phase cancels the bar's own offset, so the ticks land on the same absolute
-                        positions as the day cells underneath and cannot drift from them.
-                    
-                        Not in month mode: a 9-hour day is 38-75px wide there, which puts lunch at 4-6px and
-                        three ticks inside a smudge. */}
-                    {!isPto && tMode !== "month" && cW >= 60 && _renderPx >= 24 && (() => {
-                      const _barLeftPx = (_xNum / 100) * nDays * cW;
-                      const _ink = lunchHairline(_barState === "done" ? doneBarFill(T, bc, _schedSurf) : bc);
-                      const _layers = (dayWindowCfg.deadWindows || []).map(w => {
-                        const _at = (((w.start - workStartH) / totalWorkH) * cW - _barLeftPx) % cW;
-                        const _x = ((_at % cW) + cW) % cW;
-                        return `repeating-linear-gradient(to right, transparent 0 ${_x}px, ${_ink} ${_x}px ${_x + 1}px, transparent ${_x + 1}px ${cW}px)`;
-                      });
-                      if (!_layers.length) return null;
-                      return <span aria-hidden="true" style={{ position: "absolute", inset: 0, background: _layers.join(", "), opacity: 0.5, pointerEvents: "none", zIndex: 2, borderRadius: "inherit" }} />;
-                    })()}
                     {_alert && _renderPx >= 8 && (() => { const _cap = alertCap(T, _barState === "done" ? doneBarFill(T, bc, _schedSurf) : bc, _alert); return (
                       <Tip label={_cap.title}><span style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 3, borderLeft: `1px solid ${_cap.sep}`, background: _cap.hue, zIndex: 6, pointerEvents: "auto" }} /></Tip>); })()}
                   </div>,
@@ -21253,23 +21221,8 @@ ${jobsCtx || "No jobs found."}`;
     };
     // One width for the whole page body: the session card and the admin panel
     // below it are the same measure, so their edges line up.
-    const TC_MAX_W = 1360;
-    // Corner radius for both page windows. Deliberately well past T.radius (22) —
-    // these two are the page's hero surfaces, not list cards.
-    const TC_RADIUS = 40;
-    const tcZone = { padding: "22px 26px", minWidth: 0, display: "flex", flexDirection: "column" };
-    // Lunch and Break share one style: both are "stepping away", so they read as a
-    // pair rather than as two unrelated controls. Amber outline on the card surface;
-    // the active state fills the same amber.
-    // minWidth so Lunch and Break come out the same width instead of each sizing to
-    // its own label — they read as a pair, and a 2px difference between two adjacent
-    // pills is more noticeable than either being slightly wide.
-    const pauseBtn = { padding: "11px 10px", minWidth: 76, borderRadius: T.radiusPill, border: "1px solid #f59e0b59", background: T.surface, color: "#f59e0b", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" };
-    // The break flag the job card used. Hoisted so zone 1 can read it too.
+    // The break flag the job card reads; zone 1 reads it too.
     const onBreakNow = !!loggedInUser.activeBreak;
-    // Uppercase micro-label. Tracking stays negative (-0.045em) like every other
-    // label in the app rather than the mock's positive .16em — the house style.
-    const tcLbl = { fontSize: 11, fontWeight: 700, letterSpacing: "-0.045em", textTransform: "uppercase", color: T.textDim, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, minHeight: 14 };
     // Per-day hours for the sparkline in zone 3. Same filter as myPeriodHrs above
     // so the bars and the headline number can never disagree.
     const myPeriodDays = (() => {
@@ -21303,46 +21256,6 @@ ${jobsCtx || "No jobs found."}`;
             on mobile. It has to run here either way, because it is scoped to
             renderTimeStamp and renderModal cannot reach it. */}
         <FadeOnClose open={!!pastLogsOpen} duration={isMobile ? 220 : 0}>{renderPastLogsModal()}</FadeOnClose>
-        {/* Header — page title always; Past Logs / Export Hours / Confirm Time
-            Sheet are admin-only and simply absent for everyone else. */}
-          <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-              <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
-              {/* Secondary. Was a hand-rolled outline on a T.surface fill, 1.5px ring;
-                  Export Hours beside it was a near-miss of the same idea at 1px and a
-                  55-alpha ring. Both are the shared variant now, so the two read as one
-                  control class and neither competes with Confirm Time Sheet. */}
-              {isAdmin && (
-                <Tip label="Browse past pay-period logs">
-                  <Btn size="sm" variant="secondary" onClick={openPastLogs}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
-                      Past Logs
-                    </span>
-                  </Btn>
-                </Tip>
-              )}
-            </div>
-            {isAdmin && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Tip label="Export pay-period hours for payroll">
-                <Btn size="sm" variant="secondary" onClick={openHoursExport}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Export Hours
-                  </span>
-                </Btn>
-              </Tip>
-              {/* This page's one primary. Was a hand-rolled gradient with its own
-                  8px shadow and 8/16 padding, so it stood a pixel or two off every
-                  other CTA in the app. */}
-              <Btn size="sm" onClick={openConfirm}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                  Confirm Time Sheet
-                </span>
-              </Btn>
-            </div>}
-          </div>
         {/* Time Clock Settings — centered popup, opened from the sidebar's Time Settings item.
             Portaled to <body> so position:fixed escapes AnimatedView's transform; FadeOnClose
             animates the overlay out (X or backdrop click) before it unmounts. */}
@@ -21353,362 +21266,291 @@ ${jobsCtx || "No jobs found."}`;
           document.body
         )}
 
-        {/* ── Personal clock section ── */}
-        {loggedInUser.payType === "salary" ? (
-          <div style={{ textAlign: "center", padding: "32px 0", color: T.textDim, fontSize: 14 }}>
-            Time tracking is not required for salaried employees.
-          </div>
-        ) : (
-          <div style={{ maxWidth: TC_MAX_W, width: "100%", margin: "0 auto" }}>
-            {/* The three zones are a CSS grid rather than inline styles so they can
-                collapse to one column on a narrow desktop window — inline styles
-                can't carry a media query. */}
-            <style>{`
-              /* Zone 1 is sized to its button row — Clock Out plus the Lunch/Break
-                 pair — and no wider. The three are fixed-width now (no flex: 1), so
-                 any extra column width is just empty space to the right of Break;
-                 the job zone takes it instead and runs up to that edge. */
-              .tq-tcsession{display:grid;grid-template-columns:1.12fr 1.4fr 0.8fr}
-              .tq-tcsession > div + div{border-left:1px solid var(--tq-tc-div)}
-              /* Basic has no job clock — Zone 2 (current job) never renders, so the
-                 grid is 2 columns, keeping Zone 1's ratio and giving Zone 3 the rest. */
-              .tq-tcsession-basic{grid-template-columns:1.12fr 1.08fr}
-              @media (max-width:1100px){
-                .tq-tcsession{grid-template-columns:1fr}
-                .tq-tcsession > div + div{border-left:none;border-top:1px solid var(--tq-tc-div)}
-              }
-            `}</style>
-
-            {/* Header */}
-            {(() => {
-              const cs = effectiveClockState(loggedInUser);
-              const ui = CLOCK_STATUS_UI[cs.status];
-              const dotColor = elColor(ui.color || T.border);
-              const subtext = !cs.isClocked ? "not clocked in"
-                : cs.isOnLunch ? `on lunch · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
-                : cs.isOnBreak ? `on break · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
-                : `clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`;
-              return (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
-                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, boxShadow: ui.glow, transition: "all 0.3s", flexShrink: 0 }} />
-                  {/* bgText, not text: this line sits on the PAGE BACKGROUND, not on a
-                      card. T.text is derived from the card surface, so a light-surface
-                      theme painted it black straight onto a dark page. hexA dims the
-                      subtext from the same colour instead of reaching for textDim, which
-                      is surface-derived for the same reason. */}
-                  <span style={{ fontSize: 15, fontWeight: 500, color: T.bgText || T.text }}>
-                    {loggedInUser.name}
-                    <span style={{ color: hexA(T.bgText || T.text, 0.7), fontWeight: 400 }}> · {subtext}</span>
-                  </span>
-                </div>
-              );
-            })()}
-
-            {/* One consolidated session card: today · current job · this period */}
-            <div className={`tq-frost tq-tcsession${billingTier === "business" ? "" : " tq-tcsession-basic"}`} style={{ "--tq-tc-div": T.border, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: TC_RADIUS, overflow: "hidden" }}>
-
-              {/* ── Zone 1 · total time today ── */}
-              <div style={tcZone}>
-                <div style={tcLbl}>Total time today</div>
-                <div style={{ fontSize: 46, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>
-                  {bigDur(isClockedIn ? (tsElapsed || "0h 0m") : hoursToHM(myTodayHrs), 22)}
-                </div>
-                {/* Lunch and Break sit together, styled identically — they are the
-                    same kind of action (step away, come back) and used to look like
-                    two different controls in two different zones. Break moved here
-                    from the job zone and no longer needs an active job to appear:
-                    breakBeginAction only takes a personId, so gating it on a job
-                    clock was hiding a button that always worked. */}
-                <div style={{ display: "flex", gap: 8, marginTop: "auto", paddingTop: 18 }}>
-                  {isClockedIn ? (
-                    <>
-                      {/* flex: 1 — Clock Out absorbs the row's slack so the three
-                          buttons fill the zone exactly and Break lands flush against
-                          the divider. Lunch and Break are fixed-width, so all the
-                          growth lands here rather than being split three ways. */}
-                      <button onClick={openClockOut} style={{ flex: 1, padding: "12px 20px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 8px 22px #ef444440", whiteSpace: "nowrap" }}>Clock Out</button>
-                      {orgSettings.trackLunch && (
-                        <button onClick={openLunch} disabled={isOnBreak} style={{ ...pauseBtn, opacity: isOnBreak ? 0.45 : 1, cursor: isOnBreak ? "not-allowed" : "pointer" }}>{isOnLunch ? "End Lunch" : "Lunch"}</button>
-                      )}
-                      {onBreakNow
-                        ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ ...pauseBtn, background: "#f59e0b", borderColor: "#f59e0b", color: "#fff", opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
-                        : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ ...pauseBtn, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
-                      }
-                    </>
-                  ) : (
-                    <button onClick={openClockIn} style={{ flex: 1, padding: "12px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
-                  )}
-                </div>
+        {/* ── Revamp layout (TRAQS Revamp.html, screen 4) ──
+            Admins: your own clock in a column on the left, the team on the right with
+            the page header over it. Everyone else: the header, then the clock column.
+            Every control is the one this page already had; only the arrangement and
+            the styling changed. */}
+        {(() => {
+          const header = (
+            <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+                <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
               </div>
-
-              {/* ── Zone 2 · current job ── Business only; Basic has no job clock,
-                  just straight clock in/out, so this zone never renders (see the
-                  tq-tcsession-basic 2-column grid above). */}
-              {billingTier === "business" && (() => {
-                const jc = isClockedIn ? loggedInUser.activeJobClock : null;
-                const green = "#22c55e";
-                // Nothing running: the zone still holds its column, it just states why.
-                if (!jc) {
-                  return (
-                    <div style={tcZone}>
-                      <div style={tcLbl}>Current job</div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>No active job</div>
-                      <div style={{ fontSize: 13, color: T.textDim, marginTop: 3 }}>
-                        {isClockedIn ? "You're on the clock but not on a job." : "Clock in to start a job."}
-                      </div>
-                      {isClockedIn && (
-                        <div style={{ display: "flex", marginTop: "auto", paddingTop: 18 }}>
-                          <button onClick={openStartJobPicker} style={{ flex: 1, padding: "12px 0", borderRadius: T.radiusPill, border: `1px solid ${green}66`, background: green + "14", color: green, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                const sub = [jc.panelTitle, myJobWS?.clientName].filter(Boolean).join(" · ");
-                const pct = Math.round((myJobWS?.workedFraction || 0) * 100);
-                const over = !!myJobWS?.isOverdueHours;
-                const chip = { flex: 1, fontSize: 13, fontWeight: 600, borderRadius: T.radiusPill, padding: "12px 0", cursor: jobClockLoading ? "not-allowed" : "pointer", textAlign: "center", background: T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 };
-                return (
-                  <div style={tcZone}>
-                    <div style={tcLbl}>
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: green, boxShadow: `0 0 5px ${green}`, flexShrink: 0 }} />
-                      <span style={{ color: green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Active on {jc.opTitle || jc.jobTitle}</span>
-                      {onBreakNow && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px", flexShrink: 0 }}>On break</span>}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: T.text, letterSpacing: "-0.045em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={jc.jobTitle || ""}>{jc.jobTitle || "—"}</div>
-                        {sub && <div style={{ fontSize: 13, color: T.textDim, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sub}>{sub}</div>}
-                      </div>
-                      <div style={{ fontSize: 26, fontWeight: 700, color: green, fontFamily: T.mono, letterSpacing: "-0.045em", whiteSpace: "nowrap" }}>{tsJobElapsed || "0h 0m"}</div>
-                    </div>
-                    {/* Worked-vs-estimate on this op, live session included. Hidden when
-                        the op carries no estimate — an empty track would just lie. The
-                        readout uses the UNCAPPED fraction so an overrun reads 120%, not
-                        a bar that silently pins at full. */}
-                    {myJobWS && (
-                      <div title={`${myJobWS.workedHoursShown.toFixed(1)}h of ${myJobWS.est}h estimated${over ? " · over estimate" : ""}`} style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 16px" }}>
-                        <div style={{ flex: 1, height: 5, borderRadius: T.radiusPill, background: hexA(T.text, 0.1), overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${Math.max(pct, 2)}%`, borderRadius: T.radiusPill, background: over ? "#ef4444" : green, transition: "width 0.4s" }} />
-                        </div>
-                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: over ? "#ef4444" : green, whiteSpace: "nowrap" }}>
-                          {Math.round((myJobWS.rawFraction || 0) * 100)}%
-                        </span>
-                      </div>
-                    )}
-                    {/* Break lives in zone 1 with Start Lunch now — it is about the
-                        person, not the job, and it applied whether or not one was
-                        running. This row is job-scoped actions only. */}
-                    <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: myJobWS ? 0 : 18 }}>
-                      <button onClick={openStartJobPicker} disabled={jobClockLoading} style={chip}>Switch</button>
-                      <button onClick={handleEndJob} disabled={jobClockLoading} style={{ ...chip, color: "#ef4444", borderColor: "#ef444459" }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* ── Zone 3 · this period ── */}
-              <div style={tcZone}>
-                <div style={tcLbl}>This period</div>
-                <div style={{ fontSize: 38, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>
-                  {myPeriodHrs.toFixed(1)}<span style={{ fontSize: 18, color: T.textDim }}>h</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: T.textDim, marginTop: 7 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
-                {/* One bar per day of the pay period; today reads full-strength. */}
-                {(() => {
-                  const peak = Math.max(...myPeriodDays.map(d => d.h), 1);
-                  return (
-                    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 40, marginTop: "auto", paddingTop: 18 }}>
-                      {myPeriodDays.map(d => (
-                        <div key={d.date} title={`${fmtDate(d.date)} · ${d.h > 0 ? d.h.toFixed(2) + "h" : "no hours"}`} style={{
-                          flex: 1, minWidth: 0,
-                          height: d.h > 0 ? `${Math.max(10, (d.h / peak) * 100)}%` : 3,
-                          borderRadius: "4px 4px 2px 2px",
-                          background: d.date === TD ? "#ef4444" : hexA("#ef4444", 0.28),
-                        }} />
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-
+              {isAdmin && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Tip label="Browse past pay-period logs">
+                  <button className="rv-pill" onClick={openPastLogs}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+                    Past Logs
+                  </button>
+                </Tip>
+                <Tip label="Export pay-period hours for payroll">
+                  <button className="rv-pill" onClick={openHoursExport}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>
+                    Export Hours
+                  </button>
+                </Tip>
+                <button className="rv-pill pri" onClick={openConfirm}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                  Confirm Time Sheet
+                </button>
+              </div>}
             </div>
-          </div>
-        )}
+          );
 
-        {/* ── Admin section ── */}
-        {isAdmin && (
-          <div className="tq-frost" style={{ maxWidth: TC_MAX_W, width: "100%", margin: "0 auto", background: T.card, borderRadius: TC_RADIUS, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
-            {/* Admin tabs */}
-            <div style={{ padding: "0 20px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 2 }}>
+          // ── Left column: me ──────────────────────────────────────────────────
+          const cs = effectiveClockState(loggedInUser);
+          const statusLine = !cs.isClocked ? "Not clocked in"
+            : cs.isOnLunch ? `On lunch · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
+            : cs.isOnBreak ? `On break · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
+            : `Clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`;
+          const roleLabel = loggedInUser.userRole ? loggedInUser.userRole.charAt(0).toUpperCase() + loggedInUser.userRole.slice(1) : "";
+          const payLabel = loggedInUser.payType === "salary" ? "Salary" : "Hourly";
+          const wide = { flex: 1, justifyContent: "center" };
+          const me = (
+            <div className="rv-me">
+              <PersonAvatar person={loggedInUser} size={60} />
+              <div className="rv-me-name">{loggedInUser.name}<small>{[roleLabel, payLabel].filter(Boolean).join(" · ")}</small></div>
+              {loggedInUser.payType === "salary" ? (
+                <div className="rv-mute" style={{ fontSize: 12, marginTop: 18 }}>Time tracking is not required for salaried employees.</div>
+              ) : <>
+                <div className="rv-bigtime rv-num">{bigDur(isClockedIn ? (tsElapsed || "0h 0m") : hoursToHM(myTodayHrs), 22)}</div>
+                <div className="rv-mute" style={{ fontSize: 11 }}>{statusLine} · total today</div>
+                {isClockedIn ? <>
+                  <button className="rv-pill" onClick={openClockOut} style={{ ...wide, width: "100%", padding: 13, fontSize: 13, marginTop: 20, background: "#ef4444", borderColor: "#ef4444", color: "#fff" }}>Clock Out</button>
+                  <div className="rv-btns">
+                    {orgSettings.trackLunch && (
+                      <button className={isOnLunch ? "rv-pill on" : "rv-pill"} onClick={openLunch} disabled={isOnBreak} style={wide}>{isOnLunch ? "End Lunch" : "Lunch"}</button>
+                    )}
+                    {onBreakNow
+                      ? <button className="rv-pill on" onClick={handleEndBreak} disabled={jobClockLoading} style={wide}>End Break</button>
+                      : <button className="rv-pill" onClick={handleStartBreak} disabled={jobClockLoading} style={wide}>Break</button>}
+                    {billingTier === "business" && !loggedInUser.activeJobClock && (
+                      <button className="rv-pill" onClick={openStartJobPicker} style={{ ...wide, flex: 1.4 }}>Start Job</button>
+                    )}
+                  </div>
+                </> : (
+                  <button className="rv-pill pri" onClick={openClockIn} style={{ ...wide, width: "100%", padding: 13, fontSize: 13, marginTop: 20 }}>Clock In</button>
+                )}
+              </>}
+            </div>
+          );
+
+          // Current job — Business only; Basic has no job clock.
+          const jc = isClockedIn ? loggedInUser.activeJobClock : null;
+          const currentJob = billingTier === "business" && loggedInUser.payType !== "salary" && jc ? (() => {
+            const sub = [jc.panelTitle, myJobWS?.clientName].filter(Boolean).join(" · ");
+            const pct = Math.round((myJobWS?.workedFraction || 0) * 100);
+            const over = !!myJobWS?.isOverdueHours;
+            return rvSx("Current job", onBreakNow ? rvChip("On break", "o") : rvChip("Active", "g"), <>
+              <div className="rv-row" style={{ borderBottom: 0, paddingTop: 0 }}>
+                <div className="rv-txt"><b title={jc.jobTitle || ""}>{jc.opTitle || jc.jobTitle || "—"}</b><span title={sub}>{[jc.opTitle ? jc.jobTitle : null, sub].filter(Boolean).join(" · ")}</span></div>
+                <b className="rv-num" style={{ fontSize: 18, color: "#1a7b58" }}>{tsJobElapsed || "0h 0m"}</b>
+              </div>
+              {/* Worked-vs-estimate on this op, live session included. The readout is
+                  the UNCAPPED fraction so an overrun reads 120%. */}
+              {myJobWS && (
+                <div title={`${myJobWS.workedHoursShown.toFixed(1)}h of ${myJobWS.est}h estimated${over ? " · over estimate" : ""}`} style={{ display: "flex", alignItems: "center", gap: 8, margin: "4px 0 12px" }}>
+                  {rvBar(Math.max(pct, 2), over ? "#ef4444" : "#1a7b58", 6)}
+                  <small className="rv-num" style={{ fontSize: 10.5, color: over ? "#ef4444" : "#1a7b58", fontWeight: 700 }}>{Math.round((myJobWS.rawFraction || 0) * 100)}%</small>
+                </div>
+              )}
+              <div className="rv-btns" style={{ marginTop: 0 }}>
+                <button className="rv-pill" onClick={openStartJobPicker} disabled={jobClockLoading} style={wide}>Switch</button>
+                <button className="rv-pill" onClick={handleEndJob} disabled={jobClockLoading} style={{ ...wide, color: "#ef4444" }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+              </div>
+            </>);
+          })() : null;
+
+          // This period: hours against the cap, one bar per day (today full strength).
+          const peak = Math.max(...myPeriodDays.map(d => d.h), 1);
+          const dayN = myPeriodDays.findIndex(d => d.date === TD) + 1;
+          const period = loggedInUser.payType === "salary" ? null : rvSx("This period", `${fmtDate(ppNow.start)} – ${fmtDate(ppNow.end)}`, <>
+            <b className="rv-num" style={{ fontSize: 22, color: "var(--rv-ink)" }}>{myPeriodHrs.toFixed(1)}h <small className="rv-mute" style={{ fontSize: 12, fontWeight: 500 }}>/ {orgSettings.payPeriodHourCap || 80}h</small></b>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 36, margin: "12px 0 8px" }}>
+              {myPeriodDays.map(d => (
+                <div key={d.date} title={`${fmtDate(d.date)} · ${d.h > 0 ? d.h.toFixed(2) + "h" : "no hours"}`} style={{
+                  flex: 1, minWidth: 0, height: d.h > 0 ? `${Math.max(14, (d.h / peak) * 100)}%` : 8, borderRadius: 4,
+                  background: d.date === TD ? "var(--tq-accent)" : d.h > 0 ? "var(--rv-acc-soft)" : "var(--rv-track)",
+                }} />
+              ))}
+            </div>
+            {dayN > 0 && <small className="rv-mute" style={{ fontSize: 10.5 }}>Day {dayN} of {myPeriodDays.length}</small>}
+          </>);
+
+          // Finish requests (admin): the pending ones, each opening the Finish
+          // Requests view on the right.
+          const finishList = isAdmin ? rvSx("Finish requests", pendingFinishOps.length ? rvChip(String(pendingFinishOps.length), "r") : "", pendingFinishOps.length ? pendingFinishOps.slice(0, 5).map(({ job, panel, op }) => {
+            const lastWorker = [...timeclock].reverse().find(e => e.jobRefs?.some(r => r.opId === op.id));
+            const worker = lastWorker ? people.find(p => p.id === lastWorker.personId) : null;
+            return (
+              <div key={op.id} className="rv-row">
+                {worker ? <PersonAvatar person={worker} size={24} /> : <span className="rv-dot" />}
+                <div className="rv-txt"><b>{worker?.name || job.title}</b><span>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{panel.title} · {op.title}</span></div>
+                <button className="rv-pill sm" onClick={() => setTsAdminTab("finishRequests")}>Review</button>
+              </div>
+            );
+          }) : <div className="rv-mute" style={{ fontSize: 11.5 }}>No pending finish requests.</div>) : null;
+
+          const left = <div className="rv-tc-left">{me}{currentJob}{period}{finishList}</div>;
+
+          if (!isAdmin) return <>
+            {header}
+            <div style={{ maxWidth: 420, width: "100%", margin: "0 auto" }}>{left}</div>
+          </>;
+
+          // ── Right column: the team ───────────────────────────────────────────
+          const ST_KIND = { in: "g", lunch: "y", break: "o", out: "" };
+          const teamRow = (p, colCount) => {
+            const pcs = effectiveClockState(p);
+            const clocked = pcs.isClocked;
+            const ui = CLOCK_STATUS_UI[pcs.status];
+            const ms = pcs.runningMs;
+            const eh = Math.floor(ms / 3600000), em = Math.floor((ms % 3600000) / 60000);
+            const todayH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date === TD).reduce((s, e) => s + (e.hours || 0), 0) + (clocked ? ms / 3600000 : 0);
+            const periodH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours || 0), 0) + (clocked ? ms / 3600000 : 0);
+            const isExpanded = !!tsExpandedPersons[p.id];
+            const toggleExpand = () => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }));
+            const logDates = logDatesInRange(p.id, ppNow.start, ppNow.end);
+            const isSalary = p.payType === "salary";
+            return (
+              <Fragment key={p.id}>
+                <tr onClick={toggleExpand} className={isExpanded ? "on" : undefined}>
+                  <td style={{ width: 24, paddingRight: 0 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--rv-mute)", transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "block" }}><path d="M9 18l6-6-6-6"/></svg>
+                  </td>
+                  <td><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><PersonAvatar person={p} size={22} /><b>{p.name}</b></span></td>
+                  <td>{rvChip(isSalary ? "Salary" : "Hourly", isSalary ? "b" : "y")}</td>
+                  <td>
+                    <span
+                      onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
+                      title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
+                      className={ST_KIND[pcs.status] ? `rv-chip ${ST_KIND[pcs.status]}` : "rv-chip"} style={{ cursor: isAdmin ? "pointer" : "default" }}>● {ui.label}</span>
+                  </td>
+                  <td className="rv-num">
+                    {!clocked ? <span className="rv-mute">—</span> : (isAdmin && String(sinceEdit?.personId) === String(p.id)) ? (
+                      <input
+                        type="time"
+                        autoFocus
+                        disabled={sinceSaving}
+                        value={sinceEdit.value}
+                        onClick={ev => ev.stopPropagation()}
+                        onChange={ev => setSinceEdit(s => ({ ...s, value: ev.target.value }))}
+                        onBlur={ev => commitSinceEdit(p, ev.target.value)}
+                        onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.currentTarget.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); sinceCancelRef.current = true; setSinceEdit(null); } }}
+                        style={{ colorScheme: T.colorScheme, padding: "3px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                      />
+                    ) : (
+                      <span
+                        onClick={isAdmin ? (ev => { ev.stopPropagation(); beginSinceEdit(p); }) : undefined}
+                        title={isAdmin ? "Click to edit clock-in time" : undefined}
+                        style={{ cursor: isAdmin ? "pointer" : "default", borderBottom: isAdmin ? "1px dashed var(--rv-track)" : "none", paddingBottom: 1 }}
+                      >
+                        {fmtTime(p.activeClockIn?.clockIn)} ({eh}h {em}m)
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ maxWidth: 220 }}>
+                    {p.activeJobClock ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
+                          {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
+                          {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span className="rv-mute"> · {p.activeJobClock.jobTitle}</span>}
+                        </div>
+                        {isAdmin && <button className="rv-pill sm" onClick={e => { e.stopPropagation(); adminEndJobClock(p.id, p.name); }} title="Force this worker off their active job (e.g. stuck after the job was moved)" style={{ color: T.danger, flexShrink: 0 }}>End job</button>}
+                      </div>
+                    ) : clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {(p.activeClockIn.jobRefs).map(r => {
+                          const job = tasks.find(j => j.id === r.jobId);
+                          const panel = job?.subs?.find(s => s.id === r.panelId);
+                          const op = panel?.subs?.find(o => o.id === r.opId);
+                          return (
+                            <div key={r.opId} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={[job?.title, panel?.title, op?.title].filter(Boolean).join(" · ")}>
+                              {job?.title || "—"}
+                              {panel && <span className="rv-mute"> · {panel.title}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : <span className="rv-mute">—</span>}
+                  </td>
+                  <td className="rv-num" style={{ color: "var(--tq-accent)", fontWeight: 600 }}>{todayH > 0 ? todayH.toFixed(1) + "h" : "—"}</td>
+                  <td className="rv-num">{periodH > 0 ? periodH.toFixed(1) + "h" : "—"}</td>
+                  <td onClick={e => e.stopPropagation()}><button className="rv-pill sm" onClick={() => openPersonEditModal(p)}>Edit</button></td>
+                </tr>
+                {isExpanded && (
+                  <tr className="rv-tc-exp">
+                    <td colSpan={colCount}>
+                      {logDates.length === 0 ? (
+                        <div className="rv-mute" style={{ padding: "10px 0" }}>No activity this pay period.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
+                          {logDates.map(date => {
+                            const dayEnts = timeclock.filter(x => String(x.personId) === String(p.id) && x.date === date && !x.eventType && !x.deletedAt);
+                            const openToday = date === TD && !!p.activeClockIn?.clockIn;
+                            const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
+                            return (
+                              <div key={date}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: openToday ? "#10b981" : T.textDim, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                                  <span>{fmtDayHeader(date)}{openToday ? " · on the clock" : ""}</span>
+                                  <span className="rv-num" style={{ color: openToday ? "#10b981" : T.accent }}>{dayTot > 0 ? dayTot.toFixed(2) + "h" : "—"}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 10px", background: "var(--rv-thead)", borderRadius: 10, fontSize: 12 }}>
+                                  <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                    {renderTimelineLines(p.id, date)}
+                                  </div>
+                                  <button className="rv-pill sm" onClick={() => openPersonEditModal(p)}>Edit</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          };
+          const COLS = ["", "Name", "Pay type", "Status", "In at", "Working on", "Today", "Period", ""];
+          const teamTable = (list) => (
+            <div className="rv-tbl">
+              <table>
+                <thead><tr>{COLS.map((h, hi) => <th key={`${h}-${hi}`}>{h}</th>)}</tr></thead>
+                <tbody>{list.map(p => teamRow(p, COLS.length))}</tbody>
+              </table>
+            </div>
+          );
+          // Same people as the old Team Status table (salaried excluded), split by
+          // whether they are on the clock right now.
+          const crew = people.filter(p => p.payType !== "salary");
+          const onNow = crew.filter(p => effectiveClockState(p).isClocked);
+          const offNow = crew.filter(p => !effectiveClockState(p).isClocked);
+
+          const tabs = (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {[
-                { id: "live", label: "Team Status" },
+                { id: "live", label: "Team" },
                 { id: "timesheets", label: "Timesheets" },
                 { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
               ].map(tab => (
-                <button key={tab.id} className="tq-noanim anim-tab" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "16px 18px", background: "transparent", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
-                  {tab.label}
-                </button>
+                <button key={tab.id} className={tsAdminTab === tab.id ? "rv-pill on sm" : "rv-pill sm"} onClick={() => setTsAdminTab(tab.id)}>{tab.label}</button>
               ))}
             </div>
+          );
 
-            <div style={{ padding: "24px 26px" }}>
-              {/* Team Status */}
-              {tsAdminTab === "live" && (
-                <div>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                        {["","Name","Pay Type","Status","Since","Working On","Today","Period",""].map((h, hi) => (
-                          <th key={`${h}-${hi}`} style={{ textAlign: "left", padding: "10px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {people.filter(p => p.payType !== "salary").map(p => {
-                        const cs = effectiveClockState(p);
-                        const clocked = cs.isClocked;
-                        const ui = CLOCK_STATUS_UI[cs.status];
-                        const pillColor = elColor(ui.color || T.textDim);
-                        const ms = cs.runningMs;
-                        const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
-                        const todayH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
-                        const periodH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
-                        const isExpanded = !!tsExpandedPersons[p.id];
-                        const toggleExpand = () => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }));
-
-                        const logDates = logDatesInRange(p.id, ppNow.start, ppNow.end);
-
-                        return (
-                          <Fragment key={p.id}>
-                            <tr onClick={toggleExpand} style={{ borderBottom: isExpanded ? "none" : `1px solid ${T.border}20`, cursor: "pointer", background: isExpanded ? T.accent + "08" : "none" }}>
-                              {/* Chevron */}
-                              <td style={{ padding: "14px 6px 14px 10px", width: 28 }}>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "block" }}><polyline points="9 18 15 12 9 6"/></svg>
-                              </td>
-                              <td style={{ padding: "14px 10px" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
-                                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
-                                </div>
-                              </td>
-                              <td style={{ padding: "14px 10px" }}>
-                                {(() => { const isSalary = p.payType === "salary"; return (
-                                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: elColor(isSalary ? "#6366f1" : "#f59e0b") + "18", color: elColor(isSalary ? "#6366f1" : "#f59e0b"), border: `1px solid ${elColor(isSalary ? "#6366f1" : "#f59e0b")}30` }}>
-                                    {isSalary ? "Salary" : "Hourly"}
-                                  </span>
-                                ); })()}
-                              </td>
-                              <td style={{ padding: "14px 10px" }}>
-                                <div
-                                  onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
-                                  title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 16, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
-                                  <div style={{ width: 6, height: 6, borderRadius: 8, background: clocked ? pillColor : T.textDim }} />
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
-                                </div>
-                              </td>
-                              <td style={{ padding: "14px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
-                                {!clocked ? "—" : (isAdmin && String(sinceEdit?.personId) === String(p.id)) ? (
-                                  <input
-                                    type="time"
-                                    autoFocus
-                                    disabled={sinceSaving}
-                                    value={sinceEdit.value}
-                                    onClick={ev => ev.stopPropagation()}
-                                    onChange={ev => setSinceEdit(s => ({ ...s, value: ev.target.value }))}
-                                    onBlur={ev => commitSinceEdit(p, ev.target.value)}
-                                    onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.currentTarget.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); sinceCancelRef.current = true; setSinceEdit(null); } }}
-                                    style={{ colorScheme: T.colorScheme, padding: "3px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
-                                  />
-                                ) : (
-                                  <span
-                                    onClick={isAdmin ? (ev => { ev.stopPropagation(); beginSinceEdit(p); }) : undefined}
-                                    title={isAdmin ? "Click to edit clock-in time" : undefined}
-                                    style={{ cursor: isAdmin ? "pointer" : "default", borderBottom: isAdmin ? `1px dashed ${T.border}` : "none", paddingBottom: 1 }}
-                                  >
-                                    {fmtTime(p.activeClockIn?.clockIn)} ({eh}h {em}m)
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ padding: "14px 10px", maxWidth: 200 }}>
-                                {p.activeJobClock ? (
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
-                                      {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
-                                      {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span style={{ fontWeight: 400, color: T.textDim }}> · {p.activeJobClock.jobTitle}</span>}
-                                    </div>
-                                    {isAdmin && <button onClick={e => { e.stopPropagation(); adminEndJobClock(p.id, p.name); }} title="Force this worker off their active job (e.g. stuck after the job was moved)" style={{ flexShrink: 0, padding: "3px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>End job</button>}
-                                  </div>
-                                ) : clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                                    {(p.activeClockIn.jobRefs).map(r => {
-                                      const job = tasks.find(j => j.id === r.jobId);
-                                      const panel = job?.subs?.find(s => s.id === r.panelId);
-                                      const op = panel?.subs?.find(o => o.id === r.opId);
-                                      return (
-                                        <div key={r.opId} style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={[job?.title, panel?.title, op?.title].filter(Boolean).join(" · ")}>
-                                          {job?.title || "—"}
-                                          {panel && <span style={{ fontWeight: 400, color: T.textDim }}> · {panel.title}</span>}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <span style={{ fontSize: 12, color: T.textDim }}>—</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "14px 10px", fontSize: 13, fontWeight: 600, color: T.accent, fontFamily: T.mono }}>
-                                {todayH > 0 ? todayH.toFixed(1) + "h" : "—"}
-                              </td>
-                              <td style={{ padding: "14px 10px", fontSize: 13, color: T.text, fontFamily: T.mono }}>
-                                {periodH > 0 ? periodH.toFixed(1) + "h" : "—"}
-                              </td>
-                              <td style={{ padding: "14px 10px" }} onClick={e => e.stopPropagation()}>
-                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                                  Edit
-                                </button>
-                              </td>
-                            </tr>
-                            {isExpanded && (
-                              <tr style={{ borderBottom: `1px solid ${T.border}20` }}>
-                                <td colSpan={9} style={{ padding: "0 16px 14px 40px", background: T.accent + "05" }}>
-                                  {logDates.length === 0 ? (
-                                    <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No activity this pay period.</div>
-                                  ) : (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
-                                      {logDates.map(date => {
-                                        const dayEnts = timeclock.filter(x => String(x.personId) === String(p.id) && x.date === date && !x.eventType && !x.deletedAt);
-                                        const openToday = date === TD && !!p.activeClockIn?.clockIn;
-                                        const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
-                                        return (
-                                          <div key={date}>
-                                            <div style={{ fontSize: 11, fontWeight: 700, color: openToday ? "#10b981" : T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                                              <span>{fmtDayHeader(date)}{openToday ? " · on the clock" : ""}</span>
-                                              <span style={{ fontFamily: T.mono, color: openToday ? "#10b981" : T.accent }}>{dayTot > 0 ? dayTot.toFixed(2) + "h" : "—"}</span>
-                                            </div>
-                                            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, fontSize: 12 }}>
-                                              <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-                                                {renderTimelineLines(p.id, date)}
-                                              </div>
-                                              <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "340px minmax(0, 1fr)", gap: "0 40px", alignItems: "start" }}>
+              {left}
+              <div className="rv-tc-right">
+                {header}
+                {tabs}
+                {tsAdminTab === "live" && <>
+                  {rvSx("On the clock", String(onNow.length), onNow.length ? teamTable(onNow) : <div className="rv-mute" style={{ fontSize: 11.5 }}>Nobody is on the clock.</div>)}
+                  {rvSx("Off today", String(offNow.length), offNow.length ? teamTable(offNow) : <div className="rv-mute" style={{ fontSize: 11.5 }}>Everyone is on the clock.</div>)}
+                </>}
+                {(tsAdminTab === "timesheets" || tsAdminTab === "finishRequests") && <div>
               {/* Timesheets */}
               {tsAdminTab === "timesheets" && (
                 <div>
@@ -21858,9 +21700,11 @@ ${jobsCtx || "No jobs found."}`;
                   })()}
                 </div>
               )}
+                </div>}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
     );
@@ -26545,20 +26389,12 @@ ${jobsCtx || "No jobs found."}`;
       const RAIL_GAP = 20;
       const RAIL_NAV_TOP = TITLE_ROW_TOP + TITLE_ROW_H + RAIL_GAP;
       const RAIL_FOOT_CLEAR = 260;
-      // The pills follow the Frosted Glass setting (glassOn): on, a translucent
-      // page-surface fill blurred and saturated behind; off, a solid surface fill
-      // with no blur. Hairline edge either way, no drop shadow.
-      // Light themes: a white pill on the white canvas all but vanished (an 8%
-      // edge and textSec icons), so there the pill takes the card tint, a firmer
-      // edge, and icons/hover pulled toward T.text. Dark themes are unchanged.
+      // No capsules: the nav icons and the foot (bell, profile) sit straight on
+      // the page background. On Light the icons and hover are pulled toward T.text
+      // so they still read against the white canvas; Dark is unchanged.
       const railLight = hexLum(T.bg) >= 0.5;
-      const railEdge = `1px solid ${hexA(T.text, railLight ? 0.16 : 0.08)}`;
       const railInk = railLight ? mixHex(T.textSec, T.text, 0.45) : T.textSec;
       const railHover = railLight ? hexA(T.text, 0.07) : T.hover;
-      const railFill = railLight ? T.card : T.surface;
-      const railGlass = glassOn
-        ? { background: hexA(railFill, railLight ? 0.82 : 0.62), backdropFilter: "blur(22px) saturate(180%)", WebkitBackdropFilter: "blur(22px) saturate(180%)", border: railEdge }
-        : { background: railFill, border: railEdge };
       const navBtn = (active, o = {}) => ({
         position: "relative", flexShrink: 0,
         width: RAIL_BTN, height: RAIL_BTN, padding: 0,
@@ -26605,7 +26441,7 @@ ${jobsCtx || "No jobs found."}`;
           hidden) when that space runs out: with 54px buttons the full rail is
           ~920px tall, more than a 14" laptop window, and overflow:hidden on the
           rail would otherwise clip the bell and the avatar off the bottom. */}
-      <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", ...railGlass, borderRadius: T.radiusPill, padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
+      <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
         {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
         {!settingsMode && <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: 4 }}>
         {views.map(v => {
@@ -26753,7 +26589,6 @@ ${jobsCtx || "No jobs found."}`;
          );
        })()}
        <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 7 }}>
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, ...railGlass, borderRadius: T.radiusPill, pointerEvents: "none" }} />
         {/* Enable desktop (Windows) notifications — only on web, until granted */}
         {canWebPush && pushPerm !== "granted" && (
           <button onClick={async (e) => {

@@ -306,7 +306,9 @@ ok("#311: the chip takes its ink from the rule, not a hard-coded amber", !/color
   ok("#101/#103: the alert channel is one mark with a precedence", /_barUnclosed \? "unclosed"/.test(team) && /alertCap\(/.test(team));
   ok("#94: the flag is named for what it means", /_rowShowsRemainderOnly/.test(team) && !/_ownerOnTheClock/.test(SRC));
   ok("#98: the hours tooltip no longer calls the bar's length 'h left'", !/"h left  ·  "/.test(team));
-  ok("#91: the unproductive windows are hairlines, gated out of month mode", /lunchHairline\(/.test(team) && /tMode !== "month" && cW >= 60/.test(team));
+  // #91's lunch / break hairlines were removed from the bars (2026-10-03, by request).
+  // The bar's length still steps over the dead windows (walkProductiveHours).
+  ok("#91: the bars no longer draw lunch / break hairlines", !/lunchHairline\(/.test(team));
   // #92 is resolved-by-design, so what the test asserts is that the design HOLDS: the fill
   // composer must keep having no branch on a clock state. Scoped to activeBarFill, because
   // liveBarTextColor legitimately branches on one — it picks text for a spent fill.

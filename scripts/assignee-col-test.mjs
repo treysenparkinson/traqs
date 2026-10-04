@@ -182,13 +182,15 @@ ok("...then by name", sorted.slice(1).join() === "Ana Cruz,Cy Dole");
 // Each section on the Jobs page is its own card with its own horizontal scroller,
 // so scrolling right to reach a late column moved that section alone and left the
 // rest behind, columns no longer lining up down the page.
-ok("FrostCard can hand out its scrolling box", S.includes("const FrostCard = ({ children, onClick, border, scrollRef, style: sx = {} })"));
+ok("FrostCard can hand out its scrolling box", S.includes("const FrostCard = ({ children, onClick, border, scrollRef, className = \"\", style: sx = {} })"));
 ok("...and it is the SCROLLING box, not the outer card", /<div ref=\{scrollRef\} className="tq-card-scroll"/.test(S));
-// Four cards: active and Finished, in the grouped path and the ungrouped one.
-ok("every grid card on the page joins the group",
-  (S.match(/scrollRef=\{registerJobsHScroll\}/g) || []).length === 4);
+// The Revamp draws every group inside ONE table card, so there is one grid card
+// to join; the scroll group still holds it (and the mirroring below stays correct
+// should a second card come back).
+ok("the jobs grid card joins the group",
+  (S.match(/scrollRef=\{registerJobsHScroll\}/g) || []).length === 1);
 ok("...and cards elsewhere in the app are left alone",
-  (S.match(/<FrostCard/g) || []).length > 4 && !/scrollRef=\{register(?!JobsHScroll)/.test(S));
+  (S.match(/<FrostCard/g) || []).length > 1 && !/scrollRef=\{register(?!JobsHScroll)/.test(S));
 ok("a scroll on one is mirrored onto the others", S.includes("if (other !== el && other.scrollLeft !== x) other.scrollLeft = x;"));
 // Assigning scrollLeft fires `scroll` on each of the others, asynchronously.
 ok("the mirrored scrolls cannot answer back", S.includes("if (jobsHSyncing.current) return;"));
