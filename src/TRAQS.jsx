@@ -27,7 +27,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, personShareHours, capacityOf, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -814,10 +814,6 @@ animStyle.textContent = `
 @keyframes spin {
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
-}
-@keyframes staggerUp {
-  0%   { opacity: 0; transform: translateY(14px) scale(0.97); }
-  100% { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 /* A dropped bar announces itself by ARRIVING, not by fading in (#117). Animating opacity
    meant the animation owned the property for its whole run, and opacity is where the hover
@@ -25580,6 +25576,25 @@ ${jobsCtx || "No jobs found."}`;
               ))}
             </div>}
         </>)}
+        {/* Estimates written under an old meaning of hpd, for an admin to check by hand
+            (root cause 5). Nothing is rewritten — see suspectHpdOps in statsMath.js. */}
+        {(() => {
+          const _suspects = suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay: (ds) => isWorkDay(ds, orgSettings.workDays) && !(orgSettings.holidays || []).includes(ds) });
+          const _why = { perPersonTotal: "Looks like one person's hours, not the team's total — resized before the fix", perDayRate: "Looks like a per-day rate (7.5 h), not a total — entered as a simple job on iOS" };
+          return sRow("Estimates to check", "Estimated hours are the total for the whole team. These ops look like they were saved under an older meaning. Nothing has been changed — open each one and correct it if needed.",
+            _suspects.length === 0
+              ? <small className="rv-mute" style={{ display: "block" }}>Nothing to check</small>
+              : <div className="rv-dlist">
+                {_suspects.map(x => (
+                  <div key={x.id} onClick={() => { const job = tasks.find(t => sameId(t.id, x.jobId)); if (job) openJobDetailOrEdit(job); }} style={{ cursor: "pointer" }}>
+                    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                      <b style={{ fontWeight: 600 }}>{x.jobNumber ? `${x.jobNumber} · ` : ""}{x.jobTitle}{x.title ? ` › ${x.title}` : ""}</b>
+                      <small className="rv-mute">{_why[x.reason]} · {x.hpd} h over {x.days} working day{x.days === 1 ? "" : "s"}, team of {x.team}</small>
+                    </span>
+                  </div>
+                ))}
+              </div>);
+        })()}
       </div>
     );
   };

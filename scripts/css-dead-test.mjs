@@ -201,6 +201,11 @@ for (const m of NOCSS.matchAll(/className\s*[:=]\s*\{?\s*`([^`]*)`/g)) {
   for (const p of m[1].split(/\$\{[^}]*\}/)) addAll(p);
   for (const d of m[1].matchAll(/([\w-]*)\$\{[^}]*\}([\w-]*)/g)) { if (d[1]) dynP.add(d[1]); if (d[2]) dynS.add(d[2]); }
 }
+// className={"a b" + (x ? " c" : "")}: string pieces joined in an expression. Read them on
+// their own, because the any-quoted-string sweep below pairs quotes across a whole line and
+// pairs these wrong — it read the Settings switch (`"rv-tog tq-noanim" + …`) as dead.
+for (const m of NOCSS.matchAll(/className\s*=\s*\{([^{}]*)\}/g))
+  for (const q of m[1].matchAll(/"([^"]*)"|'([^']*)'/g)) addAll(q[1] ?? q[2]);
 for (const m of NOCSS.matchAll(/["'`]([^"'`\n]{1,160})["'`]/g))
   for (const tok of m[1].split(/[^\w-]+/)) if (/^[A-Za-z][\w-]*$/.test(tok) && tok.length > 1) used.add(tok);
 // Classes rendered by a dependency into our tree. react-colorful draws its own markup, so

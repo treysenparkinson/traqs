@@ -46,7 +46,12 @@ check("saved and synced themes are normalized", () => /return normalizeAppearanc
 check("the Custom theme, its builder and the Customize modal are gone", () => !/buildCustomTheme|customizationOpen|id: "custom", label: "Custom" \}, \]|\{ id: "custom", label: "Custom" \}\]\.map\(th/.test(SRC) || "still there");
 check("saved presets and the background-image history are gone", () => !/themePresets|bgImageHistory|presetNameInput/.test(SRC) || "still there");
 check("the page offers Light / Dark and the swatches", () => /\{ id: "frost", label: "Light" \}, \{ id: "midnight", label: "Dark" \}/.test(SRC) && /ACCENTS\.map\(/.test(SRC) || "missing");
-check("job-card, list-cell and grid controls stayed", () => /System Elements/.test(SRC) && /List Cells/.test(SRC) && /Schedule Grid/.test(SRC) || "missing");
+// The controls, not their labels: the Settings redesign re-cased "Job List Cells" and
+// "Schedule Grid", and "System Elements" only ever matched a comment. What has to survive is
+// a control writing each of the three appearance keys.
+check("job-card, list-cell and grid controls stayed", () =>
+  /setDc\(\{ jobBarMode: /.test(SRC) && /setDc\(\{ jobBarColor: /.test(SRC)
+  && /setDc\(\{ cellColorMode: /.test(SRC) && /setDc\(\{ scheduleGrid: /.test(SRC) || "missing");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
