@@ -254,7 +254,7 @@ struct GanttView: View {
         // AppState.opHoursPair — otherwise a timeline stripe and the same op's
         // percentage elsewhere in the app disagree.
         return max(op.loggedHours ?? 0, appState.producedFor(op: op))
-            + appState.liveHours(forOp: op, on: day)
+            + appState.liveHours(forOp: op)
     }
 
     private func makeBlock(_ entry: GanttLayout.Entry, _ placed: GanttLayout.Placed, on day: Date,
@@ -263,8 +263,13 @@ struct GanttView: View {
         let clientName = job.clientId
             .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
             .flatMap { $0.isEmpty ? nil : $0 }
-        let (typeLabel, color): (String, Color) = op.map { deptForOp($0, fallback: deptColor(for: job, panel: panel)) }
-            ?? (deptLabel(for: job, panel: panel), deptColor(for: job, panel: panel))
+        // The PANEL's colour, as on the web (`barFillColor(panel.color || "#94a3b8")`), stepped
+        // until its label reads (#253) — never a colour guessed from a title keyword. A finished
+        // unit gets the web day view's DONE fill over the row it sits on (#252).
+        let own = panel.extras.text("color").trimmingCharacters(in: .whitespaces)
+        let legible = BarPaint.legible(own.hasPrefix("#") ? own.lowercased() : BarPaint.fallback)
+        let hex = unit.finished ? BarPaint.doneFill(legible, row: T.surface.lowercased()) : legible
+        let typeLabel = (op?.title.isEmpty == false ? op!.title : panel.title).uppercased()
         let share = OverlapRule.shareHours(hpd: unit.hpd, teamCount: unit.team.count,
                                            productiveHoursPerDay: context.productiveHoursPerDay)
         // The worked fill pours front to back over the unit's whole run: this block's share is
@@ -292,49 +297,14 @@ struct GanttView: View {
             title: clientName ?? job.title,
             taskTitle: panel.title,
             subtaskTitle: op?.title,
-            color: color,
+            color: Color(hex: hex),
             typeLabel: typeLabel,
+            isFinished: unit.finished,
             start: placed.start, end: placed.end,
             taskStart: unit.start.asDate,
             taskEnd: unit.end.asDate,
             totalHours: share,
             workedFraction: workedFraction)
-    }
-
-    private func deptForOp(_ op: Operation, fallback: Color) -> (String, Color) {
-        let key = op.title.lowercased()
-        switch key {
-        case _ where key.contains("layout"):  return ("LAYOUT",  Color(hex: T.magenta))
-        case _ where key.contains("wire"):    return ("WIRE",    Color(hex: T.cyan))
-        case _ where key.contains("cut"):     return ("CUT",     Color(hex: T.yellow))
-        case _ where key.contains("inspect"): return ("INSPECT", Color(hex: T.lavender))
-        case _ where key.contains("repair"):  return ("REPAIR",  Color(hex: T.amber))
-        case _ where key.contains("install"): return ("INSTALL", Color(hex: T.magenta))
-        case _ where key.contains("callback"):return ("CALLBACK", Color(hex: T.red))
-        case _ where key.contains("contract"):return ("CONTRACT", Color(hex: T.green))
-        default: return (op.title.uppercased(), fallback)
-        }
-    }
-
-    private func deptColor(for job: Job, panel: Panel) -> Color {
-        let key = (job.jobType ?? panel.title).lowercased()
-        switch key {
-        case _ where key.contains("layout"):  return Color(hex: T.magenta)
-        case _ where key.contains("wire"):    return Color(hex: T.cyan)
-        case _ where key.contains("cut"):     return Color(hex: T.yellow)
-        case _ where key.contains("inspect"): return Color(hex: T.lavender)
-        case _ where key.contains("repair"):  return Color(hex: T.amber)
-        case _ where key.contains("install"): return Color(hex: T.magenta)
-        case _ where key.contains("callback"):return Color(hex: T.red)
-        case _ where key.contains("contract"):return Color(hex: T.green)
-        default:                              return Color(hex: job.color)
-        }
-    }
-
-    private func deptLabel(for job: Job, panel: Panel) -> String {
-        if let t = job.jobType, !t.isEmpty { return t.uppercased() }
-        if !panel.title.isEmpty { return panel.title.uppercased() }
-        return "JOB"
     }
 }
 
@@ -357,6 +327,8 @@ struct ScheduleBlock: Identifiable, Equatable {
     let subtaskTitle: String?
     let color: Color
     let typeLabel: String
+    /// Finished work: drawn, as on the web, with the DONE fill and a DONE label (#252).
+    var isFinished: Bool = false
     let start: Double         // hours-of-day, e.g. 8.5
     let end: Double
     let taskStart: Date?      // op.start (or panel.start when no op) — the task's calendar start
@@ -367,13 +339,6 @@ struct ScheduleBlock: Identifiable, Equatable {
     static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }
 }
 
-/// Carrier used by NavigationLink → JobDetailView so the detail view knows
-/// which panel / op to highlight + auto-expand.
-struct ScheduleFocus: Hashable {
-    let job: Job
-    let panelId: String?
-    let opId: String?
-}
 
 // MARK: - Date selector (◂ DATE ▸) + Today pill
 
@@ -472,21 +437,13 @@ private struct DayTimeline: View {
     private let pxPerHour: CGFloat = 56
     private let cal = Calendar.current
 
-    private var startHour: Double { workStart }
-
-    /// The lane runs workStart→workEnd, full stop. The packer now caps each day at
-    /// the org's schedulable capacity and rolls the remainder onto the next work
-    /// day, so nothing is placed past workEnd and nothing needs hiding — this used
-    /// to grow to `max(workEnd, lastBlockEnd)`, which is how an overbooked day
-    /// turned into a timeline scrolling past midnight.
-    ///
-    /// The max() is a floor guard only: it keeps a block visible if a rounding
-    /// remainder ever lands a hair past workEnd, and is capped at midnight so no
-    /// data shape can stretch the lane into a second day.
-    private var endHour: Double {
-        let lastBlockEnd = blocks.map(\.end).max() ?? workEnd
-        return min(24, max(workEnd, lastBlockEnd.rounded(.up)))
-    }
+    /// The web day view's hour grid (`dayGridHours`): whole hours, from the hour the working
+    /// day starts in to the hour it ends in (#257). A 07:30 start is a 7 AM row, labelled 7 AM,
+    /// not a grid that begins half-way through its first label. Blocks never pass workEnd —
+    /// GanttLayout ends them there — so the grid no longer stretches to fit them.
+    private var grid: (start: Int, end: Int) { GanttLayout.hourGrid(workStart: workStart, workEnd: workEnd) }
+    private var startHour: Double { Double(grid.start) }
+    private var endHour: Double { Double(grid.end) }
 
     var body: some View {
         let totalH = endHour - startHour
@@ -537,9 +494,12 @@ private struct DayTimeline: View {
                 // safety net rather than the thing deciding what's visible;
                 // overflow is deferred to the next work day, not clipped here.
                 ForEach(blocks.filter { $0.start < endHour }) { b in
+                    // Clamped both ways: a stored startHour before the day opens (kept as-is,
+                    // as on the web) must not draw above the grid.
+                    let clampedStart = max(b.start, startHour)
                     let clampedEnd = min(b.end, endHour)
-                    let top = CGFloat(b.start - startHour) * pxPerHour + 2
-                    let h = max(20, CGFloat(clampedEnd - b.start) * pxPerHour - 4)
+                    let top = CGFloat(clampedStart - startHour) * pxPerHour + 2
+                    let h = max(20, CGFloat(clampedEnd - clampedStart) * pxPerHour - 4)
                     Button { onSelect(b) } label: {
                         ScheduleBlockView(block: b, height: h)
                     }
@@ -808,6 +768,16 @@ private struct ScheduleBlockView: View {
         .clipShape(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous))
     }
 
+    /// The web's DONE tag on a finished bar (#252).
+    private var doneTag: some View {
+        Text("DONE")
+            .font(.custom(TFontName.bold.rawValue, size: 9))
+            .kerning(0.8)
+            .foregroundStyle(Color(hex: T.muted))
+            .lineLimit(1)
+            .fixedSize()
+    }
+
     /// "Data Encryption (2) · Wire" — the task, and the subtask beside it.
     ///
     /// De-duplicated: an op with no title of its own inherits the panel's, and
@@ -833,6 +803,7 @@ private struct ScheduleBlockView: View {
                     .font(TTypo.smBold(12))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
+                if block.isFinished { doneTag }
                 if !detailLine.isEmpty {
                     Text(detailLine)
                         .font(TTypo.xs(11))
@@ -843,10 +814,13 @@ private struct ScheduleBlockView: View {
             }
         case .compact, .full:
             VStack(alignment: .leading, spacing: 3) {
-                Text(block.title)
-                    .font(TTypo.smBold(13))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(block.title)
+                        .font(TTypo.smBold(13))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                    if block.isFinished { doneTag }
+                }
                 if !detailLine.isEmpty {
                     Text(detailLine)
                         .font(TTypo.xs(11))
@@ -871,12 +845,31 @@ private struct WeekHeaderBar: View {
         return "\(f.string(from: first)) – \(f.string(from: last))"
     }
 
+    /// ‹ › a week at a time (#254), the same chevrons as the day selector.
+    private func step(_ weeks: Int, flipped: Bool) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                selected = cal.date(byAdding: .day, value: 7 * weeks, to: selected) ?? selected
+            }
+        } label: {
+            TIconView(icon: .chev, size: 11, color: Color(hex: T.ink))
+                .scaleEffect(x: flipped ? -1 : 1)
+                .padding(6)
+                .background(Circle().fill(Color(hex: T.surface)))
+                .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(weeks < 0 ? "Previous week" : "Next week")
+    }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center, spacing: 8) {
+            step(-1, flipped: true)
             Text(rangeLabel)
                 .font(TTypo.xsBold(11))
                 .foregroundStyle(Color(hex: T.muted))
                 .tLabel(tracking: 1.4)
+            step(1, flipped: false)
             Spacer()
             PillBtn("TODAY", compact: true) {
                 withAnimation(.easeInOut(duration: 0.22)) {
@@ -902,19 +895,14 @@ private struct WeekGrid: View {
     let spansByDate: [Date: [ClockOverlays.Span]]
     let onSelect: (ScheduleBlock) -> Void
 
-    private var startHour: Double { workStart }
+    /// Whole hours, as the day view (#257) — see DayTimeline.
+    private var grid: (start: Int, end: Int) { GanttLayout.hourGrid(workStart: workStart, workEnd: workEnd) }
+    private var startHour: Double { Double(grid.start) }
     private let pxPerHour: CGFloat = 36
     private let gutter:    CGFloat = 24
     private let cal = Calendar.current
 
-    /// Runs workStart→workEnd for every column. Overflow rolls onto later days
-    /// instead of stretching the grid, so a busy week no longer makes all seven
-    /// columns as tall as its worst day. Floor-guarded and midnight-capped for the
-    /// same reason as DayTimeline.
-    private var endHour: Double {
-        let maxEnd = blocksByDate.values.flatMap { $0 }.map(\.end).max() ?? workEnd
-        return min(24, max(workEnd, maxEnd.rounded(.up)))
-    }
+    private var endHour: Double { Double(grid.end) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1035,9 +1023,10 @@ private struct WeekDayColumn: View {
             // Event rectangles painted by time range — clamped to endHour so
             // blocks never bleed past the configured shift.
             ForEach(blocks.filter { $0.start < endHour }) { b in
+                let clampedStart = max(b.start, startHour)
                 let clampedEnd = min(b.end, endHour)
-                let top = CGFloat(b.start - startHour) * pxPerHour + 1
-                let h = max(2, CGFloat(clampedEnd - b.start) * pxPerHour - 2)
+                let top = CGFloat(clampedStart - startHour) * pxPerHour + 1
+                let h = max(2, CGFloat(clampedEnd - clampedStart) * pxPerHour - 2)
                 Button { onSelect(b) } label: {
                     WeekBlockTile(block: b, height: h)
                 }
@@ -1114,7 +1103,7 @@ private struct WeekBlockTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if showLabel {
-                Text(block.typeLabel)
+                Text(block.isFinished ? "DONE" : block.typeLabel)
                     .font(.custom(TFontName.bold.rawValue, size: 9))
                     .kerning(0.6)
                     .lineLimit(1)
@@ -1155,13 +1144,14 @@ private struct WeekBlockTile: View {
 private struct WeekLegendRow: View {
     let blocks: [ScheduleBlock]
 
-    /// Distinct (color, label) pairs across the week.
+    /// One entry per PANEL — a bar's colour is its panel's (#253), so that is what a swatch
+    /// names. Finished bars are left out: their colour is the DONE grey, not the panel's.
     private var entries: [(label: String, color: Color)] {
         var seen = Set<String>()
         var out: [(String, Color)] = []
-        for b in blocks where !seen.contains(b.typeLabel) {
-            seen.insert(b.typeLabel)
-            out.append((b.typeLabel, b.color))
+        for b in blocks where !b.isFinished && !seen.contains(b.panelId) {
+            seen.insert(b.panelId)
+            out.append((b.taskTitle.isEmpty ? b.title : b.taskTitle, b.color))
         }
         return out.sorted { $0.0 < $1.0 }
     }
@@ -1171,7 +1161,7 @@ private struct WeekLegendRow: View {
             EmptyView()
         } else {
             HStack(spacing: 10) {
-                ForEach(entries, id: \.label) { e in
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, e in
                     JobTypeTag(label: e.label, color: e.color)
                 }
                 Spacer(minLength: 0)
@@ -1180,50 +1170,17 @@ private struct WeekLegendRow: View {
     }
 }
 
-// MARK: - DatePickerSheet — jump to any day from the calendar header icon
-
-private struct DatePickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selection: Date
-
-    var body: some View {
-        ZStack {
-            PageBackground()
-            VStack(spacing: 16) {
-                Text("Jump to date")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.4)
-                    .padding(.top, 18)
-
-                DatePicker("", selection: $selection, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .tint(Color(hex: T.sky))
-                    .padding(.horizontal, T.insetLg)
-                    .frostedCard(radius: T.cornerLg)
-                    .padding(.horizontal, 16)
-
-                GradientCTA(action: { dismiss() }) {
-                    Text("DONE")
-                        .font(TTypo.xsBold(13))
-                        .tLabel(tracking: 0.8)
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-        }
-    }
-}
-
 // MARK: - DateFormatter helpers
 
 private extension DateFormatter {
+    /// The selector's small line when the day isn't Today/Tomorrow/Yesterday — the weekday,
+    /// which the title below it does not repeat (#256).
     static let dayShort: DateFormatter = {
-        let f = DateFormatter.display("EEE · MMM d"); return f
+        let f = DateFormatter.display("EEEE"); return f
     }()
+    /// The selector's title. Short enough for its fixed 108 pt width.
     static let dayFull: DateFormatter = {
-        let f = DateFormatter.display("EEE · MMM d"); return f
+        let f = DateFormatter.display("MMM d"); return f
     }()
 }
 

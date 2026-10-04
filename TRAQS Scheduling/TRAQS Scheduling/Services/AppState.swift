@@ -3229,41 +3229,13 @@ class AppState {
         return Int((h.logged / h.est * 100).rounded())
     }
 
-    /// Number of full op-days (fractional) recorded against an op from its
-    /// lifetime `loggedHours` total — used to fill the op's schedule tiles
-    /// front-to-back (one tile per `hpd` logged) for already-clocked-out work.
-    /// Live, in-progress time is NOT included here; it's attributed to the
-    /// actual day it's happening on via `liveHours(forOp:on:)` so a worker's
-    /// current session shows up on today's bar immediately. A finished op fills
-    /// all of its tiles.
-    func opLoggedDays(_ op: Operation) -> Double {
-        if op.status == .finished { return .greatestFiniteMagnitude }
-        // Unestimated: there are no tiles to fill, so nothing is logged against them.
-        guard op.hpd > 0 else { return 0 }
-        let hpd = op.hpd
-        // Same max() as `opHoursPair` — the stripe and the percentage have to agree.
-        // Reading the counter alone here while the percentage read the session rows
-        // is precisely the disagreement the web hit: one card showing 10.08h of grey
-        // stripe next to a number that said 8.2h.
-        return max(op.loggedHours ?? 0, producedFor(op: op)) / hpd
-    }
-
-    /// Live (not-yet-clocked-out) hours for an op, attributed to the calendar
-    /// day its session STARTED on (normally today). The server only folds a
-    /// session into `loggedHours` at clock-out, so without this a worker sees
-    /// nothing on the bar while they're actively working. Sums all workers
-    /// currently on the op (an op can have more than one).
-    func liveHours(forOp op: Operation, on day: Date) -> Double {
-        let cal = Calendar.current
-        return people.reduce(0.0) { acc, p in
-            guard let jc = p.activeJobClock, jc.opId == op.id, !jc.clockIn.isEmpty,
-                  let started = Date.fromFlexibleISO8601(jc.clockIn),
-                  cal.isDate(started, inSameDayAs: day) else { return acc }
-            return acc + HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
-                                                          pausedAt: jc.pausedAt,
-                                                          totalPausedMs: jc.totalPausedMs,
-                                                          now: Date())
-        }
+    /// Live (not-yet-clocked-out) productive hours on an op, summed over everyone clocked
+    /// into it — the web's `liveOpHours` (SessionHours.live): shop time, lunch and breaks off,
+    /// stopped at a hold, an open pause or the end of the working day. The server only folds a
+    /// session into `loggedHours` at clock-out, so without this a worker sees nothing on the
+    /// bar while they're working. A total, not per day: the gantt pours it across the unit.
+    func liveHours(forOp op: Operation) -> Double {
+        SessionHours.live(opId: op.id, people: people, now: Date(), org: orgSettings)
     }
 
     /// Panel progress: total logged hours ÷ total estimated hours across child ops.

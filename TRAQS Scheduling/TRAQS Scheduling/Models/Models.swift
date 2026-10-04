@@ -788,13 +788,20 @@ struct ActiveJobClock: Codable, Equatable {
     var opTitle: String?
     var pausedAt: String?
     var totalPausedMs: Double?
+    /// When an admin HELD the clock (epoch ms). The live figure stops there.
+    var frozenAtMs: Double?
+    /// The share of `totalPausedMs` that was automatic (lunch) — already outside productive
+    /// time, so only the rest comes off a session (`sessionWorkedHours`).
+    var autoPausedMs: Double?
 
     init(clockIn: String, jobId: String, panelId: String? = nil, opId: String? = nil,
          jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil,
-         pausedAt: String? = nil, totalPausedMs: Double? = nil) {
+         pausedAt: String? = nil, totalPausedMs: Double? = nil,
+         frozenAtMs: Double? = nil, autoPausedMs: Double? = nil) {
         self.clockIn = clockIn; self.jobId = jobId; self.panelId = panelId; self.opId = opId
         self.jobTitle = jobTitle; self.panelTitle = panelTitle; self.opTitle = opTitle
         self.pausedAt = pausedAt; self.totalPausedMs = totalPausedMs
+        self.frozenAtMs = frozenAtMs; self.autoPausedMs = autoPausedMs
     }
 
     init(from decoder: Decoder) throws {
@@ -808,6 +815,8 @@ struct ActiveJobClock: Codable, Equatable {
         opTitle       = try? c.decodeIfPresent(String.self, forKey: .opTitle)
         pausedAt      = try? c.decodeIfPresent(String.self, forKey: .pausedAt)
         totalPausedMs = try? c.decodeIfPresent(Double.self, forKey: .totalPausedMs)
+        frozenAtMs    = try? c.decodeIfPresent(Double.self, forKey: .frozenAtMs)
+        autoPausedMs  = try? c.decodeIfPresent(Double.self, forKey: .autoPausedMs)
     }
 
     var isPaused: Bool { pausedAt != nil }
@@ -1240,7 +1249,19 @@ struct OrgBreak: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         time            = (try? c.decode(String.self, forKey: .time)) ?? "12:00"
-        durationMinutes = (try? c.decode(Int.self,    forKey: .durationMinutes)) ?? 30
+        // A BREAK with no length is no break: `buildDayWindows` drops it (#264/#307). Lunch
+        // has its own default, 30 — applied where lunch is decoded, as `withOrgDefaults` does.
+        durationMinutes = (try? c.decode(Int.self,    forKey: .durationMinutes)) ?? 0
+    }
+
+    /// Lunch as `withOrgDefaults` reads it: a time that isn't HH:mm is 12:00, and a missing
+    /// length is the default 30 minutes.
+    fileprivate static func lunch(from c: KeyedDecodingContainer<OrgSettings.CodingKeys>,
+                                  default d: OrgBreak) -> OrgBreak {
+        struct Raw: Decodable { let time: String?; let durationMinutes: Int? }
+        guard let raw = try? c.decode(Raw.self, forKey: .lunch) else { return d }
+        let time = raw.time.flatMap { $0.range(of: #"^\d{1,2}:\d{2}$"#, options: .regularExpression) != nil ? $0 : nil }
+        return OrgBreak(time: time ?? d.time, durationMinutes: raw.durationMinutes ?? d.durationMinutes)
     }
 }
 
@@ -1367,7 +1388,7 @@ struct OrgSettings: Codable, Equatable {
         payPeriodHourCap   = (try? c.decode(Double.self,    forKey: .payPeriodHourCap))   ?? d.payPeriodHourCap
         iosPayClockEnabled = (try? c.decode(Bool.self,      forKey: .iosPayClockEnabled)) ?? d.iosPayClockEnabled
         breaks             = (try? c.decode([OrgBreak].self,forKey: .breaks))             ?? d.breaks
-        lunch              = (try? c.decode(OrgBreak.self,  forKey: .lunch))              ?? d.lunch
+        lunch              = OrgBreak.lunch(from: c, default: d.lunch)
         orgLogo            = try? c.decodeIfPresent(String.self, forKey: .orgLogo)
     }
 
@@ -1407,6 +1428,13 @@ struct OrgSettings: Codable, Equatable {
     /// org but parsed a malformed time as 08:00 where the windows use the org defaults.
     var productiveHoursPerDay: Double { WorkDayClock.day(from: self).productiveHours }
 
+    /// `orgSettings.timeZone` — the shop's IANA zone ("America/Denver"), kept in extras.
+    /// Nil when unset; ShopTime then falls back to the device's zone.
+    var timeZone: String? {
+        let t = extras.text("timeZone").trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : t
+    }
+
     /// Paid hours in a standard day = the scheduled shift block minus the
     /// UNPAID lunch. Breaks are paid — the pay clock keeps running through them
     /// — so unlike `productiveHoursPerDay` they are NOT subtracted here.
@@ -1415,14 +1443,14 @@ struct OrgSettings: Codable, Equatable {
     /// org `hpd`: that is a stale gross figure that takes no account of lunch, so
     /// a 07:00–16:00 shop with a 1h lunch has hpd 9 but only 8 paid hours.
     var paidHoursPerDay: Double {
-        func minutes(_ t: String) -> Int? {
-            let parts = t.split(separator: ":").compactMap { Int($0) }
-            guard parts.count == 2 else { return nil }
-            return parts[0] * 60 + parts[1]
-        }
-        guard let start = minutes(workStart), let end = minutes(workEnd), end > start else { return 8 }
-        let paid = (end - start) - max(0, lunch.durationMinutes)
-        return paid > 0 ? Double(paid) / 60 : 8
+        // The org defaults for a malformed time (07:00–15:00, as WorkDayClock reads them), so a
+        // broken setting gives the default day's 7.5 paid hours rather than a flat 8 (#306).
+        let start = WorkDayClock.hour(from: workStart, fallback: WorkDayClock.defaultWorkStart)
+        let end = WorkDayClock.hour(from: workEnd, fallback: WorkDayClock.defaultWorkEnd)
+        let paid = (end - start) - Double(max(0, lunch.durationMinutes)) / 60
+        if paid > 0 { return paid }
+        return (WorkDayClock.defaultWorkEnd - WorkDayClock.defaultWorkStart)
+            - Double(WorkDayClock.defaultLunchMinutes) / 60
     }
 
     /// `workStart` parsed as decimal hours (e.g. "07:30" → 7.5).

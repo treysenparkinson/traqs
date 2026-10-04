@@ -27,7 +27,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -5578,8 +5578,7 @@ Extraction rules:
   // Whole hours, because columns are whole hours: a 08:30 start still shows an 08:00 column,
   // and a dead window is marked on any column it touches.
   const dayGrid = useMemo(() => {
-    const HS = Math.max(0, Math.floor(workStartH));
-    const HE = Math.min(24, Math.max(HS + 1, Math.ceil(workEndH)));
+    const { HS, HE } = dayGridHours(workStartH, workEndH);
     const hours = Array.from({ length: HE - HS }, (_, i) => HS + i);
     const dead = new Set();
     for (const w of (dayWindowCfg.deadWindows || [])) {

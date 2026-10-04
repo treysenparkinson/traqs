@@ -1651,6 +1651,17 @@ export function dayViewBlocks(bars, { day, cfg, productiveHoursPerDay, isWorkDay
   return out;
 }
 
+/**
+ * The day view's hour grid: whole hours from the hour the working day starts in to the
+ * hour it ends in, at least one, never past midnight. Lifted out of the team render's
+ * `dayGrid` memo so the iOS gantt's fixture can reach it (#257).
+ */
+export function dayGridHours(workStartH, workEndH) {
+  const HS = Math.max(0, Math.floor(workStartH));
+  const HE = Math.min(24, Math.max(HS + 1, Math.ceil(workEndH)));
+  return { HS, HE };
+}
+
 /** Productive hours between two clock times on one day (dead windows removed). */
 export function productiveClockHours(a, b, cfg) {
   let h = Math.max(0, b - a);

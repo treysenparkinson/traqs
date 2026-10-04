@@ -22,8 +22,20 @@
 //   node scripts/schedule-parity-test.mjs --write  regenerate after a deliberate change
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildDayWindows, walkProductiveHours, productiveClockHours, personShareHours,
-  opDaySegments, dayViewBlocks, isAssignedHere } from "../src/statsMath.js";
-import { workCalendar } from "../src/scheduleRules.js";
+  opDaySegments, dayViewBlocks, isAssignedHere, productiveHoursBetween, endOfWorkingDayMs,
+  sessionWorkedHours, dayGridHours } from "../src/statsMath.js";
+import { withOrgDefaults } from "../src/orgDefaults.js";
+import { legibleBarColor, doneBarFill, barPaint } from "../src/barPaint.js";
+import { shopDay, shopHour, shopMs, endOfDayFor } from "../src/shopTime.js";
+import { workCalendar, unitDepartments } from "../src/scheduleRules.js";
+import { candidatesFor } from "../src/placement.js";
+
+// shopTime takes its viewer-local path whenever a zone equals the machine's own. Pin the
+// machine to UTC so every zone below goes through the zoned path, whoever runs this.
+process.env.TZ = "UTC";
+if (new Date(0).getTimezoneOffset() !== 0 || Intl.DateTimeFormat().resolvedOptions().timeZone !== "UTC") {
+  console.error("schedule-parity: could not pin the process to UTC"); process.exit(2);
+}
 
 const FILE = new URL("../fixtures/schedule-parity.json", import.meta.url);
 const WRITE = process.argv.includes("--write");
@@ -44,9 +56,16 @@ const ORGS = [
     breaks: [{ time: "06:00", durationMinutes: 20 }, { time: "12:30", durationMinutes: 30 }] },
   { name: "no-lunch", workStart: "06:00", workEnd: "14:30", workDays: [0, 1, 2, 3, 4, 5, 6], holidays: [],
     lunch: { time: "12:00", durationMinutes: 0 }, breaks: [] },
+  // #264/#307: a lunch with no length is the default 30 (withOrgDefaults); a BREAK with no
+  // length is no break at all (buildDayWindows drops it) — not 30, not 15.
+  { name: "missing-lengths", workStart: "07:30", workEnd: "16:15", workDays: [1, 2, 3, 4, 5], holidays: [],
+    lunch: { time: "11:00" }, breaks: [{ time: "09:30" }, { time: "15:00", durationMinutes: 10 }] },
 ];
 const hourOf = (t) => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
-const cfgOf = (o) => buildDayWindows(hourOf(o.workStart), hourOf(o.workEnd), o.breaks, o.lunch);
+// Through withOrgDefaults first, as the app does: that is where a missing lunch length
+// becomes 30. A no-op for an org that sets everything.
+const cfgOf = (org) => { const o = withOrgDefaults(org);
+  return buildDayWindows(hourOf(o.workStart), hourOf(o.workEnd), o.breaks, o.lunch); };
 const prodOf = (o) => { const c = cfgOf(o); return Math.max(1, (c.workEndH - c.workStartH) - c.deadH); };
 
 const DAYS = ["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07",
@@ -129,17 +148,115 @@ function compute() {
     { name: "panel, not mine, no ops", node: { team: ["b"], subs: [] } },
   ].map((c) => ({ ...c, assigned: isAssignedHere(c.node, onTeam) }));
 
+  // Departments and candidates (src/scheduleRules.js, src/placement.js): who may take a unit.
+  // The nearest level that states a department wins; [] is anyone; a stated department with
+  // nobody in it is NOBODY (no fallback to all crew); an existing team wins outright.
+  const DEPTS = ["Wire", "Cut", "Layout", "Engineering"];
+  const deptShape = () => { const r = rnd();
+    if (r < 0.35) return {};
+    if (r < 0.6) return { requiredDepartment: pick(DEPTS) };
+    if (r < 0.75) return { requiredDepartment: pick(DEPTS).toLowerCase() };
+    if (r < 0.9) { const set = [...new Set([pick(DEPTS), pick(DEPTS)])]; return { requiredDepartments: set, requiredDepartment: set[0] }; }
+    return { requiredDepartments: [] }; };
+  const crew = [
+    { id: "p1", name: "A", department: "Wire", userRole: "user" },
+    { id: "p2", name: "B", department: "Cut", secondaryDepartment: "Wire", userRole: "user" },
+    { id: "p3", name: "C", department: "Layout", userRole: "user" },
+    { id: "p4", name: "D", department: "wire", userRole: "user" },
+    { id: "p5", name: "E", department: "", userRole: "user" },
+    { id: 6, name: "F", department: "Cut", userRole: "user" },
+  ];
+  const candidates = [];
+  for (let k = 0; k < 120; k++) {
+    const op = { id: `o${k}`, title: pick(["Wire", "Cut", "Layout", "Inspect"]), ...deptShape() };
+    const tr = rnd();
+    if (tr < 0.2) op.team = [pick(["p1", "p3", 6, "6"])];
+    else if (tr < 0.27) op.team = ["gone"];
+    const panel = { id: `P${k}`, title: "Panel", ...deptShape() };
+    const job = { id: `J${k}`, title: "Job", ...deptShape() };
+    candidates.push({ op, panel, job,
+      departments: unitDepartments(op, panel, job),
+      candidates: candidatesFor(op, crew, { panel, job }).map((p) => String(p.id)) });
+  }
+
+  // Shop time (src/shopTime.js) and job-clock session hours (statsMath sessionWorkedHours) —
+  // the live-hours rule (#250) and the instants it is built on. Zones include both 2026 US DST
+  // changes (Mar 8, Nov 1) and a half-hour offset.
+  const ZONES = ["America/Denver", "America/New_York", "UTC", "Asia/Kolkata", "Australia/Sydney"];
+  const shop = [];
+  for (const tz of ZONES) {
+    for (const ds of ["2026-03-07", "2026-03-08", "2026-03-09", "2026-10-05", "2026-11-01", "2026-11-02"]) {
+      for (const h of [0, 1.5, 7, 8.25, 12, 17, 23.75]) {
+        const ms = shopMs(ds, h, tz);
+        shop.push({ tz, day: ds, hour: h, ms, backDay: shopDay(ms, tz), backHour: shopHour(ms, tz) });
+      }
+    }
+  }
+  const sessions = [];
+  const sessOrgs = [ORGS[0], ORGS[2]];   // Matrix shape; a 4-day week with holidays
+  for (const [si, o] of sessOrgs.entries()) {
+    for (const tz of ["America/Denver", "America/New_York", "Asia/Kolkata"]) {
+      const cfg = { ...cfgOf(o), workDays: o.workDays, holidays: o.holidays, timeZone: tz };
+      const at = (ds, h) => shopMs(ds, h, tz);
+      const H = 3600000;
+      const cases = [
+        { name: "inside one morning", in: at("2026-10-05", 8.5), now: at("2026-10-05", 11.75) },
+        { name: "across lunch and a break", in: at("2026-10-05", 9), now: at("2026-10-05", 15) },
+        { name: "left open past quitting time", in: at("2026-10-05", 13), now: at("2026-10-05", 21) },
+        { name: "Friday into Monday", in: at("2026-10-09", 14), now: at("2026-10-12", 10) },
+        { name: "clocked in after quitting time", in: at("2026-10-05", 18), now: at("2026-10-06", 10) },
+        { name: "open pause", in: at("2026-10-05", 8), now: at("2026-10-05", 14), pausedAt: new Date(at("2026-10-05", 11)).toISOString() },
+        { name: "held (frozen)", in: at("2026-10-05", 8), now: at("2026-10-05", 16), frozenAtMs: at("2026-10-05", 10.5) },
+        { name: "manual and auto pauses", in: at("2026-10-05", 8), now: at("2026-10-05", 16), totalPausedMs: 1.5 * H, autoPausedMs: 1 * H },
+        { name: "closed session", in: at("2026-10-05", 8), clockOut: at("2026-10-05", 12.5), now: at("2026-10-07", 9) },
+        { name: "across a holiday", in: at("2026-10-05", 14), now: at("2026-10-07", 9) },
+        { name: "DST fall-back weekend", in: at("2026-10-30", 15), now: at("2026-11-02", 9) },
+        { name: "DST spring-forward Monday", in: at("2026-03-09", 8), now: at("2026-03-09", 12) },
+      ];
+      for (const c of cases) {
+        const r = sessionWorkedHours({ clockInMs: c.in, clockOutMs: c.clockOut, pausedAt: c.pausedAt ?? null,
+          frozenAtMs: c.frozenAtMs, totalPausedMs: c.totalPausedMs ?? 0, autoPausedMs: c.autoPausedMs ?? 0, nowMs: c.now, cfg });
+        sessions.push({ org: [0, 2][si], tz, name: c.name, clockInMs: c.in, clockOutMs: c.clockOut ?? null,
+          pausedAt: c.pausedAt ?? null, frozenAtMs: c.frozenAtMs ?? null, totalPausedMs: c.totalPausedMs ?? 0,
+          autoPausedMs: c.autoPausedMs ?? 0, nowMs: c.now,
+          hours: r.hours, endMs: r.endMs, frozen: r.frozen, unclosed: r.unclosed,
+          between: productiveHoursBetween(c.in, c.now, cfg),
+          endOfDay: endOfWorkingDayMs(c.in, cfg) });
+      }
+    }
+  }
+
+  // The day view's hour grid (#257): whole hours, floor of the start, ceiling of the end.
+  const grids = [];
+  for (const [a, b] of [[7, 15], [7.5, 16.25], [8, 17], [6.75, 14.5], [0, 24], [23.5, 23.75], [8, 8]]) {
+    const g = dayGridHours(a, b);
+    grids.push({ workStartH: a, workEndH: b, start: g.HS, end: g.HE });
+  }
+  // Bar colour (#253) and the DONE fill (#252), src/barPaint.js.
+  const paint = [];
+  for (const c of ["#94a3b8", "#ffffff", "#000000", "#eda412", "#30b8f8", "#6c4fe0", "#d63c8c", "#1a9b6a",
+    "#ffeb3b", "#ff6b5b", "#9ca3af", "#22d3ee", "#7c3aed", "#f59e0b"]) {
+    for (const row of ["#ffffff", "#202024", "#fbfaf7"]) {
+      // The day view's finished fill: doneBarFill over barPaint's finished mute (TRAQS.jsx _dayFill).
+      const legible = legibleBarColor(c);
+      paint.push({ color: c, row, legible, done: doneBarFill({}, barPaint({ status: "Finished" }, legible), row) });
+    }
+  }
+
   return { generatedBy: "scripts/schedule-parity-test.mjs", orgs, walks, clockHours, calendar,
-    shares, segments, dayView, assigned };
+    shares, segments, dayView, assigned, crew, candidates, shop, sessions, grids, paint };
 }
 
 const now = compute();
 const text = JSON.stringify(now, null, 1) + "\n";
-const total = ["walks", "clockHours", "calendar", "shares", "segments", "dayView", "assigned"]
+const total = ["walks", "clockHours", "calendar", "shares", "segments", "dayView", "assigned", "candidates", "shop", "sessions", "grids", "paint"]
   .reduce((n, k) => n + now[k].length, 0);
 // Guard the INPUT: a refactor that empties a section must not read as a pass.
 if (total < 500 || now.dayView.filter((c) => c.blocks.length).length < 250
-    || now.segments.filter((c) => c.segments.length > 1).length < 10) {
+    || now.segments.filter((c) => c.segments.length > 1).length < 10
+    || now.candidates.filter((c) => c.candidates.length === 0).length < 5
+    || now.candidates.filter((c) => c.departments.length > 1).length < 5
+    || now.sessions.filter((c) => c.unclosed).length < 4 || now.sessions.filter((c) => c.hours > 0).length < 30) {
   console.error(`schedule-parity: only ${total} cases generated — the generator is broken`);
   process.exit(2);
 }

@@ -31,7 +31,7 @@ struct JobsSchedulerTests {
         JobsScheduler.units(of: job(#"""
         {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[
          {"id":"o1","title":"One","hpd":7.5},{"id":"o2","title":"Two","hpd":7.5}]}]}
-        """#), productiveHoursPerDay: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5)
     }
 
     // MARK: Business days
@@ -84,25 +84,37 @@ struct JobsSchedulerTests {
          {"id":"p1","title":"Panel","subs":[{"id":"o1","title":"Wire","hpd":7.5}]},
          {"id":"p2","title":"Leaf","hpd":7.5,"subs":[]},
          {"id":"p3","title":"","subs":[]}]}
-        """#), productiveHoursPerDay: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5)
         #expect(units.map(\.id) == ["o1", "p2"])
     }
 
-    /// `deptOfUnit` — own, then panel's, then job's, then the TITLE when it
-    /// names a known department. The title fallback is what makes FAST TRAQS
-    /// imports schedule by department at all.
-    @Test func departmentFallsBackThroughToTheTitle() {
-        let known: Set<String> = ["wire", "fab"]
-        #expect(JobsScheduler.department(of: "Wire", own: "Own", panel: "P",
-                                         job: "J", known: known) == "Own")
-        #expect(JobsScheduler.department(of: "Wire", own: "", panel: "P",
-                                         job: "J", known: known) == "P")
-        #expect(JobsScheduler.department(of: "Wire", own: "", panel: "",
-                                         job: "J", known: known) == "J")
-        #expect(JobsScheduler.department(of: "Wire", own: "", panel: "",
-                                         job: "", known: known) == "Wire")
-        #expect(JobsScheduler.department(of: "Nonsense", own: "", panel: "",
-                                         job: "", known: known) == "")
+    /// #242: a panel is a unit only when it has no LIVE ops — `isAssignedHere`, the rule the
+    /// gantt and the overlap rule use. Deleted ops don't make a panel a parent; untitled live
+    /// ops are skipped as the web skips them, and do NOT turn the panel back into a unit.
+    @Test func aPanelIsAUnitOnlyWithNoLiveOps() {
+        let units = JobsScheduler.units(of: job(#"""
+        {"id":"j","title":"J","subs":[
+         {"id":"p1","title":"Gone","hpd":4,"subs":[{"id":"o1","title":"Wire","hpd":2,"deletedAt":"2026-09-01"}]},
+         {"id":"p2","title":"Untitled","hpd":4,"subs":[{"id":"o2","title":"  ","hpd":2}]}]}
+        """#), productiveHoursPerDay: 7.5)
+        #expect(units.map(\.id) == ["p1"])
+    }
+
+    /// The web dropped the title heuristic (4ee9598): an op titled "Wire" with no stated
+    /// department may be done by ANYONE. Departments are the nearest level that states any,
+    /// as a set.
+    @Test func noStatedDepartmentMeansAnyoneWhateverTheTitle() {
+        let units = JobsScheduler.units(of: job(#"""
+        {"id":"j","title":"J","requiredDepartment":"Layout","subs":[{"id":"p","title":"P","subs":[
+         {"id":"a","title":"Wire","hpd":2},
+         {"id":"b","title":"Cut","hpd":2,"requiredDepartments":["Cut","Wire"],"requiredDepartment":"Cut"}]},
+         {"id":"q","title":"Q","subs":[{"id":"c","title":"Wire","hpd":2}]}]}
+        """#), productiveHoursPerDay: 7.5)
+        #expect(units.map(\.departments) == [["Layout"], ["Cut", "Wire"], ["Layout"]])
+        let bare = JobsScheduler.units(of: job(#"""
+        {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[{"id":"a","title":"Wire","hpd":2}]}]}
+        """#), productiveHoursPerDay: 7.5)
+        #expect(bare.map(\.departments) == [[]])
     }
 
     @Test func dependenciesAreWorkedFirst() {
@@ -111,7 +123,7 @@ struct JobsSchedulerTests {
          {"id":"c","title":"C","deps":["b"]},
          {"id":"b","title":"B","deps":["a"]},
          {"id":"a","title":"A"}]}]}
-        """#), productiveHoursPerDay: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5)
         #expect(units.map(\.id) == ["a", "b", "c"])
     }
 
@@ -121,7 +133,7 @@ struct JobsSchedulerTests {
         let units = JobsScheduler.units(of: job(#"""
         {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[
          {"id":"x","title":"X","deps":["y"]},{"id":"y","title":"Y","deps":["x"]}]}]}
-        """#), productiveHoursPerDay: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5)
         #expect(units.count == 2)
     }
 
@@ -139,16 +151,36 @@ struct JobsSchedulerTests {
         #expect(JobsScheduler.schedulableCrew(all).map(\.id) == ["u1"])
     }
 
-    @Test func primaryDepartmentOutranksSecondary() {
-        #expect(JobsScheduler.crew(for: "Wire", from: crew).map(\.id) == ["u1", "u2"])
-        #expect(JobsScheduler.crew(for: "Fab", from: crew).map(\.id) == ["u2"])
+    /// A department is matched as a set, case-insensitively, against a person's department
+    /// and secondary department — no primary-before-secondary ranking (4ee9598).
+    @Test func aDepartmentMatchesEitherOfAPersonsDepartments() {
+        #expect(Departments.candidates(team: [], departments: ["wire"], crew: crew).map(\.id) == ["u1", "u2"])
+        #expect(Departments.candidates(team: [], departments: ["Fab"], crew: crew).map(\.id) == ["u2"])
+        #expect(Departments.candidates(team: [], departments: [], crew: crew).map(\.id) == ["u1", "u2"])
     }
 
-    /// "If nobody matches, fall back to ALL crew so the scheduler can still place
-    /// the work somewhere instead of bailing with no windows."
-    @Test func anUnstaffedDepartmentFallsBackToEveryone() {
-        #expect(JobsScheduler.crew(for: "Nobody", from: crew).map(\.id) == ["u1", "u2"])
-        #expect(JobsScheduler.crew(for: "", from: crew).map(\.id) == ["u1", "u2"])
+    /// No fallback to all crew: an op whose department has nobody is unstaffable and is
+    /// reported, never handed to whoever is free. The fallback is the funnel that put 71 ops
+    /// on one person on the web.
+    @Test func anUnstaffedDepartmentIsNobody() {
+        #expect(Departments.candidates(team: [], departments: ["Nobody"], crew: crew).isEmpty)
+    }
+
+    /// An existing team wins outright — unless none of it is on the roster any more.
+    @Test func anExistingTeamWinsOutright() {
+        #expect(Departments.candidates(team: ["u2"], departments: ["Wire"], crew: crew).map(\.id) == ["u2"])
+        #expect(Departments.candidates(team: ["gone"], departments: ["Fab"], crew: crew).map(\.id) == ["u2"])
+    }
+
+    /// An unstaffable unit fails every window, and `unstaffable` names it, so the sheet can
+    /// say why instead of "nobody is free for 200 days".
+    @Test func anUnstaffableUnitIsNamedNotScheduled() {
+        let units = JobsScheduler.units(of: job(#"""
+        {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[
+         {"id":"a","title":"A","hpd":2,"requiredDepartment":"Engineering"},{"id":"b","title":"B","hpd":2}]}]}
+        """#), productiveHoursPerDay: 7.5)
+        #expect(JobsScheduler.unstaffable(units, crew: crew).map(\.id) == ["a"])
+        #expect(JobsScheduler.windows(.init(units: units, crew: crew, calendar: calendar, today: monday)).isEmpty)
     }
 
     // MARK: Windows
@@ -293,7 +325,7 @@ struct JobsSchedulerTests {
         }
         let checked = makeJob()
         let window = JobsScheduler.windows(.init(
-            units: JobsScheduler.units(of: checked, productiveHoursPerDay: 7.5, departmentNames: []),
+            units: JobsScheduler.units(of: checked, productiveHoursPerDay: 7.5),
             crew: crew, today: monday))[0]
         #expect(window.placements.count == 2)
 

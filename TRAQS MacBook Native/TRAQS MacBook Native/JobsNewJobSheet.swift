@@ -107,6 +107,9 @@ struct JobsNewJobSheet: View {
     /// Step 3. nil until the check has been run.
     @State private var windows: [ScheduleWindow]?
     @State private var checking = false
+    /// Titles of units nobody may take (a department with no one schedulable in it). Every
+    /// window fails on them, so "No window found" says which and why.
+    @State private var unstaffed: [String] = []
     /// The job the windows were computed AGAINST, kept so "Use This Schedule"
     /// applies them to that exact instance.
     ///
@@ -509,9 +512,9 @@ struct JobsNewJobSheet: View {
         let draftJob = build()
         scheduledDraft = draftJob
         let units = JobsScheduler.units(of: draftJob,
-                                        productiveHoursPerDay: scheduling.productiveHoursPerDay,
-                                        departmentNames: Set(scheduling.departments))
+                                        productiveHoursPerDay: scheduling.productiveHoursPerDay)
         let crew = JobsScheduler.schedulableCrew(scheduling.people)
+        unstaffed = JobsScheduler.unstaffable(units, crew: crew).map(\.title)
         var request = JobsScheduler.Request(
             units: units, crew: crew, calendar: scheduling.calendar, day: scheduling.day,
             today: scheduling.today.isEmpty ? JobsDate.todayKey : scheduling.today)
@@ -556,13 +559,24 @@ struct JobsNewJobSheet: View {
         }
     }
 
+    /// Why nothing was offered. A unit nobody may take fails every window, so it is named
+    /// rather than reported as "nobody is free".
+    private var noWindowsMessage: String {
+        if unstaffed.isEmpty {
+            return "Nobody is free for long enough in the next 200 working days. "
+                + "Save it for later and schedule it from TRAQS Cloud, or free somebody up."
+        }
+        let names = unstaffed.joined(separator: ", ")
+        return "Nobody can take \(names) \u{2014} no one schedulable is in the department it needs. "
+            + "Change its department, or assign someone by hand."
+    }
+
     private var noWindows: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("No window found")
                 .font(TFont.body(14, 700))
                 .foregroundStyle(theme.danger)
-            Text("Nobody is free for long enough in the next 200 working days. "
-                 + "Save it for later and schedule it from TRAQS Cloud, or free somebody up.")
+            Text(noWindowsMessage)
                 .font(TFont.body(12))
                 .foregroundStyle(theme.textSec)
                 .fixedSize(horizontal: false, vertical: true)
@@ -957,7 +971,8 @@ private struct PanelEditor: View {
         // `department` key and falls back to the legacy `role` — the same
         // `p.department ?? p.role ?? ""` the web normalises with — so the field
         // is named for the older shape and holds the newer one.
-        let inDept = people.filter { $0.role == department }
+        // `personDeptMatch`: either of a person's departments, case-insensitively.
+        let inDept = people.filter { Departments.matches($0, [department]) }
         return inDept.isEmpty ? people : inDept
     }
 

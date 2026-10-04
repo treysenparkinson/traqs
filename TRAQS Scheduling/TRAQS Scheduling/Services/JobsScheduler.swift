@@ -41,8 +41,11 @@ struct SchedulableUnit: Equatable {
     /// 15-hour operation for two people in a 7.5-hour day is one business day;
     /// a 40-hour one for one person is six.
     let durationDays: Int
-    /// `requiredDepartment`, already inferred — see `department(of:)`.
-    let department: String
+    /// The departments that may do it — `unitDepartments`: the nearest of op, panel, job
+    /// that states any, as a set. [] is anyone. Never inferred from the title.
+    let departments: [String]
+    /// The team already on it. `candidatesFor`: an existing team wins outright.
+    var team: [String] = []
     /// The panel this belongs to, or nil when the panel IS the unit.
     let panelID: String
     /// The one assignee's productive hours on it — the whole `hpd`, since the
@@ -82,23 +85,6 @@ enum JobsScheduler {
 
     // MARK: Reading the form
 
-    /// `deptOfUnit` — the unit's own department, then its panel's, then the
-    /// job's, and finally the unit's TITLE when that matches a known department
-    /// name.
-    ///
-    /// The title fallback is not a nicety: FAST TRAQS imports leave
-    /// `requiredDepartment` empty on operations whose titles ("Wire", "Cut",
-    /// "Layout") are exactly the department names, and without it the scheduler
-    /// ignores departments entirely on such a job.
-    static func department(of unit: String, own: String, panel: String,
-                           job: String, known: Set<String>) -> String {
-        if !own.isEmpty { return own }
-        if !panel.isEmpty { return panel }
-        if !job.isEmpty { return job }
-        let title = unit.trimmingCharacters(in: .whitespaces)
-        return known.contains(title.lowercased()) ? title : ""
-    }
-
     /// `opDurBD`, per person: `ceil((hpd / teamSize) / productiveHoursPerDay)`,
     /// min 1. Unestimated (hpd 0) is one day — never a made-up estimate. Not ÷
     /// the org `hpd`, which is a stale gross day that counts lunch.
@@ -134,10 +120,7 @@ enum JobsScheduler {
     /// "Panels with sub-ops → sub-ops are assignable. Panels without sub-ops →
     /// the panel itself is assignable." Untitled units are skipped, as the web
     /// skips `o.title?.trim()`.
-    static func units(of job: Job, productiveHoursPerDay: Double,
-                      departmentNames: Set<String>) -> [SchedulableUnit] {
-        let known = Set(departmentNames.map { $0.lowercased() })
-        let jobDept = job.extras.text("requiredDepartment")
+    static func units(of job: Job, productiveHoursPerDay: Double) -> [SchedulableUnit] {
         // ONE person per unit: `place` writes a single assignee over whatever
         // team the form had, so that one person does the whole `hpd`. Sizing by
         // the form's team would book a two-person op for half the days its one
@@ -145,18 +128,19 @@ enum JobsScheduler {
         let crewSize = 1
 
         return job.subs.flatMap { panel -> [SchedulableUnit] in
-            let panelDept = panel.extras.text("requiredDepartment")
-            let named = panel.subs.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
-
-            guard named.isEmpty else {
+            // #242: a panel is the unit only when it has no LIVE ops — `isAssignedHere`, the
+            // rule the gantt and the overlap rule use. Untitled live ops are skipped, as the
+            // web skips them, without turning their panel back into a unit.
+            let live = panel.subs.filter { !OverlapRule.isTombstoned($0.extras) }
+            guard live.isEmpty else {
+                let named = live.filter { !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }
                 return topologicallySorted(named).map { op in
                     SchedulableUnit(
                         id: op.id, title: op.title,
                         durationDays: durationDays(hpd: op.hpd, teamSize: crewSize,
                                                    productiveHoursPerDay: productiveHoursPerDay),
-                        department: department(of: op.title,
-                                               own: op.extras.text("requiredDepartment"),
-                                               panel: panelDept, job: jobDept, known: known),
+                        departments: Departments.unit(op.extras, panel: panel.extras, job: job.extras),
+                        team: op.team,
                         panelID: panel.id,
                         hours: op.hpd > 0 ? op.hpd / Double(crewSize) : 0)
                 }
@@ -166,10 +150,9 @@ enum JobsScheduler {
                 id: panel.id, title: panel.title,
                 durationDays: durationDays(hpd: panel.hpd, teamSize: crewSize,
                                            productiveHoursPerDay: productiveHoursPerDay),
-                // A panel that IS the unit has no parent to inherit from —
-                // `_inferDept(panel, null)`.
-                department: department(of: panel.title, own: panelDept,
-                                       panel: "", job: jobDept, known: known),
+                // A panel that IS the unit has no parent panel — `unitDepartments(panel, null, job)`.
+                departments: Departments.unit(panel.extras, panel: nil, job: job.extras),
+                team: panel.team,
                 panelID: panel.id,
                 hours: panel.hpd > 0 ? panel.hpd / Double(crewSize) : 0)]
         }
@@ -191,29 +174,11 @@ enum JobsScheduler {
         }
     }
 
-    /// `personDeptMatch` — primary, then secondary, then no.
-    ///
-    /// `Person.role` IS the primary department — its decoder prefers the raw
-    /// `department` key over the legacy `role`.
-    static func departmentRank(_ person: Person, _ required: String) -> Int? {
-        guard !required.isEmpty else { return 0 }
-        if person.role == required { return 0 }
-        if person.secondaryDepartment == required { return 1 }
-        return nil
-    }
-
-    /// `crewForOp` — the department's people, primary matches first.
-    ///
-    /// FALLS BACK TO EVERYONE when nobody matches. The web's comment says why:
-    /// otherwise a department with no members bails the whole schedule with "no
-    /// windows" instead of placing the work somewhere.
-    static func crew(for department: String, from all: [Person]) -> [Person] {
-        guard !department.isEmpty else { return all }
-        let matched = all.compactMap { person -> (Person, Int)? in
-            departmentRank(person, department).map { (person, $0) }
-        }
-        guard !matched.isEmpty else { return all }
-        return matched.sorted { $0.1 < $1.1 }.map(\.0)
+    /// The units nobody on `crew` may take — a stated department with no one in it, or a
+    /// team none of whom is on the roster. They fail every window; the sheet names them
+    /// instead of reporting that nobody is free for 200 days.
+    static func unstaffable(_ units: [SchedulableUnit], crew: [Person]) -> [SchedulableUnit] {
+        units.filter { Departments.candidates(team: $0.team, departments: $0.departments, crew: crew).isEmpty }
     }
 }
 
@@ -519,7 +484,10 @@ extension JobsScheduler {
             let blocks = OverlapRule.blocks(start: cursor, end: unitEnd, startHour: nil,
                                             hours: unit.hours, context: rule)
             if placements.isEmpty { firstBlocks = blocks }
-            let eligible = crew(for: unit.department, from: request.crew)
+            // `candidatesFor`: the existing team, else the department set, else anyone — and
+            // NOBODY when a stated department has no one. No fallback to all crew (4ee9598).
+            let eligible = Departments.candidates(team: unit.team, departments: unit.departments,
+                                                  crew: request.crew)
             let free = eligible.filter {
                 isFree($0.id, blocks: blocks, from: cursor, to: unitEnd, in: booked)
             }
@@ -535,8 +503,7 @@ extension JobsScheduler {
                 // ONE person per unit, the first free and best-matched. The web
                 // splits a batch across a crew when a panel is replicated; a job
                 // being created has each unit once, so "who does this" has one
-                // answer. `crew(for:)` has already put primary-department matches
-                // ahead of secondary ones.
+                // answer: the first free candidate, in roster order.
                 team: [free[0].id]))
 
             totalDays += unit.durationDays

@@ -7,8 +7,9 @@ import Foundation
 //   WHICH units are on my timeline — `getPersonBars`' task rules (TRAQS.jsx) with
 //   `isAssignedHere` (statsMath.js): an op on my team, or a panel on my team that has no live
 //   ops. A panel whose live ops belong to other people is THEIR work, not a bar of mine (#241).
-//   Finished, deleted and undated work is not drawn, and HISTORY — a unit whose end is before
-//   today — is hidden rather than rolled forward, unless someone is clocked into it (#248).
+//   Deleted and undated work is not drawn; finished work is, as DONE (#252). HISTORY — a unit
+//   whose end is before today — is hidden rather than rolled forward, unless someone is
+//   clocked into it (#248).
 //
 //   WHERE each sits on a day — `dayViewBlocks` (statsMath.js), the web day view's Business
 //   rule: a multi-day unit by its own walk across its days (`OverlapRule.blocks`, the port of
@@ -63,13 +64,15 @@ enum GanttLayout {
     /// and the overrun extension of a bar's visible end (#249, #252).
     static func units(for person: String, in jobs: [Job], live: Set<String>, today: String) -> [Entry] {
         func drawn(_ u: OverlapRule.Unit) -> Bool {
-            guard !u.finished, !u.deleted, !u.start.isEmpty else { return false }
+            // Finished work IS drawn, as on the web (`showCompleted`, on by default): a DONE bar
+            // is a record of what happened (#252). Only its history is hidden, like any other.
+            guard !u.deleted, !u.start.isEmpty else { return false }
             // HISTORY IS NOT ON THE SCHEDULE — except the unit someone is standing at.
             if !u.end.isEmpty && u.end < today && !live.contains(u.id) { return false }
             return true
         }
         var out: [Entry] = []
-        for job in jobs where job.status != .finished && !OverlapRule.isTombstoned(job.extras) {
+        for job in jobs where !OverlapRule.isTombstoned(job.extras) {
             for panel in job.subs where !OverlapRule.isTombstoned(panel.extras) {
                 let liveOps = panel.subs.filter { !OverlapRule.isTombstoned($0.extras) }
                 for op in liveOps {
@@ -135,5 +138,12 @@ enum GanttLayout {
             out.append(Placed(index: index, start: start, end: end, isFirst: isFirst, isLast: isLast))
         }
         return out
+    }
+
+    /// `dayGridHours` — the hour grid: whole hours from the hour the working day starts in to
+    /// the hour it ends in, at least one, never past midnight (#257).
+    static func hourGrid(workStart: Double, workEnd: Double) -> (start: Int, end: Int) {
+        let start = max(0, Int(workStart.rounded(.down)))
+        return (start, min(24, max(start + 1, Int(workEnd.rounded(.up)))))
     }
 }

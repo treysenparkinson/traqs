@@ -6,7 +6,7 @@ import Foundation
 // `sortTasks` (:10800) and `jobMatchesSearch`.
 //
 // Pure, with every lookup passed in — no AppState, no clock. Same convention as
-// JobHealth, HoursCalculator and StatsMath, and here for the same reason: this is
+// HoursCalculator and StatsMath, and here for the same reason: this is
 // the directory the iOS test target compiles, so the rules that decide which jobs
 // a person sees are testable without a view or a network. See JobsQueryTests.
 

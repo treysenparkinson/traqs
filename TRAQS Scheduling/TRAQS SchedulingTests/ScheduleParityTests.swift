@@ -23,7 +23,8 @@ struct ScheduleParityTests {
                 let dead: [Dead]
             }
             struct Dead: Decodable { let start: Double, duration: Double }
-            struct Break: Codable { let time: String, durationMinutes: Int }
+            /// `durationMinutes` may be missing — the missing-lengths org (#264/#307).
+            struct Break: Codable { let time: String, durationMinutes: Int? }
             let name: String
             let workStart: String, workEnd: String
             let workDays: [Int], holidays: [String]
@@ -58,6 +59,29 @@ struct ScheduleParityTests {
             let node: Node
             let assigned: Bool
         }
+        /// A unit with its panel and job, and who may take it — raw JSON, decoded through the
+        /// real models so department fields arrive through extras the way they do in the app.
+        struct Candidates: Decodable {
+            let op: JSONValue, panel: JSONValue, job: JSONValue
+            let departments: [String]
+            let candidates: [String]
+        }
+        struct Shop: Decodable { let tz: String; let day: String; let hour: Double; let ms: Double; let backDay: String; let backHour: Double }
+        struct Session: Decodable {
+            let org: Int; let tz: String; let name: String
+            let clockInMs: Double; let clockOutMs: Double?; let pausedAt: String?; let frozenAtMs: Double?
+            let totalPausedMs: Double; let autoPausedMs: Double; let nowMs: Double
+            let hours: Double; let endMs: Double; let frozen: Bool; let unclosed: Bool
+            let between: Double; let endOfDay: Double
+        }
+        struct Grid: Decodable { let workStartH: Double, workEndH: Double; let start: Int, end: Int }
+        struct Paint: Decodable { let color: String, row: String, legible: String, done: String }
+        let grids: [Grid]
+        let paint: [Paint]
+        let shop: [Shop]
+        let sessions: [Session]
+        let crew: JSONValue
+        let candidates: [Candidates]
         let orgs: [Org]
         let walks: [Walk]
         let clockHours: [ClockHours]
@@ -83,10 +107,15 @@ struct ScheduleParityTests {
     private func settings(_ o: Fixture.Org) throws -> OrgSettings {
         let dict: [String: Any] = [
             "workStart": o.workStart, "workEnd": o.workEnd, "workDays": o.workDays, "holidays": o.holidays,
-            "lunch": ["time": o.lunch.time, "durationMinutes": o.lunch.durationMinutes],
-            "breaks": o.breaks.map { ["time": $0.time, "durationMinutes": $0.durationMinutes] },
+            "lunch": Self.breakDict(o.lunch),
+            "breaks": o.breaks.map(Self.breakDict),
         ]
         return try JSONDecoder().decode(OrgSettings.self, from: JSONSerialization.data(withJSONObject: dict))
+    }
+    private static func breakDict(_ b: Fixture.Org.Break) -> [String: Any] {
+        var d: [String: Any] = ["time": b.time]
+        if let m = b.durationMinutes { d["durationMinutes"] = m }
+        return d
     }
     private func day(_ i: Int) throws -> DayWindow { WorkDayClock.day(from: try settings(f.orgs[i])) }
     private func context(_ i: Int) throws -> OverlapRule.Context {
@@ -101,7 +130,8 @@ struct ScheduleParityTests {
 
     /// A fixture that decoded to nothing would pass every loop below.
     @Test func theFixtureIsThere() {
-        #expect(f.orgs.count >= 5)
+        #expect(f.orgs.count >= 6)
+        #expect(f.paint.contains { $0.legible != $0.color })
         #expect(f.walks.count >= 300)
         #expect(f.dayView.filter { !$0.blocks.isEmpty }.count >= 250)
         #expect(f.segments.filter { $0.segments.count > 1 }.count >= 10)
@@ -193,6 +223,84 @@ struct ScheduleParityTests {
                     && $0.isFirst == $1.isFirst && $0.isLast == $1.isLast
             }
             if !same { bad += 1; if bad <= 5 { Issue.record("\(f.orgs[c.org].name) \(c.day) business=\(c.business): got \(got) want \(c.blocks)") } }
+        }
+        #expect(bad == 0)
+    }
+
+    // MARK: Hour grid (#257) and bar paint (#252, #253)
+
+    @Test func hourGridsMatch() {
+        for g in f.grids {
+            let got = GanttLayout.hourGrid(workStart: g.workStartH, workEnd: g.workEndH)
+            #expect(got.start == g.start && got.end == g.end, "\(g.workStartH)–\(g.workEndH): got \(got)")
+        }
+    }
+
+    @Test func barPaintMatches() {
+        for p in f.paint {
+            #expect(BarPaint.legible(p.color) == p.legible, "legible \(p.color)")
+            #expect(BarPaint.doneFill(p.legible, row: p.row) == p.done, "done \(p.legible) on \(p.row)")
+        }
+    }
+
+    // MARK: Shop time and session hours (#250)
+
+    private func ms(_ d: Date) -> Double { (d.timeIntervalSince1970 * 1000).rounded() }
+    private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+
+    @Test func shopTimeMatches() {
+        var bad = 0
+        for c in f.shop {
+            let shop = ShopTime(zone: TimeZone(identifier: c.tz)!)
+            let at = shop.instant(c.day, hour: c.hour)
+            let ok = ms(at) == c.ms && shop.day(date(c.ms)) == c.backDay && abs(shop.hour(date(c.ms)) - c.backHour) < 1e-9
+            if !ok { bad += 1; if bad <= 5 { Issue.record("\(c.tz) \(c.day) \(c.hour): got \(ms(at)) \(shop.day(date(c.ms))) \(shop.hour(date(c.ms))) want \(c.ms) \(c.backDay) \(c.backHour)") } }
+        }
+        #expect(bad == 0)
+    }
+
+    @Test func sessionHoursMatch() throws {
+        var bad = 0
+        for c in f.sessions {
+            let s = try settings(f.orgs[c.org])
+            let shop = ShopTime(zone: TimeZone(identifier: c.tz)!)
+            let day = WorkDayClock.day(from: s), cal = WorkCalendar(org: s)
+            let r = SessionHours.worked(
+                clockIn: date(c.clockInMs), clockOut: c.clockOutMs.map(date),
+                pausedAt: c.pausedAt.flatMap { Date.fromFlexibleISO8601($0) }, frozenAt: c.frozenAtMs.map(date),
+                totalPausedMs: c.totalPausedMs, autoPausedMs: c.autoPausedMs, now: date(c.nowMs),
+                day: day, calendar: cal, shop: shop)
+            let between = SessionHours.productiveHoursBetween(date(c.clockInMs), date(c.nowMs), day: day, calendar: cal, shop: shop)
+            let eod = shop.endOfDay(clockIn: date(c.clockInMs), workEnd: day.workEnd, calendar: cal)
+            let ok = near(r.hours, c.hours) && ms(r.end) == c.endMs && r.frozen == c.frozen && r.unclosed == c.unclosed
+                && abs(between - c.between) < 1e-6 && ms(eod) == c.endOfDay
+            if !ok { bad += 1; if bad <= 5 { Issue.record("\(f.orgs[c.org].name) \(c.tz) \(c.name): got \(r) between \(between) eod \(ms(eod)); want \(c.hours) end \(c.endMs) \(c.frozen)/\(c.unclosed) between \(c.between) eod \(c.endOfDay)") } }
+        }
+        #expect(bad == 0)
+    }
+
+    // MARK: Departments
+
+    private func decode<T: Decodable>(_ v: JSONValue, as: T.Type, adding extra: [String: JSONValue] = [:]) throws -> T {
+        var value = v
+        if case .object(var o) = value { for (k, x) in extra where o[k] == nil { o[k] = x }; value = .object(o) }
+        return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+    }
+
+    @Test func departmentsAndCandidatesMatch() throws {
+        let crew = try decode(f.crew, as: [Person].self)
+        #expect(crew.count == 6)
+        var bad = 0
+        for c in f.candidates {
+            let op = try decode(c.op, as: Operation.self, adding: ["status": .string("Not Started")])
+            let panel = try decode(c.panel, as: Panel.self, adding: ["subs": .array([])])
+            let job = try decode(c.job, as: Job.self, adding: ["subs": .array([])])
+            let depts = Departments.unit(op.extras, panel: panel.extras, job: job.extras)
+            let who = Departments.candidates(team: op.team, departments: depts, crew: crew).map(\.id)
+            if depts != c.departments || who != c.candidates {
+                bad += 1
+                if bad <= 5 { Issue.record("\(c.op): depts \(depts) want \(c.departments); who \(who) want \(c.candidates)") }
+            }
         }
         #expect(bad == 0)
     }
