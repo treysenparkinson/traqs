@@ -41,7 +41,7 @@ enum JobShifts {
     /// One person's hours on a unit: `hpd / teamCount`, or a productive day
     /// when the unit is unestimated.
     static func share(hpd: Double, teamCount: Int, day: DayWindow) -> Double {
-        hpd > 0 ? hpd / Double(max(1, teamCount)) : day.productiveHours
+        OverlapRule.shareHours(hpd: hpd, teamCount: teamCount, productiveHoursPerDay: day.productiveHours)
     }
 
     /// A unit's daily window for one person on its team of `teamCount`.

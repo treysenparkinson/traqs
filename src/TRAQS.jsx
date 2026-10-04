@@ -27,7 +27,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, personShareHours, capacityOf, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -15378,87 +15378,22 @@ ${jobsCtx || "No jobs found."}`;
                     </div>;
                   }
                   const p = row.person;
-                  const todayBars = row.bars.filter(b => {
-                    if (b.type === "eng-chip") return false;
-                    if (b.start > tStart || b.end < tStart) return false;
-                    const bIsMultiDay = b.task?.start && b.task?.end && b.task.start !== b.task.end && b.task?.startHour == null;
-                    if (bIsMultiDay && !isWorkDay(tStart)) return false;
-                    return true;
-                  });
                   const pOff = isOff(p.id, tStart);
                   const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
                   const offR = pOff ? getOffReason(p.id, tStart) : null;
                   const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
-                  // Stack bars sequentially from workStart; use startHour if manually positioned.
-                  // A manual startHour is a PREFERENCE, not an absolute claim on the timeline: two
-                  // bars each manually set to (say) 8am must not render on top of each other, so
-                  // every bar — manual or auto — is packed against one shared cursor. Order by
-                  // preferred hour first so an earlier-preferring bar is placed first and a later
-                  // one that would collide gets pushed past it, never the reverse. Multi-day bars
-                  // are structurally positioned by the day-boundary walk below and stay outside
-                  // this pack, same as before.
-                  const _phD = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
-                  const wsH = _phD(orgSettings.workStart||"07:00");
-                  const weH = _phD(orgSettings.workEnd||"15:00");
-                  const _packOrder = todayBars.map((bar, _i) => ({ bar, _i, _hasManual: bar.task?.startHour != null }))
-                    .sort((a, b) => {
-                      const _aIsMulti = !a._hasManual && a.bar.task?.start && a.bar.task?.end && a.bar.task.start !== a.bar.task.end;
-                      const _bIsMulti = !b._hasManual && b.bar.task?.start && b.bar.task?.end && b.bar.task.start !== b.bar.task.end;
-                      const ah = !_aIsMulti && a._hasManual ? a.bar.task.startHour : Infinity;
-                      const bh = !_bIsMulti && b._hasManual ? b.bar.task.startHour : Infinity;
-                      if (ah !== bh) return ah - bh;
-                      return a._i - b._i;
-                    });
-                  let cumH = wsH;
+                  // Where each bar sits today: statsMath.dayViewBlocks — the shared cursor for Business,
+                  // exact placement for Basic, multi-day units by their own walk. Lifted out of here so a
+                  // test and the iOS gantt's parity fixture can reach it.
                   const _isDayWork = (d) => isWorkDay(d, orgSettings.workDays) && !(orgSettings.holidays || []).includes(d);
-                  const barPositions = _packOrder.map(({ bar, _hasManual: hasManual }) => {
-                    const hpd = bar.task?.hpd || 0;
-                    // One person's share of the unit (hpd is the team's total), walked through
-                    // productive time — the extent the week view and the overlap rule use too.
-                    // This read hpd as clock hours: a single-day op ran start + hpd straight
-                    // through lunch, and a multi-day op with a start hour ran to 21:00 every day.
-                    const _share = personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay);
-                    const isMultiDay = bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
-                    let rawS, rawE, isFirstSeg = true, isLastSeg = true;
-                    if (isMultiDay) {
-                      // Positioned by the walk across its days, outside the pack, as before.
-                      const _allSegs = opDaySegments(bar.task, { cfg: dayWindowCfg, productiveHoursPerDay, isWorkDay: _isDayWork });
-                      const seg = _allSegs.find(x => x.day === tStart);
-                      if (!seg) return null;   // its hours ran out before this day
-                      rawS = seg.startH; rawE = seg.endH;
-                      // The resize handles belong where the op really starts and ends (#9 #10).
-                      isFirstSeg = _allSegs[0].day === tStart;
-                      isLastSeg = _allSegs[_allSegs.length - 1].day === tStart;
-                    } else if (billingTier === "business") {
-                      // Clamped against the shared cursor even when manual — a preferred hour
-                      // that lands before an already-placed bar's end is pushed to that end,
-                      // which is the only way two bars on one row can never overlap.
-                      rawS = Math.max(hasManual ? bar.task.startHour : cumH, cumH);
-                      const w = walkProductiveHours(rawS, _share, dayWindowCfg);
-                      // #11 closed into #7: the clamp was against the hard-coded HE=21, which on
-                      // any real org was 4+ hours past the end of the day and so never bound. HE is
-                      // the org work end now, so a bar whose walk spills past the day stops at the
-                      // edge of the grid instead of being drawn into hours the grid no longer has.
-                      rawE = Math.min(w.days > 1 ? weH : w.endHour, HE);
-                    } else {
-                      // Basic: the schedule is visual only. A card paints exactly where its
-                      // own day/time says, full stop — no packing, no collision-avoidance,
-                      // no cursor. Two assignments at the same time on the same row is a
-                      // deliberate, allowed thing here (a normal double-booked shift).
-                      rawS = hasManual ? bar.task.startHour : wsH;
-                      const w = walkProductiveHours(rawS, _share, dayWindowCfg);
-                      rawE = Math.min(w.days > 1 ? weH : w.endHour, HE);
-                    }
-                    // Every bar advances the shared cursor now, manual included — otherwise a
-                    // manual bar pushed forward by an earlier one would leave cumH stale, and
-                    // the next auto bar (which starts FROM cumH) could still land inside it.
-                    // Basic never reads cumH for placement (above), so this is a no-op there.
-                    cumH = Math.max(cumH, rawE);
-                    // Collapsed reservoir glides its left edge with worked time. rawE is
-                    // computed from the ORIGINAL rawS above, so the planned right edge stays
-                    // put while the left one advances into it. Every other bar is untouched.
-                    return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd, isFirstSeg, isLastSeg };
-                  }).filter(Boolean);
+                  const barPositions = dayViewBlocks(row.bars, { day: tStart, cfg: dayWindowCfg, productiveHoursPerDay,
+                    isWorkDay: _isDayWork, business: billingTier === "business", gridEndH: HE })
+                    .map(({ index, startH, endH, isFirstSeg, isLastSeg }) => {
+                      const bar = row.bars[index];
+                      // Collapsed reservoir glides its left edge with worked time. endH is computed from the
+                      // ORIGINAL start, so the planned right edge stays put while the left one advances into it.
+                      return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, startH), rawE: endH, hpd: bar.task?.hpd || 0, isFirstSeg, isLastSeg };
+                    });
                   // Basic only: overlap is allowed in the data (no packing, see above) but
                   // two bars painted at the same vertical position with one on top of the
                   // other reads as though only one exists — only a sliver of the covered

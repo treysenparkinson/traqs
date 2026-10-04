@@ -22,7 +22,7 @@ enum GateStep: Equatable {
 //
 // Caseless enum of statics with every dependency passed in — the convention this
 // codebase uses for logic that needs testing (HoursCalculator, StatsMath,
-// SchedulePacker). Lives in shared Services/ for the same reason: that is what
+// GanttLayout). Lives in shared Services/ for the same reason: that is what
 // the iOS test target compiles.
 enum MacGateResolver {
 

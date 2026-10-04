@@ -1398,20 +1398,14 @@ struct OrgSettings: Codable, Equatable {
         try c.encodeIfPresent(orgLogo, forKey: .orgLogo)
     }
 
-    /// Productive hours per day = (workEnd - workStart) - lunch - breaks.
-    /// THE day length for scheduling: how much of an op's `hpd` one person
-    /// gets through in a day. Not the org `hpd` field, which is gross.
-    var productiveHoursPerDay: Double {
-        func parseT(_ t: String) -> Int {
-            let parts = t.split(separator: ":").compactMap { Int($0) }
-            guard parts.count == 2 else { return 8 * 60 }
-            return parts[0] * 60 + parts[1]
-        }
-        let block = parseT(workEnd) - parseT(workStart)
-        let lunchMin = lunch.durationMinutes
-        let breakMin = breaks.reduce(0) { $0 + $1.durationMinutes }
-        return max(1, Double(block - lunchMin - breakMin) / 60)
-    }
+    /// Productive hours per day: the working day minus the lunch and breaks in it
+    /// (`buildDayWindows`). THE day length for scheduling — how much of an op's `hpd` one
+    /// person gets through in a day. Not the org `hpd` field, which is gross.
+    ///
+    /// Read off the same windows the walks step over (WorkDayClock), never a second formula:
+    /// a flat (workEnd − workStart − lunch − breaks) gave the same number for every well-formed
+    /// org but parsed a malformed time as 08:00 where the windows use the org defaults.
+    var productiveHoursPerDay: Double { WorkDayClock.day(from: self).productiveHours }
 
     /// Paid hours in a standard day = the scheduled shift block minus the
     /// UNPAID lunch. Breaks are paid — the pay clock keeps running through them

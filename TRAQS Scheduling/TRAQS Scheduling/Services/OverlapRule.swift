@@ -22,7 +22,7 @@ import Foundation
 //     a unit, it does not free its time. Finished units and history do not.
 //
 // Pure: every input is passed in — no AppState, no `Date()`. Same pattern as
-// HoursCalculator and SchedulePacker.
+// HoursCalculator and GanttLayout.
 
 enum OverlapRule {
 

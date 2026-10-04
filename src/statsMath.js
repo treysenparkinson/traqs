@@ -1587,6 +1587,70 @@ export function opDaySegments(op, { cfg, productiveHoursPerDay, isWorkDay, maxDa
   return out;
 }
 
+/**
+ * Where one person's bars sit on ONE day of the day view. Lifted out of the team render
+ * (the IIFE at TRAQS.jsx `barPositions`) so a test — and the iOS gantt's fixture — can reach
+ * it, the same move rowPushHours and basicLanes got.
+ *
+ * `bars` is the row in row order: `{ type, start, end, task }`, task `{ start, end,
+ * startHour, hpd, team }` or null. Which bars are on the day:
+ *   - an eng chip never is; a bar is only on the days its start..end covers;
+ *   - a multi-day bar with no startHour is not drawn on a non-working day.
+ * Where they sit:
+ *   - a multi-day unit is placed by its own walk across its days (opDaySegments) and is
+ *     absent from a day its hours ran out before;
+ *   - Business: every other bar is packed against ONE shared cursor from workStart. A
+ *     startHour is a preference: it is honoured unless an earlier bar already holds that
+ *     time, in which case the bar starts where that one ends. Preferred hours go first,
+ *     earliest first; then everything else in row order. EVERY bar advances the cursor,
+ *     multi-day ones included.
+ *   - Basic: a bar sits exactly at its startHour (or workStart), overlaps allowed.
+ * A bar whose walk runs past quitting time ends at quitting time.
+ *
+ * @returns [{ index, startH, endH, isFirstSeg, isLastSeg }] in pack order; `index` is the
+ *          bar's position in `bars`.
+ */
+export function dayViewBlocks(bars, { day, cfg, productiveHoursPerDay, isWorkDay, business, gridEndH = cfg.workEndH }) {
+  const { workStartH: wsH, workEndH: weH } = cfg;
+  const multi = (t) => !!(t?.start && t?.end && t.start !== t.end);
+  const onDay = (bars || []).map((bar, i) => ({ bar, i })).filter(({ bar: b }) => {
+    if (b.type === "eng-chip") return false;
+    if (b.start > day || b.end < day) return false;
+    if (multi(b.task) && b.task.startHour == null && !isWorkDay(day)) return false;
+    return true;
+  });
+  // A bar with a startHour sorts by it, multi-day or not; the rest go after, in row order.
+  const prefOf = ({ bar }) => (bar.task?.startHour != null ? bar.task.startHour : Infinity);
+  const order = onDay.slice().sort((a, b) => {
+    const ah = prefOf(a), bh = prefOf(b);
+    if (ah !== bh) return ah - bh;
+    return a.i - b.i;
+  });
+  let cum = wsH;
+  const out = [];
+  for (const { bar, i } of order) {
+    const t = bar.task;
+    const manual = t?.startHour != null;
+    const share = personShareHours(t?.hpd || 0, (t?.team || []).length, productiveHoursPerDay);
+    let startH, endH, isFirstSeg = true, isLastSeg = true;
+    if (multi(t)) {
+      const segs = opDaySegments(t, { cfg, productiveHoursPerDay, isWorkDay });
+      const seg = segs.find((x) => x.day === day);
+      if (!seg) continue;   // its hours ran out before this day
+      startH = seg.startH; endH = seg.endH;
+      isFirstSeg = segs[0].day === day;
+      isLastSeg = segs[segs.length - 1].day === day;
+    } else {
+      startH = business ? Math.max(manual ? t.startHour : cum, cum) : (manual ? t.startHour : wsH);
+      const w = walkProductiveHours(startH, share, cfg);
+      endH = Math.min(w.days > 1 ? weH : w.endHour, gridEndH);
+    }
+    cum = Math.max(cum, endH);
+    out.push({ index: i, startH, endH, isFirstSeg, isLastSeg });
+  }
+  return out;
+}
+
 /** Productive hours between two clock times on one day (dead windows removed). */
 export function productiveClockHours(a, b, cfg) {
   let h = Math.max(0, b - a);

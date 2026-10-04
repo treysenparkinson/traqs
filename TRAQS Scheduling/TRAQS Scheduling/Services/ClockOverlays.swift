@@ -8,7 +8,7 @@ import Foundation
 /// worker actually took, laid over the timeline where they happened.
 ///
 /// Pure by design (no AppState, no implicit `Date()`, no captured Calendar) for
-/// the same reason as `SchedulePacker` and `HoursCalculator` — the pairing walk
+/// the same reason as `GanttLayout` and `HoursCalculator` — the pairing walk
 /// is the part with edge cases (an unclosed punch, a duplicate event arriving
 /// from two sources) and it should be testable without a rendered timeline.
 enum ClockOverlays {

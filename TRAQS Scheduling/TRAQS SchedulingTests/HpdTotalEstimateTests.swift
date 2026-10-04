@@ -54,41 +54,11 @@ struct HpdTotalEstimateTests {
         #expect(near(w.end, 16))
     }
 
-    // MARK: Gantt budget and ceiling
-
-    @Test func ganttBudgetIsMyShareAndTheCeilingIsTheDay() {
-        let b = SchedulePacker.personalBudget(hpd: 30, teamSize: 2,
-                                              productiveHoursPerDay: 7.5, dayCapacity: 8)
-        #expect(near(b.totalHours, 15))
-        #expect(near(b.dailyCeiling, 8))
-    }
-
-    @Test func ganttDrawsAnUnestimatedUnitAsOneDayPerPerson() {
-        let b = SchedulePacker.personalBudget(hpd: 0, teamSize: 3,
-                                              productiveHoursPerDay: 7.5, dayCapacity: 8)
-        #expect(near(b.totalHours, 7.5))
-        // No team is one person, never a divide by zero.
-        let solo = SchedulePacker.personalBudget(hpd: 10, teamSize: 0,
-                                                 productiveHoursPerDay: 7.5, dayCapacity: 8)
-        #expect(near(solo.totalHours, 10))
-    }
-
-    @Test func mySharePacksAcrossDaysAtTheDayCapacity() {
-        let cal = Calendar(identifier: .gregorian)
-        let mon = cal.date(from: DateComponents(year: 2026, month: 3, day: 2))!
-        let b = SchedulePacker.personalBudget(hpd: 30, teamSize: 2,
-                                              productiveHoursPerDay: 7.5, dayCapacity: 8)
-        let out = SchedulePacker.allocate(
-            tasks: [.init(dailyCeiling: b.dailyCeiling, totalHours: b.totalHours, earliest: mon)],
-            from: mon, through: cal.date(byAdding: .day, value: 6, to: mon)!,
-            keep: Set((0..<7).map { cal.date(byAdding: .day, value: $0, to: mon)! }),
-            capacity: 8, isWorkDay: { _ in true },
-            nextDay: { cal.date(byAdding: .day, value: 1, to: $0) }, maxDays: 30)
-        let hours = { (d: Int) in
-            out[cal.date(byAdding: .day, value: d, to: mon)!]?.reduce(0) { $0 + $1.hours } ?? 0
-        }
-        #expect(near(hours(0), 8) && near(hours(1), 7) && hours(2) == 0)
-    }
+    // MARK: Gantt
+    //
+    // The gantt's share and placement are GanttLayout's now — the web's day-view rule, held to
+    // the web by ScheduleParityTests (shares included) and GanttLayoutTests. The roll-forward
+    // packer these tests covered (SchedulePacker) is gone, with its separate day capacity.
 
     // MARK: durationDays
 
