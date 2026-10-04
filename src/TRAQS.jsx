@@ -991,6 +991,9 @@ animStyle.textContent = `
 .rv-sx>h3>span{color:var(--tq-accent);text-transform:none;letter-spacing:0;font-weight:600;font-size:12px}
 .rv-sx>h3>span.rv-link{cursor:pointer}
 .rv-sx>.rv-body{min-height:0;overflow-y:auto;overflow-x:hidden}
+.rv-stack>*+*{border-top:1px solid var(--rv-line);padding-top:30px}
+.rv-cols>*+*{border-left:1px solid var(--rv-line);padding-left:28px}
+.rv-cols.rv-cols-stacked>*+*{border-left:0;padding-left:0;border-top:1px solid var(--rv-line);padding-top:26px}
 .rv-kstrip{display:flex;border-top:1px solid var(--rv-line);border-bottom:1px solid var(--rv-line)}
 .rv-kstrip>div{flex:1;padding:16px 20px 16px 0;border-right:1px solid var(--rv-line);margin-right:20px;min-width:0}
 .rv-kstrip>div:last-child{border:0;margin:0}
@@ -1991,23 +1994,17 @@ select:not(:disabled):active {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-/* Sticky column headers are TEXT ONLY — no fill and no filter of their own.
-   Nothing paints, so nothing can read as a band.
+/* Sticky column headers paint a SOLID fill in the card's own colour (--rv-surface),
+   so rows scrolling up underneath are hidden instead of showing through the labels.
+   Because it is the card colour, at rest it reads as part of the card, not a band.
+   No backdrop-filter: that paints a blurred copy of what's behind, which is the
+   grey band an earlier attempt produced.
 
-   Three failed attempts are worth recording, because each one looked like the fix
-   and wasn't. (1) A better-matched fill: any fill opaque enough to hide the rows
-   under it is still a visible band. (2) Transparent background plus a
-   backdrop-filter: a backdrop-filter PAINTS — it renders a blurred, saturated copy
-   of whatever is behind it — so with no background at all the band simply went from
-   white to grey. (3) Gating on .traqs-glass: the card may be translucent via that
-   class, via the older .traqs-adaptive path, or solid, and the header wants the same
-   treatment in all three, so gating just made the rule miss.
-
-   The filter was there to hide rows scrolling under the header. That trade is
-   deliberate now: a row may show behind the labels at the top of a long scrolled
-   list, which is a far smaller cost than a permanent band across every card. */
+   History: this used to be transparent on purpose (a translucent fill read as a
+   band across every card), at the cost of rows showing behind the labels. The
+   user asked for the solid header instead. */
 .tq-sticky-head {
-  background: transparent !important;
+  background: var(--rv-surface) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -17676,7 +17673,7 @@ ${jobsCtx || "No jobs found."}`;
           {statTile("In Progress", myActive)}
           {statTile("Total Ops", myTotal)}
         </>)}
-        <div style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
+        <div className="rv-stack" style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
           {renderEfficiency(personId)}
           {hbarCard(mine ? "My Jobs by Status" : "Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
         </div>
@@ -17767,14 +17764,14 @@ ${jobsCtx || "No jobs found."}`;
           {statTile("In Progress", inProgressJobs)}
           {statTile("Avg Ops / Person", avgOpsPerPerson.toFixed(1))}
       </>)}
-        <div style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
+        <div className="rv-stack" style={{ display: "flex", flexDirection: "column", gap: 30, minWidth: 0 }}>
           {renderEfficiency(null)}
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 1fr 1fr", gap: isMobile ? 26 : "0 36px" }}>
+          <div className={isMobile ? "rv-cols rv-cols-stacked" : "rv-cols"} style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 1fr 1fr", gap: isMobile ? 26 : "0 28px" }}>
             {hbarCard("Jobs by status", jobStatusCounts, staColorOf, "No jobs yet.")}
             {rvSx("Hours by person", `${fmtPP(payPeriod.start)} – ${fmtPP(payPeriod.end)} · ${PERIOD_HOUR_CAP}h cap`, hoursByPerson)}
             {rvSx("Hours by department", "", deptDonut)}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 2fr", gap: isMobile ? 26 : "0 36px" }}>
+          <div className={isMobile ? "rv-cols rv-cols-stacked" : "rv-cols"} style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "1.2fr 2fr", gap: isMobile ? 26 : "0 28px" }}>
             {rvSx("Jobs by priority", priTotal ? `${priTotal} jobs` : "", priDonut.length === 0 ? emptyMsg("No jobs yet.") : renderDonut(priDonut, priTotal, "JOBS"))}
             {rvSx("Team workload · active ops", "", workload)}
           </div>
