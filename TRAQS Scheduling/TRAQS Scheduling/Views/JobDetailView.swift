@@ -8,7 +8,7 @@ import SwiftUI
 //
 // Kept rather than deleted, on purpose. This file holds the ONLY iOS
 // implementation of several things the popup deliberately dropped — Edit
-// (JobEditView), Delete, per-panel and per-op Reschedule (RescheduleSheet), the
+// (JobEditView), Delete, the
 // op-level team picker, the engineering sign-off buttons (EngStepButton, with
 // its Undo), and Request Finish, which is the only caller anywhere of
 // `timeclockFinishRequest`. Re-attaching any of them means wiring a destination
@@ -17,6 +17,11 @@ import SwiftUI
 // `progressFill` also lives here and IS still used — ScheduleJobSheet and
 // JobDetailPopup both call it. Moving or deleting this file has to take that
 // with it.
+//
+// Per-panel and per-op Reschedule (RescheduleSheet → AppState.rescheduleUnit) was DELETED
+// in iOS chunk B (SCHEDULE_MAP #259–#263): an independent move algorithm — calendar-day
+// shifts, no moveLog, no lock/clock/overlap checks, stale envelopes — that nothing could
+// reach. If iOS needs to move work again, build it on the web's move rules.
 
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
@@ -271,7 +276,6 @@ struct PanelCard: View {
     var highlightOpId: String? = nil
 
     @State private var isExpanded = false
-    @State private var showReschedule = false
 
     var eng: Engineering? { panel.engineering }
 
@@ -361,19 +365,6 @@ struct PanelCard: View {
         .onAppear {
             if highlighted { isExpanded = true }
         }
-        // Long-press the panel card to move the whole panel. Tapping the card
-        // already toggles expansion, so a press is the free gesture here.
-        .contextMenu {
-            if appState.can(.moveJobs) {
-                Button { showReschedule = true } label: {
-                    Label("Reschedule panel", systemImage: "calendar")
-                }
-            }
-        }
-        .sheet(isPresented: $showReschedule) {
-            RescheduleSheet(title: panel.title, jobId: job.id, unitId: panel.id,
-                            currentStart: panel.start, currentEnd: panel.end)
-        }
     }
 
     private func stepDone(_ step: EngStep) -> Bool {
@@ -388,7 +379,6 @@ struct PanelCard: View {
 struct OperationRow: View {
     @Environment(AppState.self) private var appState
     @State private var showTeamPicker = false
-    @State private var showReschedule = false
     let op: Operation
     let job: Job
     let panel: Panel
@@ -525,19 +515,6 @@ struct OperationRow: View {
             TeamPicker(title: op.title, initial: op.team) { picked in
                 assignTeam(picked)
             }
-        }
-        // Long-press to reschedule — an explicit button would crowd a row that
-        // already carries status, hours, crew and a clock action.
-        .contextMenu {
-            if appState.can(.moveJobs) {
-                Button { showReschedule = true } label: {
-                    Label("Reschedule", systemImage: "calendar")
-                }
-            }
-        }
-        .sheet(isPresented: $showReschedule) {
-            RescheduleSheet(title: op.title, jobId: job.id, unitId: op.id,
-                            currentStart: op.start, currentEnd: op.end)
         }
     }
 }
