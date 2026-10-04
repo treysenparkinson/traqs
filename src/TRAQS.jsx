@@ -580,17 +580,6 @@ const personStatus = (p) => {
   if (p?.activeClockIn) return "idle";
   return "offline";
 };
-// ── Dashboard intro timing ───────────────────────────────────────────────────
-// How long the greeting holds at mid-screen before it starts moving.
-const DASH_HELLO_HOLD_MS = 1500;
-// How long the greeting takes to travel from mid-screen to its header spot.
-// The CSS transition and the timer that brings the panels in BOTH read this, so
-// changing the travel speed can't silently desync the two.
-const DASH_TRAVEL_MS = 1150;
-// Panels arrive halfway through that trip — the greeting is visibly already on
-// its way before the layout fills in behind it, instead of everything moving at
-// once from a standing start.
-const DASH_CARDS_DELAY_MS = DASH_TRAVEL_MS / 2;
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 // The ONE working calendar is scheduleRules.workCalendar: work week AND holidays, every
 // loop bounded. These keep their names so every caller keeps working, but delegate to it —
@@ -990,23 +979,51 @@ animStyle.textContent = `
 .rv-sx>h3>span{color:var(--tq-accent);text-transform:none;letter-spacing:0;font-weight:600;font-size:12px}
 .rv-sx>h3>span.rv-link{cursor:pointer}
 .rv-sx>.rv-body{min-height:0;overflow-y:auto;overflow-x:hidden}
-.rv-rail{border-left:1px solid var(--rv-line);padding-left:36px;display:flex;flex-direction:column;gap:40px;min-height:0}
 .rv-kstrip{display:flex;border-top:1px solid var(--rv-line);border-bottom:1px solid var(--rv-line)}
 .rv-kstrip>div{flex:1;padding:16px 20px 16px 0;border-right:1px solid var(--rv-line);margin-right:20px;min-width:0}
 .rv-kstrip>div:last-child{border:0;margin:0}
 .rv-kstrip b{font-size:26px;display:block;letter-spacing:-.8px;line-height:1.1;font-weight:700;color:var(--rv-ink)}
 .rv-kstrip b small{font-size:13px;color:var(--rv-mute);letter-spacing:0;font-weight:600}
 .rv-kstrip>div>small{color:var(--rv-mute);font-size:10.5px;display:block;margin-top:5px}
-.rv-clockline{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--rv-ink)}
-.rv-clockline .rv-time{font-size:28px;font-weight:700;letter-spacing:-1px;margin:0 14px 0 8px;white-space:nowrap;flex:none}
-.rv-clockline .rv-time small{font-size:13px;color:var(--rv-mute);letter-spacing:0;font-weight:600}
-.rv-tl{display:grid;grid-template-columns:200px 1fr;align-items:center;column-gap:16px}
-.rv-tl .rv-axis{grid-column:2;display:flex;justify-content:space-between;font-size:9.5px;color:var(--rv-mute);padding-bottom:6px}
-.rv-tl .rv-who{display:flex;gap:8px;align-items:center;font-size:11.5px;height:34px;min-width:0;color:var(--rv-ink)}
-.rv-lane{position:relative;height:34px}
-.rv-lane>b{position:absolute;top:8px;height:18px;border-radius:9px;background:var(--tq-accent)}
-.rv-lane>b.lu{background:#eda412}
-.rv-lane>.now{position:absolute;top:0;bottom:0;border-left:2px solid #ff6b5b}
+.rv-hero{display:flex;align-items:center;gap:32px;border-radius:28px;padding:34px 36px;color:var(--rv-ink);background:var(--rv-t-hero)}
+.rv-hero-sum{margin:0;font-size:14.5px;color:var(--rv-mute);line-height:1.5;max-width:560px}
+.rv-hero-clock{margin-left:auto;flex:none;background:var(--rv-surface);border-radius:24px;padding:20px 22px;display:flex;flex-direction:column;gap:4px;min-width:280px}
+.rv-hero-time{font-size:40px;font-weight:700;letter-spacing:-2px;line-height:1;margin:2px 0 12px;white-space:nowrap}
+.rv-hero-time small{font-size:16px;color:var(--rv-mute);letter-spacing:0;font-weight:600;margin:0 8px 0 2px}
+.rv-hgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(230px,1fr));gap:16px;flex:1;min-height:0}
+.rv-ht{border-radius:24px;padding:22px 24px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;color:var(--rv-ink)}
+.rv-ht>:not(h4){min-height:0}
+.rv-ht>.rv-cal,.rv-ht>.rv-whoin{flex:1}
+.rv-ht>h4{margin:0 0 14px;font-size:14px;font-weight:700;display:flex;justify-content:space-between;align-items:center;letter-spacing:-.2px;flex:none}
+.rv-ht>h4>span{font-size:11.5px;color:var(--tq-accent);font-weight:600}
+.rv-ht>h4>span.rv-link{cursor:pointer}
+.rv-ht.t-in{background:var(--rv-t-in)}.rv-ht.t-up{background:var(--rv-t-up)}.rv-ht.t-msg{background:var(--rv-t-msg)}.rv-ht.t-motion{background:var(--rv-t-motion)}.rv-ht.t-week{background:var(--rv-t-hero)}
+.rv-cal{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;row-gap:2px;text-align:center}
+.rv-cal>small{font-size:9.5px;color:var(--rv-mute);font-weight:600;padding-bottom:6px;align-self:end}
+.rv-cal>div{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:2px 0;cursor:pointer;min-height:0}
+.rv-cal>div>b{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--rv-ink)}
+.rv-cal>div:hover>b{background:var(--rv-surface)}
+.rv-cal>div.out>b{color:var(--rv-mute);opacity:.45}
+.rv-cal>div.on>b{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-cal>div>i{width:4px;height:4px;border-radius:50%;background:var(--tq-accent)}
+.rv-whoin{display:flex;flex-direction:column;min-height:0;flex:1}
+.rv-whoin-rest{margin-top:auto;padding-top:12px;border-top:1px solid var(--rv-line);gap:10px;font-size:11px}
+.rv-avring{display:inline-grid;place-items:center;border-radius:50%;padding:2px;border:2px solid #1a7b58;flex:none}
+.rv-avring.y{border-color:#eda412}
+.rv-hrow{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:12px;min-width:0}
+.rv-hrow .rv-txt{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.rv-hrow .rv-txt b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-hrow .rv-txt span{color:var(--rv-mute);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-date{display:flex;flex-direction:column;align-items:center;justify-content:center;width:42px;height:42px;border-radius:14px;background:var(--rv-surface);flex:none;line-height:1}
+.rv-date small{font-size:9px;text-transform:uppercase;color:var(--rv-mute);font-weight:700;letter-spacing:.5px}
+.rv-date b{font-size:16px}
+.rv-mlist{flex-shrink:0;height:100%;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overflow-x:hidden;border-right:1px solid var(--rv-line);padding:24px 24px 16px 32px;margin-right:28px;box-sizing:border-box}
+.rv-mlabel{display:flex;align-items:center;gap:6px;padding:4px 12px 6px;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--rv-mute);font-weight:700;flex-shrink:0}
+.rv-cv{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;cursor:pointer;color:var(--rv-ink);font-size:11.5px;transition:background .15s}
+.rv-cv:hover{background:var(--rv-thead)}
+.rv-cv.on{background:var(--rv-acc-soft)}
+.rv-cv-prev{display:block;font-size:10.5px;color:var(--rv-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.rv-th-hd{display:flex;gap:10px;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--rv-line);flex-shrink:0;color:var(--rv-ink);position:relative}
 .rv-lnav{display:flex;flex-direction:column;gap:2px;align-self:start;max-height:100%;overflow-y:auto}
 .rv-lnav>small{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--rv-mute);font-weight:700;padding:14px 12px 6px}
 .rv-lnav>small:first-child{padding-top:0}
@@ -1022,8 +1039,10 @@ animStyle.textContent = `
 .rv-sq{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:6px;color:#fff;font-size:7px;font-weight:700;flex:none}
 .rv-grp{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--rv-thead);border-bottom:1px solid var(--rv-line);font-size:11.5px;font-weight:700;color:var(--rv-ink);cursor:pointer;user-select:none}
 .rv-grp em{font-style:normal;font-weight:600;color:var(--rv-mute)}
-.rv-tc-left{border-right:1px solid var(--rv-line);padding-right:40px;display:flex;flex-direction:column;gap:30px}
-.rv-tc-right{display:flex;flex-direction:column;gap:24px;min-width:0}
+.rv-tc-left{border-left:1px solid var(--rv-line);padding-left:40px;display:flex;flex-direction:column;gap:30px}
+/* Every section after the first is set off by a hairline, in both columns. */
+.rv-tc-left>*+*,.rv-tc-right>*+*{border-top:1px solid var(--rv-line);padding-top:28px}
+.rv-tc-right{display:flex;flex-direction:column;gap:28px;min-width:0}
 .rv-me{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:10px;color:var(--rv-ink)}
 .rv-me-name{font-size:16px;font-weight:700;margin-top:12px}
 .rv-me-name small{display:block;font-size:11px;color:var(--rv-mute);font-weight:500;margin-top:2px}
@@ -1039,14 +1058,42 @@ animStyle.textContent = `
 .rv-tbl .rv-tc-exp>td{padding:0 16px 14px 40px;white-space:normal;cursor:default}
 .rv-row.tight{padding:4px 0;border:0}
 .rv-dn{display:flex;gap:16px;align-items:center;font-size:11.5px}
-.rv-cal{display:grid;grid-template-columns:repeat(7,1fr);row-gap:2px;text-align:center}
-.rv-cal>small{font-size:9.5px;color:var(--rv-mute);font-weight:600;padding-bottom:6px}
-.rv-cal>div{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 0;cursor:pointer}
-.rv-cal>div>b{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--rv-ink)}
-.rv-cal>div:hover>b{background:var(--rv-acc-soft)}
-.rv-cal>div.out>b{color:var(--rv-mute);opacity:.45}
-.rv-cal>div.on>b{background:var(--tq-accent);color:var(--rv-on-acc)}
-.rv-cal>div>i{width:4px;height:4px;border-radius:50%;background:var(--tq-accent)}
+.rv-ehead{display:flex;align-items:center;gap:16px;padding-bottom:22px;border-bottom:1px solid var(--rv-line);color:var(--rv-ink);flex-wrap:wrap}
+.rv-ehead-strip{border:0;flex:none}
+.rv-ehead-strip>div{padding:0 24px 0 0;margin-right:24px}
+.rv-ehead-strip>div:last-child{padding:0;margin:0}
+.rv-ehead-strip>div>small:first-child{margin:0 0 4px}
+.rv-ehead-strip b{font-size:15px;letter-spacing:0}
+.rv-ecol{display:flex;flex-direction:column;gap:26px;min-width:0;position:relative}
+.rv-ecol+.rv-ecol:before{content:'';position:absolute;left:-16px;top:0;bottom:0;border-left:1px solid var(--rv-line)}
+.rv-pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rv-line);border:1px solid var(--rv-line);border-radius:16px;overflow:hidden}
+.rv-pgrid>div{background:var(--rv-surface);padding:14px 16px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;color:var(--rv-ink)}
+.rv-pgrid b{font-size:22px;letter-spacing:-.6px;line-height:1.1;font-weight:700}
+.rv-pgrid b small{font-size:12px;color:var(--rv-mute);letter-spacing:0}
+.rv-pgrid>div>small,.rv-pgrid>div>div>small{color:var(--rv-mute);font-size:10.5px}
+.rv-dh{text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;height:40px;box-sizing:border-box;flex-shrink:0;color:var(--rv-ink)}
+.rv-dh small{font-size:9.5px;color:var(--rv-mute);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+.rv-dh b{font-size:13px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center}
+.rv-dh.on b{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-avail{position:absolute;inset:6px;border:1px dashed var(--rv-track);border-radius:10px;display:grid;place-items:center;color:var(--rv-mute);font-size:10.5px}
+.rv-empty{min-height:70px;display:grid;place-items:center;color:var(--rv-mute);font-size:11.5px;text-align:center;padding:10px}
+/* Lines only around tiles that exist: each tile draws a 1px ring (box-shadow
+   spread) into the 1px gap, so neighbours share one hairline and the outside
+   edge follows the tiles — an unfilled last row has no border and no fill. The
+   1px padding keeps the outer ring from being clipped. */
+.rv-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;padding:1px}
+.rv-tile{background:var(--rv-surface);padding:18px 20px 14px;display:flex;flex-direction:column;gap:12px;min-width:0;cursor:pointer;color:var(--rv-ink);transition:background .15s;box-shadow:0 0 0 1px var(--rv-line)}
+.rv-tile:hover{background:var(--rv-thead)}
+.rv-tile.on{background:var(--rv-acc-soft)}
+.rv-tile-tt{display:flex;gap:12px;align-items:center}
+.rv-tile-tt b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-tile-tt small{display:block;color:var(--rv-mute);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-tile-av{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:12px;font-size:13px;font-weight:700;flex:none}
+.rv-tile-av.sm{width:22px;height:22px;border-radius:7px;font-size:8px;box-shadow:0 0 0 2px var(--rv-surface)}
+.rv-tile-ts{display:flex;gap:18px}
+.rv-tile-ts span b{display:block;font-size:18px;letter-spacing:-.5px}
+.rv-tile-ts small{color:var(--rv-mute);font-size:9.5px}
+.rv-tile-tf{display:flex;align-items:center;gap:8px;border-top:1px solid var(--rv-line);padding-top:10px;color:var(--rv-mute)}
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
 .tq-preview-anim, .tq-preview-anim * {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
@@ -3944,6 +3991,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       root.setProperty("--rv-surface", T.surface);
       root.setProperty("--rv-chip", dk ? hexA(T.text, 0.1) : "#eef0f6");
       root.setProperty("--rv-acc-soft", hexA(T.accent, dk ? 0.2 : 0.12));
+      // Dashboard tiles: soft tints per tile (Revamp). Light uses the design's
+      // pastels (the hero and This week follow the accent); Dark uses low-alpha
+      // washes of the same hues.
+      root.setProperty("--rv-t-hero", dk ? hexA(T.accent, 0.12) : mixHex(T.accent, "#ffffff", 0.9));
+      root.setProperty("--rv-t-in", dk ? hexA("#1a7b58", 0.16) : "#eefaf3");
+      root.setProperty("--rv-t-up", dk ? hexA("#f59e0b", 0.12) : "#fff5ec");
+      root.setProperty("--rv-t-msg", dk ? hexA("#3b82f6", 0.13) : "#eef6ff");
+      root.setProperty("--rv-t-motion", dk ? hexA(T.text, 0.05) : "#f6f5fb");
       // Opaque: the Jobs table's sticky header sits over rows as they scroll.
       root.setProperty("--rv-thead", dk ? blendHex(T.surface, 0.06) : "#f6f7fb");
       root.setProperty("--rv-on-acc", T.accentText);
@@ -4671,50 +4726,17 @@ Extraction rules:
   }, []);
   // Dashboard is the landing page.
   const [view, setView] = useState("dashboard");
-  // ── Dashboard intro ────────────────────────────────────────────────────────
-  // Two stages, driven by a timer rather than chained CSS so the replay button
-  // can restart the whole thing deterministically:
-  //   "hello" — greeting huge and centred, frosted glow blooming behind it
-  //   "open"  — greeting travels to the top-left AND the panels start popping in
-  // The panels are deliberately tied to the START of the move, not its end, so
-  // the two motions overlap instead of running back to back.
-  const [dashStage, setDashStage] = useState("hello");
-  // Latches once the intro has played this app load. A ref, not state, so it
-  // survives every dashboard mount/unmount without re-rendering anything.
+  // ── Dashboard load-in ──────────────────────────────────────────────────────
+  // Once per app load the coloured sections fade in top to bottom; navigating
+  // away and back lands on the finished page. The ref (not state) survives the
+  // view switching in and out; dashAnimate tells this mount whether to animate.
   const dashIntroPlayedRef = useRef(false);
-  // Whether THIS mount should animate. The ref above already stops the greeting
-  // travelling on a revisit, but the panels' entrance is a CSS animation on a
-  // freshly-mounted node, so it re-fires every time the view is entered
-  // regardless. Render has to know, hence state as well as the ref.
   const [dashAnimate, setDashAnimate] = useState(true);
-  // Panels mount on their own timer rather than off dashStage, so their entrance
-  // can land partway through the greeting's trip instead of at the start of it.
-  const [dashCardsIn, setDashCardsIn] = useState(false);
-  // The greeting's mid-screen anchor used to be measured into pixels here (via a
-  // ref + ResizeObserver on the scroll container), because a percentage anchor
-  // re-resolved against a parent that grows when the panels mount. That is now
-  // solved structurally — the greeting is a child of the scroll container, whose
-  // box never grows — so plain percentages are safe and all of that machinery is
-  // gone. See the greeting in renderDashboard.
-  // Run the intro whenever the dashboard is entered, and on replay. Timers are
-  // cleared on exit so leaving mid-intro can't land a stage change on an
-  // unmounted view.
   useEffect(() => {
     if (view !== "dashboard") return;
-    // Once per app load, not per visit. Navigating away and back lands straight
-    // on the finished layout — the intro is a welcome, and replaying it every
-    // time you tab home would just be latency. The ref (not state) is what makes
-    // it survive the view switching in and out.
-    if (dashIntroPlayedRef.current) { setDashAnimate(false); setDashStage("open"); setDashCardsIn(true); return; }
+    if (dashIntroPlayedRef.current) { setDashAnimate(false); return; }
     dashIntroPlayedRef.current = true;
     setDashAnimate(true);
-    setDashStage("hello");
-    setDashCardsIn(false);
-    // Two independent timers, not one stage driving both. The greeting starts
-    // travelling at the first; the panels wait until it's halfway there.
-    const tMove = setTimeout(() => setDashStage("open"), DASH_HELLO_HOLD_MS);
-    const tCards = setTimeout(() => setDashCardsIn(true), DASH_HELLO_HOLD_MS + DASH_CARDS_DELAY_MS);
-    return () => { clearTimeout(tMove); clearTimeout(tCards); };
   }, [view]);
   // ── Personal, per-machine view state ────────────────────────────────────
   // Which departments you collapsed on the Schedule, which filters you left on,
@@ -8470,6 +8492,11 @@ Extraction rules:
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
+  // Messages list (Revamp): search text and the All / Direct / Groups / Jobs filter.
+  const [msgSearch, setMsgSearch] = useState("");
+  const [msgFilter, setMsgFilter] = useState("all");
+  // Clients page (Revamp): the clients with no jobs sit collapsed in one row.
+  const [clientsEmptyOpen, setClientsEmptyOpen] = useState(false);
   const [analyticsPeriod, setAnalyticsPeriod] = useState("pay"); // "pay" | "week" | "month" | "year"
   // Employees page — one person's full picture at a time.
   const [empPersonId, setEmpPersonId] = useState(null);   // null → show the picker prompt
@@ -12580,10 +12607,13 @@ ${jobsCtx || "No jobs found."}`;
           Title, then Select and search beside it; on the right, round Filter and
           Group buttons, align, Export, FAST TRAQS, + New Job. Every control is the
           one this page already had, restyled. */}
-      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 50, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 0 }}>
+      {/* Three columns on desktop: title + Select on the left, the search CENTRED,
+          the tools on the right. Equal 1fr sides hold the middle at true centre. */}
+      <div className="tq-pagehdr" style={isMobile
+        ? { display: "flex", alignItems: "center", gap: 8, minHeight: 50, flexWrap: "wrap" }
+        : { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", columnGap: 12, minHeight: 50 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
-        </div>
         {taskSubView === "list" && <>
           <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
           {/* Select */}
@@ -12600,15 +12630,17 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selJobs.size} selected</span>
               <Btn size="sm" style={{ minWidth: 78, ...outlineBtnStyle(T.danger) }} onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })}>Delete</Btn>
             </div>
+        </>}
+        </div>
+        {taskSubView === "list" ? <div style={{ display: "flex", justifyContent: "center" }}>
           {/* Search — always open, as in the design */}
           <label className="rv-pill" style={{ width: 240, cursor: "text", color: taskSearchQ ? "var(--tq-accent)" : "var(--rv-mute)" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></svg>
             <input className="tq-bare" id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs, #, client…" style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--rv-ink)", fontSize: 11.5, fontFamily: "inherit" }} />
             {taskSearchQ && <span role="button" onClick={e => { e.preventDefault(); setTaskSearchQ(""); }} style={{ cursor: "pointer", fontSize: 14, lineHeight: 1, color: "var(--rv-mute)" }}>×</span>}
           </label>
-        </>}
-        {/* Select + search sit with the title; everything else is pushed right. */}
-        <span style={{ flex: 1 }} />
+        </div> : <div />}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end", minWidth: 0, flexWrap: "wrap" }}>
         {taskSubView === "list" && <>
           {/* Filter */}
           <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
@@ -12664,6 +12696,7 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </Tip>
         {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
+        </div>
       </div>
       {/* ── Cards View ── */}
       {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
@@ -13630,21 +13663,73 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ CLIENTS ═══════════════════
   const renderClients = () => {
     const filteredClients = clients.filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.contact || "").toLowerCase().includes(clientSearch.toLowerCase()));
+    const newClient = () => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" });
+    // Revamp (TRAQS Revamp.html, screen 6): tiles on a hairline grid, busiest
+    // first; the clients with no jobs collapse into one row under the grid.
+    const jobsOf = (c) => tasks.filter(t => t.clientId === c.id);
+    const withJobs = filteredClients.filter(c => jobsOf(c).length > 0)
+      .sort((a, b) => jobsOf(b).filter(t => t.status !== "Finished").length - jobsOf(a).filter(t => t.status !== "Finished").length || jobsOf(b).length - jobsOf(a).length || a.name.localeCompare(b.name));
+    const noJobs = filteredClients.filter(c => jobsOf(c).length === 0);
+    const activeClients = clients.filter(c => jobsOf(c).some(t => t.status !== "Finished")).length;
+    const toggleBulk = (id) => setSelClients(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Top bar */}
-      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 50, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-        <h1 style={pageTitle()}>Clients</h1>{titleActions}
-          <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-            <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+    const tile = (c) => {
+      const ct = jobsOf(c);
+      const active = ct.filter(t => t.status !== "Finished");
+      const done = ct.length - active.length;
+      const isSel = selClient === c.id;
+      const isBulkSel = selClients.has(c.id);
+      // The two open jobs furthest along, as the design's "jobs in motion" lines.
+      const top = active.map(j => ({ j, pct: _jobPct(j) })).sort((a, b) => b.pct - a.pct).slice(0, 2);
+      const col = elColor(c.color) || T.accent;
+      return <div key={c.id} className={isBulkSel || isSel ? "rv-tile on" : "rv-tile"}
+        onClick={() => clientSelectMode ? toggleBulk(c.id) : (isSel ? closeClient() : openClient(c.id))}>
+        <div className="rv-tile-tt">
+          {clientSelectMode
+            ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
+            : <span className="rv-tile-av" style={{ background: col, color: wantsLightText(col) ? "#fff" : "#17162b" }}>{String(c.name || "?").slice(0, 2).toUpperCase()}</span>}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <b>{c.name}</b>
+            <small>{c.contact || c.email || "\u00a0"}</small>
           </div>
-          {/* Select sits right of the search; All/None slides out of it, then the
-              count + Delete slides out behind that — same timings as Schedule. */}
-          {can("manageClients") && <>
-            <Btn size="sm" variant={clientSelectMode ? "primary" : "secondary"} style={{ minWidth: 78, flexShrink: 0 }} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>
-            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+        </div>
+        <div className="rv-tile-ts">
+          <span><b className="rv-num">{ct.length}</b><small>Total</small></span>
+          <span><b className="rv-num" style={{ color: "var(--tq-accent)" }}>{active.length}</b><small>Active</small></span>
+          <span><b className="rv-num">{done}</b><small>Done</small></span>
+        </div>
+        <div style={{ minHeight: 48 }}>
+          {top.map(({ j, pct }) => (
+            <div key={j.id} className="rv-row tight">
+              <span style={{ width: 120, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+              {rvBar(pct)}
+              <small className="rv-num rv-mute" style={{ width: 30, textAlign: "right", flexShrink: 0 }}>{pct}%</small>
+            </div>
+          ))}
+          {!top.length && <small className="rv-mute" style={{ fontSize: 11 }}>No open jobs.</small>}
+        </div>
+        <div className="rv-tile-tf">
+          <small className="rv-mute">{active.length ? `${active.length} open` : "All finished"}</small>
+          <span style={{ flex: 1 }} />
+          {!clientSelectMode && can("manageClients") && <button className="rv-pill sm" onClick={e => { e.stopPropagation(); openClientEdit({ ...c }); }}>Edit</button>}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>;
+    };
+
+    return <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {/* Top bar: title, search, Select (+ All / count / Delete); Add on the right */}
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 50, flexShrink: 0, flexWrap: "wrap" }}>
+        <h1 style={pageTitle()}>Clients</h1>{titleActions}
+        <label className="rv-pill" style={{ width: 220, cursor: "text", color: clientSearch ? "var(--tq-accent)" : "var(--rv-mute)" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></svg>
+          <input className="tq-bare" value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--rv-ink)", fontSize: 11.5, fontFamily: "inherit" }} />
+        </label>
+        {/* Select sits right of the search; All/None slides out of it, then the
+            count + Delete slides out behind that — same timings as Schedule. */}
+        {can("manageClients") && <>
+          <button className={clientSelectMode ? "rv-pill pri" : "rv-pill"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</button>
+          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: clientSelRevealed ? "visible" : "hidden", maxWidth: clientSelectMode ? 90 : 0, opacity: clientSelectMode ? 1 : 0, transform: clientSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: clientSelectMode ? "auto" : "none", marginRight: clientSelectMode ? 0 : -12 }}>
               <button className="subtle-all-btn" onClick={() => setSelClients(selClients.size === filteredClients.length && filteredClients.length > 0 ? new Set() : new Set(filteredClients.map(c => c.id)))}>
                 {selClients.size === filteredClients.length && filteredClients.length > 0 ? "None" : "All"}
@@ -13654,70 +13739,31 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selClients.size} selected</span>
               <Btn size="sm" style={{ minWidth: 78, ...outlineBtnStyle(T.danger) }} onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })}>Delete</Btn>
             </div>
-          </>}
-        </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-          {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
-        </div>
+        </>}
+        <span style={{ flex: 1 }} />
+        <span className="rv-mute" style={{ fontSize: 12 }}>{clients.length} clients · {activeClients} with active jobs</span>
+        {can("manageClients") && !clientSelectMode && <button className="rv-pill pri" onClick={newClient}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> Add client</button>}
       </div>
 
-      {/* Card grid (scrolls via the frostScroll wrapper, so cards sit over the pinned bg) */}
-      <div style={{ flex: 1 }}>
-        {clients.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
-            <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></div>
-            <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>No clients yet</h3>
-            <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
-            {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
+      {clients.length === 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>No clients yet</h3>
+          <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
+          {can("manageClients") && <button className="rv-pill pri" style={{ marginTop: 8 }} onClick={newClient}>+ Add Client</button>}
+        </div>
+      ) : <>
+        {withJobs.length > 0 && <div className="rv-tiles">{withJobs.map(tile)}</div>}
+        {!withJobs.length && !noJobs.length && <div className="rv-mute" style={{ fontSize: 12 }}>No clients match “{clientSearch}”.</div>}
+        {noJobs.length > 0 && <>
+          <div className="rv-row" style={{ border: 0, padding: "4px 0 0", gap: 12, cursor: "pointer" }} onClick={() => setClientsEmptyOpen(o => !o)}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transform: clientsEmptyOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}><path d="M9 18l6-6-6-6"/></svg>
+            <b>{noJobs.length} client{noJobs.length === 1 ? "" : "s"} with no jobs</b>
+            <span style={{ display: "inline-flex" }}>{noJobs.slice(0, 4).map((c, i) => <span key={c.id} className="rv-tile-av sm" style={{ marginLeft: i ? -6 : 0, background: elColor(c.color) || T.accent, color: wantsLightText(elColor(c.color) || T.accent) ? "#fff" : "#17162b" }}>{String(c.name || "?").slice(0, 2).toUpperCase()}</span>)}</span>
+            <span className="rv-mute" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{noJobs.slice(0, 4).map(c => c.name).join(", ")}{noJobs.length > 4 ? "…" : ""}</span>
           </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-            {filteredClients.map(c => {
-              const ct = tasks.filter(t => t.clientId === c.id);
-              const active = ct.filter(t => t.status !== "Finished").length;
-              const done = ct.filter(t => t.status === "Finished").length;
-              const isSel = selClient === c.id;
-              const isBulkSel = selClients.has(c.id);
-              return <div key={c.id} className={(isSel || isBulkSel) ? undefined : "tq-frost"} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : (isSel ? closeClient() : openClient(c.id))} style={{
-                background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card,
-                borderRadius: T.radiusHero,
-                border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
-                padding: "20px 20px 16px",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-                boxShadow: isBulkSel ? `0 0 20px ${T.accent}18` : isSel ? `0 0 20px ${c.color}18` : "none",
-              }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
-                  {clientSelectMode
-                    ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", marginTop: 2 }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
-                    : <div style={{ width: 42, height: 42, borderRadius: "50%", background: elColor(c.color) + "22", border: `2px solid ${elColor(c.color)}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: elColor(c.color), flexShrink: 0 }}>{c.name.charAt(0)}</div>
-                  }
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 16, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{c.name}</div>
-                    {c.contact && <div style={{ fontSize: 13, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.contact}</div>}
-                  </div>
-                  {!clientSelectMode && can("manageClients") && <button onClick={e => { e.stopPropagation(); openClientEdit({ ...c }); }} style={{ cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: T.font, color: T.accentText, padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", flexShrink: 0 }}>Edit</button>}
-                </div>
-                <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
-                  <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusLg, padding: "10px 10px", textAlign: "center" }}>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: elColor(c.color), fontFamily: T.mono }}>{ct.length}</div>
-                    <div style={{ color: T.textDim, marginTop: 1 }}>Total</div>
-                  </div>
-                  <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusLg, padding: "10px 10px", textAlign: "center" }}>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: elColor("#3b82f6"), fontFamily: T.mono }}>{active}</div>
-                    <div style={{ color: T.textDim, marginTop: 1 }}>Active</div>
-                  </div>
-                  <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusLg, padding: "10px 10px", textAlign: "center" }}>
-                    <div style={{ fontWeight: 700, fontSize: 18, color: elColor("#10b981"), fontFamily: T.mono }}>{done}</div>
-                    <div style={{ color: T.textDim, marginTop: 1 }}>Done</div>
-                  </div>
-                </div>
-              </div>;
-            })}
-          </div>
-        )}
-      </div>
-
+          {clientsEmptyOpen && <div className="rv-tiles">{noJobs.map(tile)}</div>}
+        </>}
+      </>}
     </div>;
   };
 
@@ -14140,56 +14186,53 @@ ${jobsCtx || "No jobs found."}`;
   // The landing page. Everything here is derived from data already in memory —
   // no new fetches, so it paints instantly from the cold cache.
   const renderDashboard = () => {
-    const atTop = dashStage !== "hello";   // greeting has left mid-screen
-    const showCards = dashCardsIn;         // content joins HALFWAY through that trip
     const padX = isMobile ? 14 : 32;
     const padTop = isMobile ? 2 : 24;
 
-    // Revamp (TRAQS Revamp.html, screen 1): the greeting with the clock inline on
-    // its row, a hairline stat strip, then the team timeline and jobs in motion on
-    // the left and a rail of Due soon / Messages / This week on the right. No
-    // cards. Basic keeps its own reads: "Scheduled" instead of "Due", since a
-    // Basic job is a scheduled block rather than a deadline.
+    // Revamp, take two (TRAQS Revamp.html, screen 1): a tinted hero with the
+    // greeting, a one-line summary and your clock card; under it a grid of soft
+    // tinted tiles — Who's in right now, Coming up, Messages, Jobs in motion (wide)
+    // and This week. Basic keeps its own reads: "Coming up" is scheduled work in
+    // the next 7 days rather than due dates.
     const isBasic = billingTier !== "business";
 
     // ── Team status ──────────────────────────────────────────────────────────
     const team = people.filter(p => p.userRole === "user" || p.userRole === "admin");
     const statusOf = new Map(team.map(p => [String(p.id), personStatus(p)]));
-    // "Clocked in now" counts the people who clock: hourly only. Salaried people
-    // (Business sets pay type per person) are not on the clock, so counting them
-    // in the total made the strip read 3 / 18 when 9 people actually clock. A
-    // person with no pay type is hourly, which is everyone on Basic.
+    const isOn = (p) => statusOf.get(String(p.id)) !== "offline";
+    // Counts are hourly people only: salaried people (Business sets pay type per
+    // person) are not on the clock. No pay type is hourly, which is all of Basic.
     const hourly = team.filter(p => (p.payType || "hourly") !== "salary");
-    const hourlyOnClock = hourly.filter(p => statusOf.get(String(p.id)) !== "offline").length;
-    // The design's four chip states. On job and Clocked in are both "In".
-    const ST_CHIP = { job: ["In", "g"], idle: ["In", "g"], lunch: ["Lunch", "y"], break: ["Break", "o"], offline: ["Off", ""] };
-    const ST_ORDER = ["job", "idle", "lunch", "break", "offline"];
+    const hourlyOnClock = hourly.filter(isOn).length;
+    const onNow = team.filter(isOn).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const offNow = team.filter(p => !isOn(p));
 
     // ── Jobs ─────────────────────────────────────────────────────────────────
     const activeJobs = tasks.filter(t => t.status !== "Finished");
     const dueSoon = activeJobs
       .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
       .sort((a, b) => String(a.end).localeCompare(String(b.end)));
-    // Basic: whether the job's own date range touches the next 7 days, which is
-    // what someone opening the Schedule this week would see.
     const scheduledNext7 = activeJobs
       .filter(j => j.start && j.end && j.start <= addD(TD, 6) && j.end >= TD)
       .sort((a, b) => String(a.start).localeCompare(String(b.start)));
-    const soonList = isBasic ? scheduledNext7 : dueSoon;
-    // In motion = started and not done, furthest along first.
+    // "Coming up" also reaches past the week, so the tile is not empty on a quiet
+    // one: the next due dates (Business) or the next scheduled work (Basic).
+    const comingUp = isBasic
+      ? activeJobs.filter(j => j.start && j.end && j.end >= TD).sort((a, b) => String(a.start > TD ? a.start : TD).localeCompare(String(b.start > TD ? b.start : TD)))
+      : activeJobs.filter(j => j.end && j.end >= TD).sort((a, b) => String(a.end).localeCompare(String(b.end)));
     const motionJobs = activeJobs
       .map(j => ({ j, pct: _jobPct(j) }))
       .filter(x => x.pct > 0 && x.pct < 100)
       .sort((a, b) => b.pct - a.pct)
-      .slice(0, 8);
-    // Everyone on a job: its own team plus every sub-job's and task's.
+      .slice(0, 6);
     const jobTeamOf = (j) => {
       const ids = new Set();
       const walk = n => { (n.team || []).forEach(id => id != null && ids.add(String(id))); (n.subs || []).forEach(walk); };
       walk(j);
       return [...ids].map(id => people.find(p => String(p.id) === id)).filter(Boolean);
     };
-    const shortDate = (ds) => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const dayDiff = (ds) => Math.round((Date.parse(ds + "T12:00:00") - Date.parse(TD + "T12:00:00")) / 864e5);
+    const inDays = (n) => n <= 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`;
 
     // ── Messages ─────────────────────────────────────────────────────────────
     // One row per THREAD, newest activity first — the same shape as the Messages
@@ -14244,56 +14287,28 @@ ${jobsCtx || "No jobs found."}`;
       return Math.round(hrs / 24) + "d";
     };
 
-    // ── Today · team timeline ────────────────────────────────────────────────
-    // Every punch drawn against the org's work window; an open shift runs to now.
-    const dayStartH = workStartH;
-    const daySpanH = Math.max(1, workEndH - workStartH);
-    const nowH = shopHour();
-    const clamp01 = v => Math.min(1, Math.max(0, v));
-    const frac = (iso) => {
-      const t = Date.parse(iso);
-      if (Number.isNaN(t)) return null;
-      return clamp01((shopHour(t) - dayStartH) / daySpanH);
+    // ── My clock ─────────────────────────────────────────────────────────────
+    const meRec = people.find(p => String(p.id) === meId);
+    // dashNow (not Date.now()) is what makes the elapsed figure tick.
+    const myState = meRec ? effectiveClockState(meRec, dashNow) : null;
+    const myMins = myState?.isClocked ? Math.max(0, Math.floor((myState.runningMs || 0) / 60000)) : 0;
+    const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+    // Every clock action is PIN-gated server-side, and the keypad lives on the
+    // Time Clock page, so this primes the same shared pin state and switches there
+    // — the keypad is already open on arrival.
+    const openClockFlow = (nextPinState) => {
+      if (nextPinState === "clockOut_pin" && ENFORCE_CLOCK_JOB_DEPENDENCY && loggedInUser?.activeJobClock) {
+        alert("Log out of your job before clocking out.");
+        return;
+      }
+      setPinInput(""); setPinError(false); setPinSelectedOps([]);
+      setPinState(nextPinState);
+      switchView("timestamp");
     };
-    const nowFrac = (nowH - dayStartH) / daySpanH;
-    const segsOf = (p) => {
-      const segs = timeclock
-        .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(p.id) && e.date === TD && e.clockIn)
-        .map(e => ({ from: frac(e.clockIn), to: e.clockOut ? frac(e.clockOut) : clamp01(nowFrac), live: !e.clockOut }));
-      const ac = p.activeClockIn?.clockIn;
-      if (ac && shopDay(Date.parse(ac)) === TD) segs.push({ from: frac(ac), to: clamp01(nowFrac), live: true });
-      return segs.filter(s => s.from != null && s.to != null && s.to > s.from);
-    };
-    const tlHours = [];
-    for (let h = Math.ceil(dayStartH); h <= Math.floor(workEndH); h++) tlHours.push(h);
-    const hLabel = (h) => { const hh = ((h % 24) + 24) % 24; const h12 = hh % 12 === 0 ? 12 : hh % 12; return `${h12}${hh >= 12 ? "p" : "a"}`; };
-    const laneGrid = tlHours.length > 1
-      ? { background: `linear-gradient(90deg, var(--rv-line) 1px, transparent 1px) 0 0 / ${100 / (tlHours.length - 1)}% 100%` }
-      : undefined;
-    // Who gets a lane: anyone scheduled on a job today (any unfinished job, sub-job
-    // or task whose dates cover today and whose team includes them), anyone on the
-    // clock right now, and anyone who has punched today — so clocked in and out
-    // both read at a glance. Nobody else: an empty row is just noise.
-    const scheduledToday = new Set();
-    const walkSched = (n) => {
-      if (!n || n.deletedAt || n.status === "Finished") return;
-      if (n.start && n.end && n.start <= TD && n.end >= TD) (n.team || []).forEach(id => id != null && scheduledToday.add(String(id)));
-      (n.subs || []).forEach(walkSched);
-    };
-    tasks.forEach(walkSched);
-    const tlPeople = team.filter(p => scheduledToday.has(String(p.id)) || statusOf.get(String(p.id)) !== "offline" || segsOf(p).length > 0).sort((a, b) =>
-      ST_ORDER.indexOf(statusOf.get(String(a.id))) - ST_ORDER.indexOf(statusOf.get(String(b.id)))
-      || String(a.name).localeCompare(String(b.name)));
-
-    // ── Hours logged today (team): finished punches plus open shifts so far ──
-    const hoursToday = timeclock
-      .filter(e => !e.eventType && !e.deletedAt && e.date === TD)
-      .reduce((s, e) => s + (e.hours || 0), 0)
-      + team.reduce((s, p) => {
-        const ac = p.activeClockIn?.clockIn;
-        if (!ac || shopDay(Date.parse(ac)) !== TD) return s;
-        return s + (effectiveClockState(p, dashNow)?.runningMs || 0) / 3600000;
-      }, 0);
+    const clockCaption = !myState?.isClocked ? "You're off the clock"
+      : myState.isOnLunch ? "You're on lunch"
+      : myState.isOnBreak ? "You're on break"
+      : `On the clock since ${hhmm(meRec?.activeClockIn?.clockIn)}`;
 
     // ── Calendar: this month, Monday first, padded to whole weeks ───────────
     // A day carries a dot when any unfinished job spans it.
@@ -14312,108 +14327,87 @@ ${jobsCtx || "No jobs found."}`;
     }
     const monthLabel = mNow.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-    // ── My clock (inline on the greeting row) ────────────────────────────────
-    const meRec = people.find(p => String(p.id) === meId);
-    // dashNow (not Date.now()) is what makes the elapsed figure tick.
-    const myState = meRec ? effectiveClockState(meRec, dashNow) : null;
-    const myStatus = meRec ? personStatus(meRec) : "offline";
-    const myMins = myState?.isClocked ? Math.max(0, Math.floor((myState.runningMs || 0) / 60000)) : 0;
-    // Every clock action is PIN-gated server-side, and the keypad lives on the
-    // Time Clock page, so this primes the same shared pin state and switches there
-    // — the keypad is already open on arrival.
-    const openClockFlow = (nextPinState) => {
-      if (nextPinState === "clockOut_pin" && ENFORCE_CLOCK_JOB_DEPENDENCY && loggedInUser?.activeJobClock) {
-        alert("Log out of your job before clocking out.");
-        return;
-      }
-      setPinInput(""); setPinError(false); setPinSelectedOps([]);
-      setPinState(nextPinState);
-      switchView("timestamp");
-    };
-    const clockLine = meRec ? (
-      <div className="rv-clockline" style={isMobile ? { flexWrap: "wrap" } : undefined}>
-        <span className="rv-dot" style={{ background: PERSON_STATUS_META[myStatus].color }} />
-        <b>{PERSON_STATUS_META[myStatus].label}</b>
-        <span className="rv-time rv-num">{Math.floor(myMins / 60)}<small>h</small> {String(myMins % 60).padStart(2, "0")}<small>m</small></span>
-        <button className="rv-pill pri" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}>{myState?.isClocked ? "Clock out" : "Clock in"}</button>
-        {/* Lunch and break only mean anything on an open shift: disabled, not
-            hidden, so the row keeps its shape. */}
-        <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin")}>{myState?.isOnLunch ? "End lunch" : "Lunch"}</button>
-        <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin")}>{myState?.isOnBreak ? "End break" : "Break"}</button>
-      </div>
-    ) : null;
-
-    const hr = Math.floor(nowH);
+    // ── Copy ─────────────────────────────────────────────────────────────────
+    const hr = Math.floor(shopHour());
     const firstName = String(loggedInUser?.name || "").trim().split(/\s+/)[0] || (orgName || "").trim();
     const greeting = `Good ${hr < 12 ? "morning" : hr < 17 ? "afternoon" : "evening"}${firstName ? `, ${firstName}` : ""}`;
     const dateLine = new Date(TD + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-    const emptyNote = (msg) => <div className="rv-mute" style={{ fontSize: 11.5, padding: "10px 0" }}>{msg}</div>;
-    const link = (label, to) => <span className="rv-link" onClick={() => switchView(to)}>{label}</span>;
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const soonCount = isBasic ? scheduledNext7.length : dueSoon.length;
+    const summary = `${hourlyOnClock === 1 ? "One teammate is" : `${hourlyOnClock} teammates are`} on the clock, `
+      + `${plural(soonCount, "job", "jobs")} ${isBasic ? (soonCount === 1 ? "is scheduled" : "are scheduled") : (soonCount === 1 ? "is due" : "are due")} this week `
+      + `and you have ${plural(unreadAll, "unread message", "unread messages")}.`;
 
-    // ── Sections ─────────────────────────────────────────────────────────────
-    const timeline = tlPeople.length ? (
-      <div className="rv-tl">
-        <div className="rv-axis">{tlHours.map(h => <span key={h}>{hLabel(h)}</span>)}</div>
-        {tlPeople.map(p => {
-          const st = statusOf.get(String(p.id)) || "offline";
-          const [chipLabel, chipKind] = ST_CHIP[st] || ST_CHIP.offline;
-          return (
-            <Fragment key={p.id}>
-              <div className="rv-who">
-                <PersonAvatar person={p} size={24} />
-                <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(p.name || "").split(" ")[0]}</b>
-                <span style={{ flex: 1 }} />
-                {rvChip(chipLabel, chipKind)}
-              </div>
-              <div className="rv-lane" style={laneGrid}>
-                {nowFrac >= 0 && nowFrac <= 1 && <i className="now" style={{ left: `${nowFrac * 100}%` }} />}
-                {segsOf(p).map((sg, i) => (
-                  <b key={i} className={sg.live && st === "lunch" ? "lu" : undefined}
-                    title={sg.live ? "On the clock" : "Worked"}
-                    style={{ left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%` }} />
-                ))}
-              </div>
-            </Fragment>
-          );
-        })}
+    const link = (label, to) => <span className="rv-link" onClick={() => switchView(to)}>{label}</span>;
+    const emptyNote = (msg) => <div className="rv-mute" style={{ fontSize: 11.5, padding: "8px 0" }}>{msg}</div>;
+    const tileBox = (title, right, body, cls, style) => (
+      <div className={`rv-ht ${cls}`} style={style}>
+        <h4>{title}{right == null || right === "" ? null : typeof right === "string" ? <span>{right}</span> : right}</h4>
+        {body}
       </div>
-    ) : emptyNote("Nobody is scheduled or on the clock today.");
+    );
+
+    // ── Tiles ────────────────────────────────────────────────────────────────
+    const whoIn = (
+      <div className="rv-whoin">
+        <div style={{ overflowY: "auto", minHeight: 0 }}>
+          {onNow.length === 0 && emptyNote("Nobody is on the clock right now.")}
+          {onNow.map(p => {
+            const st = statusOf.get(String(p.id));
+            const paused = st === "lunch" || st === "break";
+            const jc = st === "job" ? p.activeJobClock : null;
+            const since = paused ? (st === "lunch" ? "on lunch" : "on break") : p.activeClockIn?.clockIn ? `since ${hhmm(p.activeClockIn.clockIn)}` : "";
+            return (
+              <div key={p.id} className="rv-hrow">
+                <span className={paused ? "rv-avring y" : "rv-avring"}><PersonAvatar person={p} size={32} /></span>
+                <div className="rv-txt"><b>{String(p.name || "").split(" ")[0]} <small className="rv-mute" style={{ fontWeight: 500 }}>· {since}</small></b><span>{jc ? [jc.opTitle, jc.jobTitle].filter(Boolean).join(" · ") : (p.department || "Clocked in")}</span></div>
+                <i className="rv-dot" style={{ background: paused ? "#eda412" : "#1a7b58" }} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="rv-hrow rv-whoin-rest">
+          <span style={{ display: "inline-flex" }}>{offNow.slice(0, 4).map((p, i) => <span key={p.id} style={{ marginLeft: i ? -6 : 0, display: "flex" }}><PersonAvatar person={p} size={24} ring="var(--rv-surface)" /></span>)}</span>
+          <small className="rv-mute">{offNow.length ? `${offNow.length} ${offNow.length === 1 ? "is" : "are"} off today` : "Everyone is in"}</small>
+          <span style={{ flex: 1 }} />
+          {link("Time Clock →", "timestamp")}
+        </div>
+      </div>
+    );
+
+    const upcoming = comingUp.length ? comingUp.slice(0, 4).map(j => {
+      const when = isBasic ? (j.start > TD ? j.start : TD) : j.end;
+      const d = new Date(when + "T12:00:00");
+      const sub = isBasic ? (j.start > TD ? `Starts ${inDays(dayDiff(j.start))}` : "Scheduled now") : `Due ${inDays(dayDiff(j.end))}`;
+      return (
+        <div key={j.id} className="rv-hrow" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
+          <span className="rv-date"><small>{d.toLocaleDateString("en-US", { month: "short" })}</small><b className="rv-num">{d.getDate()}</b></span>
+          <div className="rv-txt"><b>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</b><span>{sub}</span></div>
+        </div>
+      );
+    }) : emptyNote(isBasic ? "Nothing scheduled ahead." : "Nothing due ahead.");
+
+    const msgs = dashThreads.length ? dashThreads.map(t => (
+      <div key={t.tk} className="rv-hrow" onClick={() => switchView("messages")} style={{ cursor: "pointer" }}>
+        <PersonAvatar person={t.who || { name: t.authorName, color: t.authorColor }} size={32} />
+        <div className="rv-txt"><b style={{ fontWeight: t.unread ? 800 : 700 }}>{t.title} <small className="rv-mute" style={{ fontWeight: 500 }}>· {msgAgo(t.at)}</small></b><span>{t.preview}</span></div>
+        {t.unread > 0 && <i className="rv-dot" style={{ background: "var(--tq-accent)" }} />}
+      </div>
+    )) : emptyNote("No messages yet.");
 
     const motion = motionJobs.length ? motionJobs.map(({ j, pct }) => {
       const crew = jobTeamOf(j);
       return (
-        <div key={j.id} className="rv-row" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
-          <span className="rv-num rv-mute" style={{ width: 64, flex: "none" }}>{j.jobNumber ? `#${j.jobNumber}` : "—"}</span>
-          <b style={{ width: isMobile ? "auto" : 200, flex: isMobile ? 1 : "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</b>
-          {!isMobile && <span className="rv-mute" style={{ width: 110, flex: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientName(j.clientId)}</span>}
-          {rvBar(pct)}
-          <small className="rv-num" style={{ width: 34, flex: "none", textAlign: "right", color: "var(--rv-ink)" }}>{pct}%</small>
+        <div key={j.id} className="rv-hrow" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
+          <div className="rv-txt" style={{ flex: isMobile ? "1 1 auto" : "0 0 220px" }}><b>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</b><span>{clientName(j.clientId)}</span></div>
+          {rvBar(pct, "var(--tq-accent)", 8)}
+          <b className="rv-num" style={{ width: 36, textAlign: "right", flexShrink: 0 }}>{pct}%</b>
           {crew.length > 0 && <span style={{ display: "inline-flex", flex: "none" }}>
-            {crew.slice(0, 3).map((p, i) => <span key={p.id} style={{ marginLeft: i ? -6 : 0, display: "flex" }}><PersonAvatar person={p} size={20} ring={T.bg} /></span>)}
+            {crew.slice(0, 3).map((p, i) => <span key={p.id} style={{ marginLeft: i ? -6 : 0, display: "flex" }}><PersonAvatar person={p} size={22} ring="var(--rv-surface)" /></span>)}
           </span>}
         </div>
       );
     }) : emptyNote("No jobs in progress.");
-
-    const soon = soonList.length ? soonList.slice(0, 6).map(j => {
-      const when = isBasic ? (j.start > TD ? j.start : TD) : j.end;
-      return (
-        <div key={j.id} className="rv-row" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
-          <span className="rv-dot" style={{ background: elColorT(HEALTH_DOT[healthOf(j)]) || "var(--rv-track)" }} />
-          <div className="rv-txt"><b>{j.jobNumber ? `#${j.jobNumber}` : j.title}</b><span>{j.jobNumber ? j.title : clientName(j.clientId)}</span></div>
-          <small className="rv-num">{shortDate(when)}</small>
-        </div>
-      );
-    }) : emptyNote(isBasic ? "Nothing scheduled in the next 7 days." : "Nothing due in the next week.");
-
-    const msgs = dashThreads.length ? dashThreads.map(t => (
-      <div key={t.tk} className="rv-row" onClick={() => switchView("messages")} style={{ cursor: "pointer" }}>
-        <PersonAvatar person={t.who || { name: t.authorName, color: t.authorColor }} size={26} />
-        <div className="rv-txt"><b>{t.title}</b><span>{t.preview}</span></div>
-        <small>{msgAgo(t.at)}</small>
-        {t.unread > 0 && <i className="rv-dot" style={{ background: "var(--tq-accent)" }} />}
-      </div>
-    )) : emptyNote("No messages yet.");
 
     const calendar = (
       <div className="rv-cal">
@@ -14426,83 +14420,54 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     );
 
-    const kItems = [
-      [hourlyOnClock, ` / ${hourly.length}`, "Clocked in now"],
-      [(Math.round(hoursToday * 10) / 10).toFixed(1), "h", "Hours logged today"],
-      [activeJobs.length, "", "Active jobs"],
-      isBasic ? [scheduledNext7.length, "", "Scheduled next 7 days"] : [dueSoon.length, "", "Due within 7 days"],
-      [unreadAll, "", "Unread messages"],
-    ];
+    // ── Load-in: the coloured sections fade up top to bottom (once per load) ──
+    const reveal = (delay) => !dashAnimate ? {} : { animation: `dashCardIn 0.55s cubic-bezier(0.22,1,0.36,1) ${delay}ms both` };
 
-    // The scroll container carries two load-bearing styles:
-    //   position:relative — the visible scroll viewport (which never grows with
-    //     content) is the containing block for the greeting's percentage anchors.
-    //   scrollbarGutter:stable — the scrollbar's width is reserved up front, so it
-    //     appearing as the content mounts can't reflow the page mid-intro.
-    // It carries viewScrollRef, the same ref every frostScroll page uses.
+    // The scroll container carries viewScrollRef, the same ref every frostScroll
+    // page uses. scrollbarGutter:stable reserves the scrollbar up front, so it
+    // appearing can't reflow the page.
     return (
       <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
         <style>{`
-          @keyframes dashHelloIn { from { opacity: 0; } to { opacity: 1; } }
-          @keyframes dashCardIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
-          .dash-card { animation: dashCardIn 0.44s cubic-bezier(0.22,1,0.36,1) both; }
-          @media (prefers-reduced-motion: reduce) { .dash-card { animation-duration: 0.01ms !important; } }
+          @keyframes dashCardIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+          @media (prefers-reduced-motion: reduce) { .rv-hero *, .rv-hgrid { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
         `}</style>
-
-        {/* minHeight:100% + flex column lets the grid claim the leftover height on
-            a tall display, while still letting the page grow and scroll on a short
-            one (height:100% clipped the bottom on a 14" laptop). */}
-        <div style={{ position: "relative", zIndex: 1, minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : `${padTop}px ${padX}px 28px` }}>
-          {/* Content mounts once the greeting has started for its header spot, so
-              the entrance starts from the stage change rather than page load. The
-              top margin is the greeting row (title + date) it sits under. */}
-          {showCards && (
-            <div className={dashAnimate ? "dash-card" : undefined} style={{ flex: 1, minHeight: 0, marginTop: isMobile ? 70 : 96, display: "flex", flexDirection: "column", gap: isMobile ? 28 : 40 }}>
-              {isMobile && clockLine}
-              {rvKstrip(kItems)}
-              <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 340px", gap: isMobile ? 36 : "0 48px" }}>
-                <div style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", gap: 40, minHeight: 0 }}>
-                  {rvSx("Today · team timeline", `${tlPeople.filter(p => statusOf.get(String(p.id)) !== "offline").length} of ${tlPeople.length} clocked in`, timeline, isMobile ? undefined : { maxHeight: 34 * 9 + 50 })}
-                  {rvSx("Jobs in motion", link("All jobs →", "tasks"), motion)}
-                </div>
-                <div className="rv-rail" style={isMobile ? { borderLeft: 0, paddingLeft: 0 } : undefined}>
-                  {rvSx(isBasic ? "Scheduled · next 7 days" : "Due soon", link("Schedule →", "schedule"), soon)}
-                  {rvSx("Messages", unreadAll > 0 ? `${unreadAll} unread` : "", msgs)}
-                  {rvSx(monthLabel, link("Schedule →", "schedule"), calendar)}
+        {/* Fills the page at every size: the hero takes its height, the two tile
+            rows split the rest. A floor per row keeps tiles usable on a short
+            window, where the page scrolls instead of squeezing them. */}
+        <div style={{ height: isMobile ? "auto" : "100%", minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 16, padding: isMobile ? "14px 14px 26px" : `${padTop}px ${padX}px 28px` }}>
+          {/* Hero: date, greeting, summary — and your clock */}
+          <div className="rv-hero" style={{ flexShrink: 0, ...reveal(0), ...(isMobile ? { flexDirection: "column", alignItems: "stretch", padding: 22 } : null) }}>
+            <div style={{ minWidth: 0 }}>
+              <small className="rv-mute" style={{ fontSize: 12, fontWeight: 600, display: "block" }}>{dateLine}</small>
+              <div className="dash-greeting" style={{ display: "flex", alignItems: "center", margin: "8px 0 12px" }}>
+                <span style={{ fontSize: isMobile ? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0.07em", color: "var(--rv-ink)", lineHeight: 1.1 }}>{greeting}</span>
+              </div>
+              <p className="rv-hero-sum">{summary}</p>
+            </div>
+            {meRec && (
+              <div className="rv-hero-clock" style={isMobile ? { marginLeft: 0, minWidth: 0 } : undefined}>
+                <small className="rv-mute">{clockCaption}</small>
+                <span className="rv-num rv-hero-time">{Math.floor(myMins / 60)}<small>h</small>{String(myMins % 60).padStart(2, "0")}<small>m</small></span>
+                <div className="rv-btns" style={{ marginTop: 0 }}>
+                  <button className="rv-pill pri" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")} style={{ flex: 1, justifyContent: "center", padding: 11 }}>{myState?.isClocked ? "Clock out" : "Clock in"}</button>
+                  {/* Lunch and break only mean anything on an open shift: disabled,
+                      not hidden, so the row keeps its shape. */}
+                  <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin")}>{myState?.isOnLunch ? "End lunch" : "Lunch"}</button>
+                  <button className="rv-pill" disabled={!myState?.isClocked} onClick={() => openClockFlow(myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin")}>{myState?.isOnBreak ? "End break" : "Break"}</button>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Greeting. A direct child of the scroll container, not the padded
-            wrapper: an absolutely-positioned element resolves percentages against
-            its nearest positioned ancestor, and the wrapper grows the instant the
-            content mounts — the same frame the greeting starts travelling — so
-            top:50% re-resolved and the title slid DOWN instead of up. The scroll
-            container's box is the visible viewport and never grows.
-            One size throughout: it fades in mid-screen, then travels to the
-            top-left on an ease-in-out quint. */}
-        <div aria-hidden={false} style={{
-          position: "absolute", zIndex: 2, pointerEvents: "none",
-          width: "max-content", maxWidth: "92%",
-          left: atTop ? padX : "50%",
-          top: atTop ? padTop : "50%",
-          transform: atTop ? "translate(0, 0) scale(1)" : "translate(-50%, -50%) scale(1.45)",
-          transition: `left ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), top ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), transform ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1)`,
-          animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
-        }}>
-          <span style={{ fontSize: isMobile ? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1, display: "block" }}>
-            {greeting}
-          </span>
-          <div className="rv-mute" style={{ fontSize: 12, marginTop: 7 }}>{dateLine}</div>
-        </div>
-        {/* The greeting row's right-hand side: the clock line, then the title
-            actions. Not inside the greeting, which is pointer-events:none and
-            travels; it appears once the greeting has landed. */}
-        <div className="dash-greeting-actions" style={{ position: "absolute", zIndex: 3, top: padTop, right: padX, minHeight: isMobile ? 35 : 57, display: "flex", alignItems: "center", gap: 14, opacity: atTop ? 1 : 0, pointerEvents: atTop ? "auto" : "none", transition: `opacity 0.3s ease ${atTop ? DASH_TRAVEL_MS : 0}ms` }}>
-          {!isMobile && clockLine}
-          {titleActions}
+          {/* Tinted tiles */}
+          <div className="rv-hgrid" style={isMobile ? { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: "none" } : undefined}>
+            {tileBox("Who’s in right now", `${hourlyOnClock} of ${hourly.length}`, whoIn, "t-in", reveal(120))}
+            {tileBox(isBasic ? "Coming up · scheduled" : "Coming up", link("Schedule →", "schedule"), upcoming, "t-up", reveal(180))}
+            {tileBox(monthLabel, link("Schedule →", "schedule"), calendar, "t-week", reveal(240))}
+            {tileBox("Jobs in motion", link("All jobs →", "tasks"), motion, "t-motion", { ...reveal(360), ...(isMobile ? null : { gridColumn: "1 / 3" }) })}
+            {tileBox("Messages", unreadAll > 0 ? `${unreadAll} unread` : link("Open →", "messages"), msgs, "t-msg", reveal(420))}
+          </div>
         </div>
       </div>
     );
@@ -18188,8 +18153,6 @@ ${jobsCtx || "No jobs found."}`;
 
 
     const card = (extra = {}) => ({ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 18, ...extra });
-    const cardTitle = { fontSize: 14, fontWeight: 800, color: T.text, margin: 0 };
-    const dim = { fontSize: 12, color: T.textDim };
     const nothing = (msg = "Nothing to see here.") => (
       <div style={{ padding: "34px 12px", textAlign: "center", fontSize: 12.5, color: T.textDim }}>{msg}</div>
     );
@@ -18326,15 +18289,6 @@ ${jobsCtx || "No jobs found."}`;
     const behindCount = dueOps.filter(m => ["critical", "behind"].includes(healthOf(m.op))).length;
     const avgPerTask = doneOps.length ? actual / doneOps.length : null;
 
-    const tile = (value, label, accent, hint) => (
-      <div key={label} title={hint || undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 7 }}>
-        <div style={{ width: 26, height: 26, borderRadius: 12, background: hexA(accent, 0.14), display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ width: 9, height: 9, borderRadius: 8, background: accent }} />
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: 11, color: T.textDim }}>{label}</div>
-      </div>
-    );
 
     // ── Schedule strip (week gantt) ──────────────────────────────────────────
     const wkBase = new Date(TD + "T12:00:00");
@@ -18497,303 +18451,239 @@ ${jobsCtx || "No jobs found."}`;
       return `${h12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`;
     };
 
-    const statusChip = (label, color) => <span style={{ fontSize: 11, fontWeight: 700, color, background: hexA(color, 0.14), border: `1px solid ${hexA(color, 0.3)}`, borderRadius: T.radiusPill, padding: "3px 10px", whiteSpace: "nowrap" }}>{label}</span>;
-    const kv = (k, v, strong) => (
-      <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: `1px solid ${T.border}55` }}>
-        <span style={{ fontSize: 12, color: T.textDim }}>{k}</span>
-        <span style={{ fontSize: 12.5, fontWeight: strong ? 800 : 600, color: strong || T.text, fontFamily: T.mono, textAlign: "right" }}>{v}</span>
-      </div>
-    );
-    // Sticky so the column labels survive scrolling the bounded list below. It has
-    // to hide the rows passing under it, but painting T.card to do that put an
-    // opaque white band across the top of every otherwise-translucent card. The
-    // tq-sticky-head class swaps that for the card's own glass fill plus a blur, so
-    // rows smear out of legibility underneath instead of being covered by a slab.
-    const th = { textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "6px 10px 8px", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 2 };
-    // Lists are capped and scroll rather than growing the card without limit.
-    const scrollBox = { overflowX: "auto", overflowY: "auto", maxHeight: 300 };
 
-    const td = { fontSize: 12, color: T.text, padding: "9px 10px", borderTop: `1px solid ${T.border}55`, whiteSpace: "nowrap" };
-    const periodBtn = (id, label) => (
-      <button key={id} onClick={() => setEmpPeriod(id)} style={{ padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${empPeriod === id ? "transparent" : T.border}`, background: empPeriod === id ? brandGrad(T.accent) : T.surface, color: empPeriod === id ? T.accentText : T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{label}</button>
-    );
     const cs = effectiveClockState(P);
     const clockedLabel = cs.isOnBreak ? "On Break" : cs.isClocked ? "Clocked In" : "Clocked Out";
     const clockedColor = cs.isOnBreak ? "#f59e0b" : cs.isClocked ? "#10b981" : T.textDim;
 
-    return <div>
-      {pageHeader("Employees", null, {}, picker)}{addEmployeeModal}{invitePopup}{employeeCtxMenu}{employeeDeleteModal}
+    // ── Revamp (TRAQS Revamp.html, screen 9: Employee Details) ────────────────
+    // Header row (back, name, status, actions), a header strip
+    // (avatar, details, status / current job / current task), then three open
+    // columns on hairlines: Performance + PTO / attendance · Schedule + time
+    // history · Current work + assigned queue + reviews / notes. Every figure and
+    // control is the one this page already had.
+    const stChip = cs.isOnBreak ? ["On break", "o"] : cs.isClocked ? ["Clocked in", "g"] : ["Clocked out", ""];
+    const payLabel = P.payType === "salary" ? "Salary" : "Hourly";
+    const isMe = String(P.id) === String(loggedInUser?.id);
+    // Message opens (or starts) the DM with this person — the same thread a
+    // time-off notification opens.
+    const openDmWith = () => {
+      if (!loggedInUser) return;
+      const tk = `dm:${[String(loggedInUser.id), String(P.id)].sort().join("_")}`;
+      setChatThread({ threadKey: tk, title: P.name || "Direct Message", scope: "dm", jobId: null, panelId: null, opId: null, groupId: null, participants: [loggedInUser, P].filter(Boolean) });
+      setView("messages");
+    };
+    const plus = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>;
+    const pcell = (value, label, accent, hint) => (
+      <div key={label} title={hint || undefined}><i className="rv-dot" style={{ width: 10, height: 10, background: accent }} /><b className="rv-num">{value}</b><small>{label}</small></div>
+    );
+    const empty = (msg) => <div className="rv-empty">{msg}</div>;
 
-      {/* ── Header card ── */}
-      <div className="tq-frost" style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>
+    const performance = rvSx("Performance",
+      <span className="rv-seg">{[["pay", "Pay period"], ["week", "Week"], ["month", "Month"], ["year", "Year"]].map(([id, l]) => <button key={id} className={empPeriod === id ? "on" : undefined} onClick={() => setEmpPeriod(id)}>{l}</button>)}</span>,
+      <>
+        <small className="rv-mute" style={{ display: "block", margin: "0 0 10px", fontSize: 11 }}>{fm(pStart)} – {fm(pEnd)}</small>
+        <div className="rv-pgrid">
+          {pcell(h1(planned), "Planned hours", "#30b8f8")}
+          {pcell(h1(actual), "Actual hours", "#1a7b58")}
+          {pcell(efficiency == null ? "—" : `${efficiency}%`, "Efficiency", T.accent)}
+          {pcell(String(doneOps.length), "Tasks completed", "#eda412")}
+          {pcell(onTime == null ? "—" : `${onTime}%`, "On time", "#1a7b58")}
+          {pcell(String(behindCount), "Behind schedule", behindCount > 0 ? "#ef4444" : "#9aa0b4")}
+          {pcell(h1(overtime), "Overtime hours", "#eda412")}
+          {pcell(utilization == null ? "—" : `${utilization}%`, "Utilization", "#30b8f8")}
+          {pcell(avgPerTask == null ? "—" : h1(avgPerTask), "Avg hrs / task", T.accent)}
+        </div>
+      </>);
+
+    const ptoAttendance = rvSx("PTO / attendance", "",
+      <div className="rv-pgrid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", width: "100%", gap: 6 }}>
+            <small style={{ flex: 1 }}>Upcoming PTO</small>
+            {can("manageTeam") && <Tip label={`Add time off for ${(P.name || "").split(" ")[0] || "this employee"}`}>
+              <button className="rv-pill sm" onClick={() => setTimeOffModal({ personId: P.id })} aria-label="Add time off" style={{ padding: "4px 7px" }}>{plus}</button>
+            </Tip>}
+          </div>
+          {upcomingPto
+            ? <><b style={{ fontSize: 13, letterSpacing: 0, marginTop: 6 }}>{fm(upcomingPto.start)}{upcomingPto.end !== upcomingPto.start ? ` – ${fm(upcomingPto.end)}` : ""}</b><small>{upcomingPto.reason || upcomingPto.type || "Time off"}</small></>
+            : <b style={{ fontSize: 13, letterSpacing: 0, marginTop: 6 }}>None scheduled</b>}
+        </div>
+        {pcell(attendancePct == null ? "—" : <>{presentDays.size} <small>/ {monthWorkDays.length}</small></>, "Days present (month)", "#1a7b58")}
+        {pcell(String(lateArrivals), `Late arrivals (after ${fmtHourOfDay(lateCutoffH)})`, lateArrivals > 0 ? "#eda412" : "#9aa0b4", `This month. Counts a clock-in after ${fmtHourOfDay(lateCutoffH)} — a ${LATE_GRACE_MIN}-minute grace window on the shift start.`)}
+        {pcell(h1(overtime), `Overtime (${empPeriod === "pay" ? "pay period" : empPeriod})`, "#eda412")}
+      </div>);
+
+    const schedule = rvSx("Schedule",
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <button className="rv-pill sm" onClick={() => setEmpWeekOffset(o => o - 1)} aria-label="Previous week" style={{ padding: "4px 8px" }}>‹</button>
+        <b style={{ color: "var(--rv-ink)" }}>{weekDays.length ? `${fm(weekDays[0])} – ${fm(weekDays[weekDays.length - 1])}` : "—"}</b>
+        <button className="rv-pill sm" onClick={() => setEmpWeekOffset(o => o + 1)} aria-label="Next week" style={{ padding: "4px 8px" }}>›</button>
+        {empWeekOffset !== 0 && <button className="rv-pill sm" onClick={() => setEmpWeekOffset(0)}>This week</button>}
+      </span>,
+      !weekDays.length ? empty("No working days configured.") : <>
+        <div style={{ display: "flex", gap: 8, minHeight: GRID_H + 40 }}>
+          {/* Hour rail — a spacer matching the day header, then the scale */}
+          <div style={{ width: 44, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+            <div style={{ height: 40, flexShrink: 0 }} />
+            <div style={{ position: "relative", flex: 1 }}>
+              {HOURS.map(h => <div key={h} className="rv-mute" style={{ position: "absolute", top: `${((h - workStartH) / totalWorkH) * 100}%`, right: 4, transform: "translateY(-50%)", fontSize: 9.5, whiteSpace: "nowrap" }}>{hLabel(h)}</div>)}
+            </div>
+          </div>
+          <div style={{ flex: 1, display: "flex", gap: 8, minWidth: 0 }}>
+            {weekDays.map(ds => {
+              const off = isOff(P.id, ds);
+              const blocks = off ? [] : blocksFor(ds);
+              const isToday = ds === TD;
+              const dt = new Date(ds + "T12:00:00");
+              return <div key={ds} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                <div className={isToday ? "rv-dh on" : "rv-dh"}>
+                  <small>{dt.toLocaleDateString("en-US", { weekday: "short" })}</small>
+                  <b className="rv-num">{dt.getDate()}</b>
+                </div>
+                <div style={{ position: "relative", flex: 1, borderRadius: 12, border: "1px solid var(--rv-line)", background: isToday ? hexA(T.accent, 0.05) : "var(--rv-surface)", overflow: "hidden" }}>
+                  {HOURS.slice(1, -1).map(h => <div key={h} style={{ position: "absolute", left: 0, right: 0, top: `${((h - workStartH) / totalWorkH) * 100}%`, height: 1, background: "var(--rv-line)" }} />)}
+                  {off && <>
+                    <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${hexA("#8b5cf6", 0.22)}, ${hexA("#8b5cf6", 0.22)} 5px, transparent 5px, transparent 10px)` }} />
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#8b5cf6" }}>PTO</div>
+                  </>}
+                  {(() => { let _cum = 0; return blocks.map((b, bi) => {
+                    const top = ((b.sH - workStartH) / totalWorkH) * 100;
+                    const hgt = ((b.eH - b.sH) / totalWorkH) * 100;
+                    // Overtime is the part of the day PAST the cap, not the whole day.
+                    const before = _cum; _cum += b.share;
+                    const over = before >= dailyCap;
+                    const col = over ? "#f59e0b" : elColor(b.job.color || T.accent);
+                    return <div key={b.op.id + "_" + bi} title={`${b.job.title} · ${b.op.title} · ${h1(b.share)}h`} style={{ position: "absolute", left: 3, right: 3, top: `${top}%`, height: `calc(${hgt}% - 2px)`, minHeight: 16, background: hexA(col, 0.18), borderLeft: `3px solid ${col}`, borderRadius: 8, padding: "3px 6px", boxSizing: "border-box", overflow: "hidden" }}>
+                      <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.job.title}</div>
+                      <div style={{ fontSize: 9, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.op.title}</div>
+                    </div>;
+                  }); })()}
+                  {!off && !blocks.length && <div className="rv-avail">Available</div>}
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginTop: 12, fontSize: 11, color: "var(--rv-mute)" }}>
+          {[["Assigned work", "#30b8f8"], ["Overtime", "#eda412"], ["PTO", "#8b5cf6"]].map(([l, c]) => (
+            <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 3, background: c }} />{l}</span>
+          ))}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><i style={{ width: 10, height: 10, borderRadius: 3, border: "1px dashed var(--rv-track)", boxSizing: "border-box" }} />Available</span>
+        </div>
+      </>);
+
+    const timeHistory = rvSx("Time history", `${fm(histPP.start)} – ${fm(histPP.end)}`, !history.length ? empty("No punches recorded this pay period.") : (
+      <div className="rv-tbl" style={{ maxHeight: 300, overflow: "auto" }}>
+        <table>
+          <thead><tr>{["Date", "Job", "Task", "In", "Out", "Hours"].map(h => <th key={h} style={{ position: "sticky", top: 0, zIndex: 1 }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {history.map((e, i) => <tr key={e.id || i} className={e.live ? "on" : undefined} style={{ cursor: "default" }}>
+              <td style={{ fontWeight: e.live ? 700 : 400 }}>{e.live ? "Today" : fm(e.date)}</td>
+              <td>{e.jobTitle || <span className="rv-mute">—</span>}</td>
+              <td>{e.opTitle || <span className="rv-mute">—</span>}</td>
+              <td className="rv-num">{hhmm(e.clockIn)}</td>
+              <td>
+                {e.live ? rvChip(e.onBreak ? "On break" : "Clocked in", e.onBreak ? "o" : "g")
+                  : e.clockOut ? <span className="rv-num">{hhmm(e.clockOut)}</span>
+                  : rvChip("No clock-out", "r")}
+              </td>
+              <td className="rv-num" style={{ fontWeight: 700, color: e.live ? "#1a7b58" : undefined }}>{h1(e.hours || 0)}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    ));
+
+    const cwKind = cw ? (cw.paused ? "o" : cw.health === "critical" ? "r" : cw.health === "behind" ? "y" : "g") : "";
+    const currentWork = rvSx("Current work", cw ? rvChip(cw.paused ? "Paused" : cw.health === "critical" ? "Critical" : cw.health === "behind" ? "Behind" : "On track", cwKind) : "", !cw ? empty("Not clocked into a job right now.") : <>
+      {[["Job", cw.job], ["Task", cw.task], ["Step", cw.step], ["Started", cw.started], ["Elapsed", cw.elapsed], ["Est. remaining", cw.remaining], ["Est. completion", cw.completion]].map(([k, v]) => (
+        <div key={k} className="rv-row tight" style={{ justifyContent: "space-between" }}><span className="rv-mute">{k}</span><b className="rv-num" style={{ textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</b></div>
+      ))}
+      {/* Amber once past the estimate — the overrun shows where hours are being burned. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+        {rvBar(pctBarWidth(cw.pct), cw.pct > 100 ? PCT_OVERDUE : "#1a7b58", 6)}
+        <small className="rv-num" style={{ fontWeight: 700, color: cw.pct > 100 ? PCT_OVERDUE : "var(--rv-mute)" }}>{cw.pct}%</small>
+      </div>
+    </>);
+
+    const assignedQueue = rvSx("Assigned queue", "Backlog", !queue.length ? empty("No open work assigned.") : (
+      <div style={{ maxHeight: 300, overflowY: "auto" }}>
+        {queue.map((m, i) => {
+          const pri = m.job.pri || m.op.pri || "—";
+          const pk = /high|urgent/i.test(pri) ? "r" : /med/i.test(pri) ? "y" : "";
+          // Derived, not stored: the stored status stays "Not Started" until someone
+          // edits it, so work already clocked into read as untouched.
+          const st = (m.stepTotal != null ? getOpDisplayStatus(m.op) : getPanelDisplayStatus(m.op)) || "Not Started";
+          return <div key={m.op.id + i} className="rv-row" title={`${st} · ${h1((m.op.hpd || 0) / Math.max(1, (m.op.team || []).length))}h est.`}>
+            {rvChip(pri, pk)}
+            <div className="rv-txt"><b>{m.job.title}</b><span>{m.op.title} · {st}</span></div>
+            <small className="rv-num">{fmtDate(m.op.end)}</small>
+          </div>;
+        })}
+      </div>
+    ));
+
+    const reviews = rvSx("Reviews / notes", "", !(P.reviews || []).length ? empty("No reviews or notes yet.") : (
+      <div style={{ maxHeight: 340, overflowY: "auto" }}>
+        {[...(P.reviews || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(r => (
+          <div key={r.id} className="rv-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+              {rvChip(r.kind === "review" ? "Review" : "Note", r.kind === "review" ? "b" : "")}
+              <b style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</b>
+              {r.rating && <b className="rv-num" style={{ color: "#1a7b58" }}>{r.rating}</b>}
+              <button onClick={() => setEmpNoteModal({ personId: P.id, ...r })} title="Edit" style={{ background: "none", border: "none", color: "var(--rv-mute)", cursor: "pointer", padding: 2, lineHeight: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button onClick={() => deleteEmpNote(P.id, r.id)} title="Delete" style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", padding: 2, lineHeight: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+            {r.body && <div style={{ fontSize: 11.5, color: T.textSec, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{r.body}</div>}
+            <small className="rv-mute">{fmtDate(r.date)}{r.author ? `  ·  ${r.author}` : ""}</small>
+          </div>
+        ))}
+      </div>
+    ));
+
+    return <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {addEmployeeModal}{invitePopup}{employeeCtxMenu}{employeeDeleteModal}
+
+      {/* Header row: back, the name, status, actions */}
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 14, minHeight: 50, flexWrap: "wrap" }}>
+        {picker}
+        <span style={{ display: "flex", alignItems: "center", minWidth: 0 }}><h1 style={pageTitleStyle}>{P.name}</h1>{titleActions}</span>
+        {rvChip(stChip[0], stChip[1])}
+        <span style={{ flex: 1 }} />
+        {!isMe && <button className="rv-pill" onClick={openDmWith}>Message</button>}
+        {can("manageTeam") && <button className="rv-pill" onClick={() => editEmployee(P)}>Edit profile</button>}
+        {can("manageTeam") && <button className="rv-pill" onClick={() => setTimeOffModal({ personId: P.id })}>{plus} Add PTO</button>}
+        <button className="rv-pill pri" onClick={() => setEmpNoteModal({ personId: P.id, kind: "note", title: "", body: "", rating: "", date: TD })}>{plus} New review / note</button>
+      </div>
+
+      {/* Header strip */}
+      <div className="rv-ehead">
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <PersonAvatar person={P} size={62} />
-          <div style={{ position: "absolute", right: 1, bottom: 1, width: 15, height: 15, borderRadius: "50%", background: clockedColor, border: `2.5px solid ${T.card}` }} />
+          <PersonAvatar person={P} size={56} />
+          <div style={{ position: "absolute", right: 1, bottom: 1, width: 14, height: 14, borderRadius: "50%", background: clockedColor, border: "2.5px solid var(--rv-surface)" }} />
         </div>
-        <div style={{ minWidth: 180 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>{P.name}</div>
-          <div style={{ ...dim, marginTop: 3 }}>{[P.title, P.department, P.email].filter(Boolean).join("  ·  ") || "—"}</div>
-          <div style={{ ...dim, marginTop: 2 }}>{[P.teamNumber ? `Team ${P.teamNumber}` : null, P.isEngineer ? "Engineer" : null, `${dailyCap}h/day`].filter(Boolean).join("  ·  ")}</div>
+        <div style={{ minWidth: 0 }}>
+          <b style={{ fontSize: 15 }}>{P.name}</b>
+          <div className="rv-mute" style={{ fontSize: 11.5, marginTop: 3 }}>{[P.title, P.department, P.email, P.teamNumber ? `Team ${P.teamNumber}` : null, P.isEngineer ? "Engineer" : null, `${dailyCap}h/day`, payLabel].filter(Boolean).join(" · ")}</div>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 150 }}>
-            <div style={{ ...dim, marginBottom: 4 }}>Status</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: clockedColor }}>{clockedLabel}</div>
-            <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{cs.isClocked ? `Since ${hhmm(P.activeClockIn?.clockIn)} (${h1(cs.runningMs / 3600000)} hrs)` : "Not on the clock"}</div>
-          </div>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 170 }}>
-            <div style={{ ...dim, marginBottom: 4 }}>Current Job</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: jc ? T.accent : T.textDim, overflow: "hidden", textOverflow: "ellipsis" }}>{jc ? (jc.jobTitle || "—") : "None"}</div>
-            <div style={{ fontSize: 11, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>{jc ? (jc.panelTitle || "—") : "Not clocked into a job"}</div>
-          </div>
-          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 170 }}>
-            <div style={{ ...dim, marginBottom: 4 }}>Current Task</div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: jc ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis" }}>{cw ? cw.task : "None"}</div>
-            <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{cw ? `Step ${cw.step}` : "—"}</div>
-          </div>
+        <span style={{ flex: 1 }} />
+        <div className="rv-kstrip rv-ehead-strip">
+          <div><small>Status</small><b style={{ color: clockedColor }}>{clockedLabel}</b><small>{cs.isClocked ? `Since ${hhmm(P.activeClockIn?.clockIn)} (${h1(cs.runningMs / 3600000)} hrs)` : "Not on the clock"}</small></div>
+          <div><small>Current job</small><b style={{ color: jc ? T.accent : undefined }}>{jc ? (jc.jobTitle || "—") : "None"}</b><small>{jc ? (jc.panelTitle || "—") : "Not clocked into a job"}</small></div>
+          <div><small>Current task</small><b>{cw ? cw.task : "None"}</b><small>{cw ? `Step ${cw.step}` : "—"}</small></div>
         </div>
       </div>
 
-      {/* ── Performance + Schedule + Current Work ── */}
-      {/* Flex-wrap rather than a fixed 3-column grid: the schedule needs roughly
-          twice the width of its neighbours, and on a narrow window the columns
-          reflow instead of forcing the page to scroll sideways. */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "stretch", marginBottom: 14 }}>
-        <div className="tq-frost" style={card({ flex: "1 1 320px", minWidth: 0 })}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
-            <h3 style={cardTitle}>Performance</h3>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{periodBtn("pay", "Pay Period")}{periodBtn("week", "Week")}{periodBtn("month", "Month")}{periodBtn("year", "Year")}</div>
-          </div>
-          <div style={{ ...dim, marginBottom: 13 }}>{fm(pStart)} – {fm(pEnd)}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9 }}>
-            {tile(h1(planned), "Planned Hours", T.accent)}
-            {tile(h1(actual), "Actual Hours", "#10b981")}
-            {tile(efficiency == null ? "—" : `${efficiency}%`, "Efficiency", "#8b5cf6")}
-            {tile(String(doneOps.length), "Tasks Completed", "#f59e0b")}
-            {tile(onTime == null ? "—" : `${onTime}%`, "On Time", "#10b981")}
-            {tile(String(behindCount), "Behind Schedule", behindCount > 0 ? "#ef4444" : T.textDim)}
-            {tile(h1(overtime), "Overtime Hours", "#f59e0b")}
-            {tile(utilization == null ? "—" : `${utilization}%`, "Utilization", T.accent)}
-            {tile(avgPerTask == null ? "—" : h1(avgPerTask), "Avg Hrs / Task", "#8b5cf6")}
-          </div>
-        </div>
-
-        <div className="tq-frost" style={card({ flex: "2 1 460px", minWidth: 0, display: "flex", flexDirection: "column" })}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap", flexShrink: 0 }}>
-            <h3 style={cardTitle}>Schedule</h3>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button onClick={() => setEmpWeekOffset(o => o - 1)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, width: 24, height: 24, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{weekDays.length ? `${fm(weekDays[0])} – ${fm(weekDays[weekDays.length - 1])}` : "—"}</span>
-              <button onClick={() => setEmpWeekOffset(o => o + 1)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, width: 24, height: 24, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
-              {empWeekOffset !== 0 && <button onClick={() => setEmpWeekOffset(0)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: T.textSec, cursor: "pointer", fontFamily: T.font }}>This week</button>}
-            </div>
-          </div>
-          {!weekDays.length ? nothing("No working days configured.") : <>
-            {/* flex:1 so the grid grows to whatever height the row settles at
-                (the Performance card sets it). Percentage-positioned blocks
-                still resolve because the flex item gets a definite height. */}
-            <div style={{ display: "flex", gap: 6, flex: 1, minHeight: GRID_H }}>
-              {/* Hour rail — a spacer matching the day-header height, then the scale */}
-              <div style={{ width: 42, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-                <div style={{ height: 22, flexShrink: 0 }} />
-                <div style={{ position: "relative", flex: 1 }}>
-                  {HOURS.map(h => <div key={h} style={{ position: "absolute", top: `${((h - workStartH) / totalWorkH) * 100}%`, right: 4, transform: "translateY(-50%)", fontSize: 9.5, color: T.textDim, whiteSpace: "nowrap" }}>{hLabel(h)}</div>)}
-                </div>
-              </div>
-              <div style={{ flex: 1, display: "flex", gap: 6, minWidth: 0 }}>
-                {weekDays.map(ds => {
-                  const off = isOff(P.id, ds);
-                  const blocks = off ? [] : blocksFor(ds);
-                  const isToday = ds === TD;
-                  return <div key={ds} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                    <div style={{ height: 22, flexShrink: 0, textAlign: "center", fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? T.accent : T.textSec, whiteSpace: "nowrap" }}>
-                      {new Date(ds + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })} {new Date(ds + "T12:00:00").getDate()}
-                    </div>
-                    <div style={{ position: "relative", flex: 1, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: isToday ? hexA(T.accent, 0.05) : T.surface, overflow: "hidden" }}>
-                      {HOURS.slice(1, -1).map(h => <div key={h} style={{ position: "absolute", left: 0, right: 0, top: `${((h - workStartH) / totalWorkH) * 100}%`, height: 1, background: T.border + "55" }} />)}
-                      {off && <>
-                        <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${hexA("#8b5cf6", 0.22)}, ${hexA("#8b5cf6", 0.22)} 5px, transparent 5px, transparent 10px)` }} />
-                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#8b5cf6" }}>PTO</div>
-                      </>}
-                      {(() => { let _cum = 0; return blocks.map((b, bi) => {
-                        const top = ((b.sH - workStartH) / totalWorkH) * 100;
-                        const hgt = ((b.eH - b.sH) / totalWorkH) * 100;
-                        // Overtime is the part of the day PAST the cap. A whole-day flag
-                        // was a whole-day flag applied to every block, so a single hour
-                        // over repainted work that sits entirely within capacity.
-                        const before = _cum; _cum += b.share;
-                        const over = before >= dailyCap;
-                        const col = over ? "#f59e0b" : elColor(b.job.color || T.accent);
-                        return <div key={b.op.id + "_" + bi} title={`${b.job.title} · ${b.op.title} · ${h1(b.share)}h`} style={{ position: "absolute", left: 3, right: 3, top: `${top}%`, height: `calc(${hgt}% - 2px)`, minHeight: 16, background: hexA(col, 0.16), borderLeft: `2.5px solid ${col}`, borderRadius: 8, padding: "3px 5px", overflow: "hidden" }}>
-                          <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.job.title}</div>
-                          <div style={{ fontSize: 9, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.op.title}</div>
-                        </div>;
-                      }); })()}
-                      {!off && !blocks.length && <div style={{ position: "absolute", inset: 6, border: `1px dashed ${T.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, color: T.textDim }}>Available</div>}
-                    </div>
-                  </div>;
-                })}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, paddingTop: 11, borderTop: `1px solid ${T.border}55`, flexShrink: 0 }}>
-              {[["Assigned Work", T.accent], ["Overtime", "#f59e0b"], ["PTO", "#8b5cf6"]].map(([l, c]) => (
-                <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textSec }}>
-                  <span style={{ width: 11, height: 11, borderRadius: 8, background: hexA(c, 0.25), border: `1.5px solid ${c}` }} />{l}
-                </span>
-              ))}
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textSec }}>
-                <span style={{ width: 11, height: 11, borderRadius: 8, border: `1px dashed ${T.border}` }} />Available
-              </span>
-            </div>
-          </>}
-        </div>
-
-        <div className="tq-frost" style={card({ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column" })}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexShrink: 0 }}>
-            <h3 style={cardTitle}>Current Work</h3>
-            {cw && statusChip(cw.paused ? "Paused" : cw.health === "critical" ? "Critical" : cw.health === "behind" ? "Behind" : "On Track", cw.paused ? "#f59e0b" : cw.health === "critical" ? "#ef4444" : cw.health === "behind" ? "#f59e0b" : "#10b981")}
-          </div>
-          {!cw ? nothing("Not clocked into a job right now.") : <>
-            {kv("Job", cw.job, T.accent)}
-            {kv("Task", cw.task)}
-            {kv("Step", cw.step)}
-            {kv("Started", cw.started)}
-            {kv("Elapsed", cw.elapsed)}
-            {kv("Est. Remaining", cw.remaining)}
-            {kv("Est. Completion", cw.completion)}
-            {/* marginTop:auto drops the bar to the bottom of the stretched card
-                rather than leaving a gap beneath it. */}
-            <div style={{ marginTop: "auto", paddingTop: 14 }}>
-              <div style={{ height: 7, borderRadius: 8, background: T.border + "66", overflow: "hidden" }}>
-                {/* Amber once past the estimate. This bar was hardcoded green, which hid the
-                    overrun on the one screen where the hours are actively being burned. */}
-                <div style={{ width: `${pctBarWidth(cw.pct)}%`, height: "100%", background: cw.pct > 100 ? PCT_OVERDUE : brandGrad("#10b981"), transition: "width 0.3s" }} />
-              </div>
-              <div style={{ textAlign: "right", fontSize: 11, fontWeight: 700, color: cw.pct > 100 ? PCT_OVERDUE : T.textDim, marginTop: 5, fontFamily: T.mono }}>{cw.pct}%</div>
-            </div>
-          </>}
-        </div>
-      </div>
-
-      {/* ── Assigned queue + time history ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginBottom: 14 }}>
-        <div className="tq-frost" style={card()}>
-          <h3 style={{ ...cardTitle, marginBottom: 12 }}>Assigned Queue <span style={{ fontWeight: 600, color: T.textDim }}>(Backlog)</span></h3>
-          {!queue.length ? nothing("No open work assigned.") : (
-            <ScrollBox style={scrollBox} fill={hexA(T.card, 0.94)}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
-                <thead><tr>{["Priority", "Job", "Task", "Due Date", "Est. Hours", "Status"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {queue.map((m, i) => {
-                    const pri = m.job.pri || m.op.pri || "—";
-                    const pc = /high|urgent/i.test(pri) ? "#ef4444" : /med/i.test(pri) ? "#f59e0b" : T.textDim;
-                    const hl = healthOf(m.op);
-                    const sc = hl === "critical" ? "#ef4444" : hl === "behind" ? "#f59e0b" : T.textDim;
-                    return <tr key={m.op.id + i}>
-                      <td style={td}>{statusChip(pri, pc)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>{m.job.title}</td>
-                      <td style={td}>{m.op.title}</td>
-                      <td style={td}>{fmtDate(m.op.end)}</td>
-                      <td style={{ ...td, fontFamily: T.mono }}>{h1((m.op.hpd || 0) / Math.max(1, (m.op.team || []).length))}</td>
-                      {/* Derived, not stored: the stored status stays "Not Started" until
-                          someone edits it, so work already clocked into read as untouched. */}
-                      <td style={td}>{statusChip((m.stepTotal != null ? getOpDisplayStatus(m.op) : getPanelDisplayStatus(m.op)) || "Not Started", sc)}</td>
-                    </tr>;
-                  })}
-                </tbody>
-              </table>
-            </ScrollBox>
-          )}
-        </div>
-
-        <div className="tq-frost" style={card()}>
-          <h3 style={{ ...cardTitle, marginBottom: 2 }}>Time History <span style={{ fontWeight: 600, color: T.textDim }}>(Pay Period)</span></h3>
-          <div style={{ ...dim, marginBottom: 12 }}>{fm(histPP.start)} – {fm(histPP.end)}</div>
-          {!history.length ? nothing("No punches recorded this pay period.") : (
-            <ScrollBox style={scrollBox} fill={hexA(T.card, 0.94)}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
-                <thead><tr>{["Date", "Job", "Task", "In", "Out", "Hours"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
-                <tbody>
-                  {history.map((e, i) => <tr key={e.id || i} style={e.live ? { background: hexA("#10b981", 0.07) } : undefined}>
-                    <td style={{ ...td, fontWeight: e.live ? 800 : 400 }}>{e.live ? "Today" : fm(e.date)}</td>
-                    <td style={td}>{e.jobTitle || "—"}</td>
-                    <td style={td}>{e.opTitle || "—"}</td>
-                    <td style={{ ...td, fontFamily: T.mono }}>{hhmm(e.clockIn)}</td>
-                    <td style={td}>
-                      {e.live ? statusChip(e.onBreak ? "On Break" : "Clocked In", e.onBreak ? "#f59e0b" : "#10b981")
-                        : e.clockOut ? <span style={{ fontFamily: T.mono }}>{hhmm(e.clockOut)}</span>
-                        : statusChip("No clock-out", "#ef4444")}
-                    </td>
-                    <td style={{ ...td, fontFamily: T.mono, fontWeight: 700, color: e.live ? "#10b981" : T.text }}>{h1(e.hours || 0)}</td>
-                  </tr>)}
-                </tbody>
-              </table>
-            </ScrollBox>
-          )}
-        </div>
-      </div>
-
-      {/* ── PTO / attendance + reviews ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14 }}>
-        <div className="tq-frost" style={card()}>
-          <h3 style={{ ...cardTitle, marginBottom: 12 }}>PTO / Attendance</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 9 }}>
-            {/* Upcoming PTO owns the add affordance, in its own top-right corner —
-                adding time off belongs to THIS tile, not to the whole PTO/Attendance
-                section (the other three tiles are read-only attendance figures).
-                position:relative so the button can corner itself; paddingRight clears
-                it so a long date range cannot run underneath. */}
-            <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 13px", paddingRight: can("manageTeam") ? 38 : 13 }}>
-              {can("manageTeam") && <Tip label={`Add time off for ${(P.name || "").split(" ")[0] || "this employee"}`}>
-                <button className="icon-btn-glow" onClick={() => setTimeOffModal({ personId: P.id })}
-                  aria-label="Add time off"
-                  style={{ position: "absolute", top: 7, right: 7, width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-              </Tip>}
-              <div style={{ ...dim, marginBottom: 6 }}>Upcoming PTO</div>
-              {upcomingPto
-                ? <><div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{fm(upcomingPto.start)}{upcomingPto.end !== upcomingPto.start ? ` – ${fm(upcomingPto.end)}` : ""}</div>
-                    <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{upcomingPto.reason || upcomingPto.type || "Time off"}</div></>
-                : <div style={{ fontSize: 12, color: T.textDim }}>None scheduled</div>}
-            </div>
-            {tile(attendancePct == null ? "—" : `${presentDays.size} / ${monthWorkDays.length}`, "Days Present (Month)", "#10b981")}
-            {tile(String(lateArrivals), `Late Arrivals (after ${fmtHourOfDay(lateCutoffH)})`, lateArrivals > 0 ? "#f59e0b" : T.textDim, `This month. Counts a clock-in after ${fmtHourOfDay(lateCutoffH)} — a ${LATE_GRACE_MIN}-minute grace window on the ${fmtHourOfDay(workStartH)} start time.`)}
-            {tile(h1(overtime), `Overtime (${empPeriod === "pay" ? "Pay Period" : empPeriod === "week" ? "Week" : empPeriod === "month" ? "Month" : "Year"})`, "#f59e0b")}
-          </div>
-        </div>
-
-        <div className="tq-frost" style={card()}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
-            <h3 style={cardTitle}>Reviews / Notes</h3>
-            <button onClick={() => setEmpNoteModal({ personId: P.id, kind: "note", title: "", body: "", rating: "", date: TD })}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}44`, background: hexA(T.accent, 0.1), color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              New Review / Note
-            </button>
-          </div>
-          {!(P.reviews || []).length ? nothing("No reviews or notes yet. Add the first one.") : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 340, overflowY: "auto", paddingRight: 4 }}>
-              {[...(P.reviews || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(r => (
-                <div key={r.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 14px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
-                    {statusChip(r.kind === "review" ? "Review" : "Note", r.kind === "review" ? T.accent : "#8b5cf6")}
-                    <span style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</span>
-                    {r.rating && <span style={{ fontSize: 12, fontWeight: 800, color: "#10b981", fontFamily: T.mono }}>{r.rating}</span>}
-                    <button onClick={() => setEmpNoteModal({ personId: P.id, ...r })} title="Edit" style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", padding: 2, lineHeight: 0 }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button onClick={() => deleteEmpNote(P.id, r.id)} title="Delete" style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", padding: 2, lineHeight: 0 }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                    </button>
-                  </div>
-                  {r.body && <div style={{ fontSize: 12.5, color: T.textSec, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{r.body}</div>}
-                  <div style={{ ...dim, marginTop: 6 }}>{fmtDate(r.date)}{r.author ? `  ·  ${r.author}` : ""}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Three open columns */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1.3fr) 300px", gap: isMobile ? 26 : "0 32px", alignItems: "start" }}>
+        <div className="rv-ecol">{performance}{ptoAttendance}</div>
+        <div className="rv-ecol">{schedule}{timeHistory}</div>
+        <div className="rv-ecol">{currentWork}{assignedQueue}{reviews}</div>
       </div>
     </div>;
   };
@@ -21197,14 +21087,15 @@ ${jobsCtx || "No jobs found."}`;
           // The title heads the LEFT column (above your name); the admin actions sit
           // at the top of the right column, over the team.
           const titleRow = (
-            <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, minWidth: 0, minHeight: 50 }}>
+            <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, minHeight: 50 }}>
               <h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}
             </div>
           );
           // The right column's header: the view pills (Team / Timesheets / Finish
           // Requests) on the left, the page actions on the right — all one size.
           const actions = isAdmin ? (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", minHeight: 50 }}>
+              <div className="tq-pagehdr" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", minHeight: 50 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", marginRight: 10 }}><h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}</span>
                 {[
                   { id: "live", label: "Team" },
                   { id: "timesheets", label: "Timesheets" },
@@ -21326,7 +21217,9 @@ ${jobsCtx || "No jobs found."}`;
             );
           }) : <div className="rv-mute" style={{ fontSize: 11.5 }}>No pending finish requests.</div>) : null;
 
-          const left = <div className="rv-tc-left">{isAdmin && titleRow}{me}{currentJob}{period}{finishList}</div>;
+          // Your clock: its own column on the RIGHT of the team (admins), or the
+          // page itself under the title (everyone else).
+          const left = <div className="rv-tc-left" style={isAdmin ? undefined : { borderLeft: 0, paddingLeft: 0 }}>{me}{currentJob}{period}{finishList}</div>;
 
           if (!isAdmin) return <>
             {titleRow}
@@ -21463,8 +21356,7 @@ ${jobsCtx || "No jobs found."}`;
           const offNow = crew.filter(p => !effectiveClockState(p).isClocked);
 
           return (
-            <div style={{ display: "grid", gridTemplateColumns: "340px minmax(0, 1fr)", gap: "0 40px", alignItems: "start" }}>
-              {left}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", gap: "0 40px", alignItems: "start" }}>
               <div className="rv-tc-right">
                 {actions}
                 {tsAdminTab === "live" && <>
@@ -21623,6 +21515,7 @@ ${jobsCtx || "No jobs found."}`;
               )}
                 </div>}
               </div>
+              {left}
             </div>
           );
         })()}
@@ -22299,17 +22192,30 @@ ${jobsCtx || "No jobs found."}`;
           const gId = threadKey.replace("group:", "");
           openThread(threadKey, title, "group", null, null, null, gId);
         }
-      }} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 16px", margin: "5px 10px", cursor: "pointer", borderRadius: T.radiusPill, background: isActive ? brandGrad(T.accent) : T.card, border: `1px solid ${isActive ? "transparent" : T.border}`, color: isActive ? T.accentText : T.text, boxShadow: isActive ? `0 6px 18px -5px ${hexA(T.accent, 0.55)}` : "none", transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = T.card; }}>
-        <span style={{ lineHeight: 0, flexShrink: 0, display: "flex", color: isActive ? T.accentText : T.textSec }}>{icon}</span>
+      }} className={isActive ? "rv-cv on" : "rv-cv"}>
+        <span style={{ lineHeight: 0, flexShrink: 0, display: "flex", color: "var(--rv-mute)" }}>{icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: unread ? 700 : 600, color: isActive ? T.accentText : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-          {latest && <div style={{ fontSize: 12, marginTop: 2, color: isActive ? hexA(T.accentText, 0.75) : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+            <b style={{ fontWeight: unread ? 800 : 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</b>
+            {pinned && <span style={{ lineHeight: 0, flexShrink: 0, color: "var(--rv-mute)" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17v5M9 3h6l-1 7 3 3H7l3-3z"/></svg></span>}
+            <span style={{ flex: 1 }} />
+            {latest && <small className="rv-mute" style={{ fontSize: 9.5, flexShrink: 0 }}>{threadAgo(latest.timestamp)}</small>}
+          </div>
+          {latest && <span className="rv-cv-prev">{String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}</span>}
         </div>
-        {pinned && <span style={{ lineHeight: 0, flexShrink: 0, color: isActive ? T.accentText : T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg></span>}
-        {unread > 0 && <div style={{ minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 16, background: isActive ? "rgba(255,255,255,0.28)" : T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{unread > 9 ? "9+" : unread}</div>}
+        {unread > 0 && <span className="rv-badge" style={{ position: "static", flexShrink: 0 }}>{unread > 99 ? "99+" : unread}</span>}
       </div>;
     };
 
+    // "3m" / "20h" / "2d" / "1w", as the list's right-hand stamp.
+    const threadAgo = (iso) => {
+      const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 60) return mins < 1 ? "now" : `${mins}m`;
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return `${hrs}h`;
+      const days = Math.round(hrs / 24);
+      return days < 7 ? `${days}d` : `${Math.round(days / 7)}w`;
+    };
     const showList = !isMobile || !chatThread;
     const showChat = !isMobile || !!chatThread;
 
@@ -22355,33 +22261,48 @@ ${jobsCtx || "No jobs found."}`;
     const renderConvo = (t) => t.kind === "group"
       ? <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: t.group.id, groupName: t.title }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), groupChip(t.group), isPinnedConvo(t))}</div>
       : <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setDmCtxMenu({ x: e.clientX, y: e.clientY, threadKey: t.threadKey, title: t.title }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), avatarChip(t.person, 38), isPinnedConvo(t))}</div>;
-    const pinnedConvos = convoThreads.filter(isPinnedConvo);
-    const unpinnedConvos = convoThreads.filter(t => !isPinnedConvo(t));
+    // Revamp: search and an All / Direct / Groups / Jobs filter over the same list.
+    const q = msgSearch.trim().toLowerCase();
+    const matchQ = (title, latest) => !q || String(title || "").toLowerCase().includes(q) || String(latest?.text || "").toLowerCase().includes(q);
+    const shownConvos = convoThreads.filter(t => (msgFilter === "all" || (msgFilter === "direct" && t.kind === "dm") || (msgFilter === "groups" && t.kind === "group")) && matchQ(t.title, t.latest));
+    const pinnedConvos = shownConvos.filter(isPinnedConvo);
+    const unpinnedConvos = shownConvos.filter(t => !isPinnedConvo(t));
+    const showJobChats = msgFilter === "all" || msgFilter === "jobs";
 
     return <div style={{ display: "flex", flex: 1, minHeight: 0, height: "100%", overflow: "hidden" }}>
       {/* ─── Thread list ─── */}
-      {showList && <div className="tq-frost" style={{ width: isMobile ? "100%" : 380, flexShrink: 0, height: "100%", borderRight: `1px solid ${T.glassBorder}`, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", overflowX: "hidden", background: hexA(T.surface, 0.55), backdropFilter: "blur(28px) saturate(1.4)", WebkitBackdropFilter: "blur(28px) saturate(1.4)" }}>
-        {/* Header */}
-        <div style={{ padding: "24px 16px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 8 }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, minWidth: 0 }}><h1 style={pageTitleStyle}>Messages</h1>{titleActions}</span>
-          {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 34, display: "flex", alignItems: "center", padding: "0 14px", background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
+      {showList && <div className="rv-mlist" style={{ width: isMobile ? "100%" : 400 }}>
+        {/* Header: title, new group; search; filters */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, minHeight: 50, flexShrink: 0 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, minWidth: 0 }}><h1 style={pageTitleStyle}>Messages</h1></span>
+          <span style={{ flex: 1 }} />
+          {loggedInUser && <Tip label="New group"><button className="rv-pill pri ic" onClick={() => setNewGroupModal(true)} aria-label="New group">{/* The rail's Messages bubble, with a + centred in it */}<svg width="18" height="18" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/><path d="M12 8.6v5.8M9.1 11.5h5.8"/></svg></button></Tip>}
         </div>
-        {convoThreads.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No conversations yet</div>}
+        <label className="rv-pill" style={{ cursor: "text", color: msgSearch ? "var(--tq-accent)" : "var(--rv-mute)", margin: "32px 0 22px", flexShrink: 0 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></svg>
+          <input className="tq-bare" value={msgSearch} onChange={e => setMsgSearch(e.target.value)} placeholder="Search people, jobs…" style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--rv-ink)", fontSize: 11.5, fontFamily: "inherit" }} />
+          {msgSearch && <span role="button" onClick={e => { e.preventDefault(); setMsgSearch(""); }} style={{ cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</span>}
+        </label>
+        <div style={{ display: "flex", gap: 6, marginBottom: 28, flexShrink: 0 }}>
+          {[["all", "All"], ["direct", "Direct"], ["groups", "Groups"], ["jobs", "Jobs"]].map(([id, l]) => (
+            <button key={id} className={msgFilter === id ? "rv-pill on sm" : "rv-pill sm"} onClick={() => setMsgFilter(id)}>{l}</button>
+          ))}
+        </div>
+        {convoThreads.length === 0 && <div className="rv-mute" style={{ padding: "6px 12px 10px", fontSize: 11.5 }}>No conversations yet</div>}
+        {convoThreads.length > 0 && !shownConvos.length && !(showJobChats && jobThreads.length) && <div className="rv-mute" style={{ padding: "6px 12px 10px", fontSize: 11.5 }}>Nothing matches.</div>}
         {pinnedConvos.length > 0 && <>
-          <div style={{ padding: "0 20px 4px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <div className="rv-mlabel">
             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg></span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Pinned</span>
+            <span>Pinned</span>
           </div>
           {pinnedConvos.map(renderConvo)}
-          <div style={{ height: 1, background: T.border, margin: "10px 16px 6px", flexShrink: 0 }} />
+          <div style={{ height: 1, background: "var(--rv-line)", margin: "8px 12px 6px", flexShrink: 0 }} />
         </>}
         {unpinnedConvos.map(renderConvo)}
         {/* Job threads */}
-        {jobThreads.length > 0 && <>
-          <div style={{ padding: "10px 14px 6px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Job Chats</span>
-          </div>
-          {jobThreads.slice().sort((a, b) => {
+        {showJobChats && jobThreads.length > 0 && <>
+          <div className="rv-mlabel" style={{ borderTop: "1px solid var(--rv-line)", marginTop: 6, paddingTop: 12 }}><span>Job chats</span></div>
+          {jobThreads.filter(t => matchQ(getThreadTitle(t.threadKey, t.scope, t.jobId, t.panelId, t.opId), t.latest)).sort((a, b) => {
             const ap = pinnedThreads.includes(a.threadKey) ? 0 : 1;
             const bp = pinnedThreads.includes(b.threadKey) ? 0 : 1;
             return ap - bp;
@@ -22401,7 +22322,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>}
 
       {/* ─── Chat area ─── */}
-      {showChat && <div style={{ flex: 1, minHeight: 0, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {showChat && <div style={{ flex: 1, minHeight: 0, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", padding: isMobile ? 0 : "24px 32px 24px 0" }}>
         {!chatThread ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim, gap: 12 }}>
             <div style={{ lineHeight: 0, color: T.textDim }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
@@ -22409,14 +22330,39 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 13 }}>Choose a group or job chat from the left</div>
           </div>
         ) : (<>
-          {/* Chat header */}
-          <div style={{ padding: "16px 18px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, position: "relative" }}>
-            {isMobile && <button onClick={() => setChatThread(null)} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.textSec, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>‹</button>}
-            {chatThread.scope === "group"
-              ? groupChip(groups.find(g => g.id === chatThread.groupId) || { memberIds: (chatThread.participants || []).map(p => p.id) })
-              : avatarChip((chatThread.participants || []).find(p => String(p.id) !== String(loggedInUser?.id)) || (chatThread.participants || [])[0], 42)}
-            <div style={{ fontSize: 26, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%", minWidth: 0 }}>{chatThread.title}</div>
-          </div>
+          {/* Chat header: who, their status, pin */}
+          {(() => {
+            const other = chatThread.scope === "group" ? null : ((chatThread.participants || []).find(p => String(p.id) !== String(loggedInUser?.id)) || null);
+            const otherRec = other ? (people.find(p => sameId(p.id, other.id)) || other) : null;
+            const st = otherRec ? personStatus(otherRec) : null;
+            const jc = st === "job" ? otherRec.activeJobClock : null;
+            const stLine = st ? `● ${PERSON_STATUS_META[st].label}${jc ? ` · ${[jc.opTitle, jc.jobTitle].filter(Boolean).join(" · ")}` : ""}` : chatThread.scope === "group" ? `${(chatThread.participants || []).length || (groups.find(g => g.id === chatThread.groupId)?.memberIds || []).length} people` : null;
+            const pinKey = chatThread.scope === "group" ? chatThread.groupId : chatThread.threadKey;
+            const threadPinned = chatThread.scope === "group" ? pinnedGroups.includes(pinKey) : pinnedThreads.includes(pinKey);
+            const togglePin = () => {
+              if (chatThread.scope === "group") {
+                const updated = threadPinned ? pinnedGroups.filter(id => id !== pinKey) : [...pinnedGroups, pinKey];
+                setPinnedGroups(updated); localStorage.setItem("tq_pinned_groups", JSON.stringify(updated));
+              } else {
+                const updated = threadPinned ? pinnedThreads.filter(tk => tk !== pinKey) : [...pinnedThreads, pinKey];
+                setPinnedThreads(updated); localStorage.setItem("tq_pinned_threads", JSON.stringify(updated));
+              }
+            };
+            return <div className="rv-th-hd">
+              {isMobile && <button onClick={() => setChatThread(null)} style={{ background: "none", border: "none", color: T.textSec, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>‹</button>}
+              {chatThread.scope === "group"
+                ? groupChip(groups.find(g => g.id === chatThread.groupId) || { memberIds: (chatThread.participants || []).map(p => p.id) })
+                : avatarChip((chatThread.participants || []).find(p => String(p.id) !== String(loggedInUser?.id)) || (chatThread.participants || [])[0], 36)}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chatThread.title}</b>
+                {stLine && <span style={{ fontSize: 10.5, color: st && st !== "offline" ? "#1a7b58" : "var(--rv-mute)" }}>{stLine}</span>}
+              </div>
+              <button className={threadPinned ? "rv-pill on sm" : "rv-pill sm"} onClick={togglePin}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17v5M9 3h6l-1 7 3 3H7l3-3z"/></svg>
+                {threadPinned ? "Pinned" : "Pin"}
+              </button>
+            </div>;
+          })()}
           {/* Messages */}
           <div ref={chatScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0", maskImage: "linear-gradient(to bottom, transparent 0, #000 56px)", WebkitMaskImage: "linear-gradient(to bottom, transparent 0, #000 56px)" }}>
             {threadMessages.length === 0 && (
@@ -22693,7 +22639,7 @@ ${jobsCtx || "No jobs found."}`;
                       {/* No in-flight styling on the bubble itself — it renders
                           identically from the moment it appears. Delivery state
                           lives entirely in the caption below. */}
-                      {m.text && <div style={{ position: "relative", zIndex: 1, background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "22px 22px 6px 22px" : "22px 22px 22px 6px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
+                      {m.text && <div style={{ position: "relative", zIndex: 1, background: isMe ? T.accent : "var(--rv-chip)", color: isMe ? T.accentText : T.text, padding: "10px 14px", borderRadius: isMe ? "20px 20px 6px 20px" : "20px 20px 20px 6px", fontSize: 14, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
                         {m.text}
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
@@ -22742,7 +22688,7 @@ ${jobsCtx || "No jobs found."}`;
             <div ref={chatBottomRef} />
           </div>
           {/* Input */}
-          <div style={{ padding: "12px 14px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <div style={{ padding: "14px 0 0", borderTop: "1px solid var(--rv-line)", flexShrink: 0 }}>
             {chatError && <div style={{ marginBottom: 8, padding: "8px 12px", background: T.danger + "15", border: `1px solid ${T.danger}33`, borderRadius: 12, fontSize: 12, color: T.danger, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span>⚠ {chatError}</span>
               <button onClick={() => setChatError(null)} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
@@ -22762,7 +22708,7 @@ ${jobsCtx || "No jobs found."}`;
                 )}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input ref={chatFileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleChatFileSelect} />
-                  <Tip label="Attach file"><button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: chatUploading ? T.accent + "15" : T.surface, border: `1px solid ${T.border}`, cursor: chatUploading ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", color: chatUploading ? T.accent : T.textDim }}>
+                  <Tip label="Attach file"><button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} className="rv-pill ic">
                     {chatUploading
                       ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -22776,9 +22722,9 @@ ${jobsCtx || "No jobs found."}`;
                       in the field rules, so this drops the transform, the hover glow and
                       the focus halo together. The composer paints its own background and
                       border inline, which is what should be doing that job here. */}
-                  <textarea className="tq-bare" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
-                  <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? brandGrad(T.accent) : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  <textarea className="tq-bare" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: "var(--rv-surface)", border: "1px solid var(--rv-track)", borderRadius: 999, color: T.text, fontSize: 13, padding: "10px 16px", fontFamily: T.font, resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.3 }} />
+                  <button className="rv-pill pri" onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading}>
+                    Send
                   </button>
                 </div>
               </div>

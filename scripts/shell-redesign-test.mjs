@@ -114,7 +114,7 @@ check("the rail and its <aside> can be located", () => (ASIDE.length > 2000 && R
 check("the logo mark is centred on the page-title row", () =>
   /const TITLE_ROW_TOP = 24, TITLE_ROW_H = 57;/.test(RAIL) && /marginTop: TITLE_ROW_TOP - RAIL_PAD_TOP, height: TITLE_ROW_H/.test(ASIDE) || "mark not on the title row");
 check("frostScroll puts titles 24px down, the greeting's padTop (fixture for the check above)", () => /const frostScroll = \(children, pad = "24px 32px 28px"/.test(SRC) && /const padTop = isMobile \? 2 : 24;/.test(SRC) || "frostScroll padding / greeting padTop moved");
-check("page titles are the greeting's size and face (Manrope)", () => /fontSize: isMobile \? 32 : 52,\s*fontFamily: FONT_TITLE,\s*fontWeight: 800,\s*letterSpacing: "-0\.07em",\s*lineHeight: 1\.1/.test(SRC) && /<span style=\{\{ fontSize: isMobile \? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0\.07em"[^\n]*lineHeight: 1\.1/.test(SRC) || "title size/face != greeting size/face");
+check("page titles are the greeting's size and face (Manrope)", () => /fontSize: isMobile \? 32 : 52,\s*fontFamily: FONT_TITLE,\s*fontWeight: 800,\s*letterSpacing: "-0\.07em",\s*lineHeight: 1\.1/.test(SRC) && /<span [^\n]*?style=\{\{ fontSize: isMobile \? 32 : 52, fontFamily: FONT_TITLE, fontWeight: 800, letterSpacing: "-0\.07em"[^\n]*lineHeight: 1\.1/.test(SRC) || "title size/face != greeting size/face");
 check("no page title overrides that size", () => !/<h1 style=\{\{ \.\.\.pageTitleStyle, [^}]*fontSize/.test(SRC) || "an <h1> overrides fontSize");
 check("no title container is still at the old 34px offset", () => !/padding: (asPage \? )?"34px 32px/.test(SRC) || "a 34px title offset remains");
 // iOS-style floating nav: the column is the page itself (no sidebar fill, no rule),
@@ -242,10 +242,14 @@ check("page titles found (count guard)", () => H1.length >= 10 || `${H1.length} 
 let missingActions = [];
 for (const m of H1) {
   const after = SRC.slice(m.index, m.index + 400);
+  // Messages deliberately has none (2026-10-03, by request).
+  if (/>Messages<\/h1>/.test(after.slice(0, 60))) continue;
   if (!/<\/h1>\s*\{titleActions\}/.test(after)) missingActions.push(SRC.slice(m.index, m.index + 60).replace(/\s+/g, " "));
 }
 check("every page title is followed by the title-row actions", () => missingActions.length === 0 || `${missingActions.length} without: ${missingActions[0]}`);
-check("the dashboard greeting row carries them too", () => /dash-greeting[\s\S]{0,1500}\{titleActions\}/.test(SRC) || "no titleActions near the greeting");
+// The dashboard greeting deliberately has none (2026-10-03, by request): it is a
+// welcome, not a page title.
+check("the dashboard greeting row carries no undo / redo", () => !/className="dash-greeting"[^\n]*\n[^\n]*\n\s*\{titleActions\}/.test(SRC) || "titleActions beside the greeting");
 
 // ── 4. Organization settings are tabs ───────────────────────────────────────────
 console.log("\norganization settings");
