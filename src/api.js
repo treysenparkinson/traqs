@@ -193,6 +193,20 @@ export async function updateOrgCode(newCode, getToken, orgCode) {
  *
  * Pass the bare domain, no "@". An empty string clears the restriction.
  */
+export async function updateOrgIdentityProviders(identityProviders, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/org`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ identityProviders }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `updateOrgIdentityProviders failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function updateOrgDomain(newDomain, getToken, orgCode) {
   const headers = await authHeaders(getToken, orgCode);
   const res = await fetch(`${BASE}/org`, {

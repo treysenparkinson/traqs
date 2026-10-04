@@ -3,6 +3,8 @@ import { readJson, writeJson } from "./s3.js";
 import { filterLive } from "./entities.js";
 import { isValidOrgCode } from "./orgcode.js";
 import { resolveOrgAccess, auth0IndexKey } from "./orgindex.js";
+import { allowedProviders, providerForSub } from "./identity-provider.js";
+import { ruleMode, logRule } from "./rule-mode.js";
 
 const domain = process.env.AUTH0_DOMAIN;
 const audience = process.env.AUTH0_AUDIENCE;
@@ -331,6 +333,22 @@ export async function requireOrgMember(event) {
 
   if (!me && !isOrgAdmin) {
     throw new AuthError(403, "Not a member of this organization");
+  }
+
+  // Identity provider allowlist (Settings › Organization › Sign-in domain).
+  // Ships under IDENTITY_PROVIDER_MODE, which defaults to log like every other
+  // new refusal: a member signing in through a provider the org has turned off
+  // is recorded, and only refused once the mode is flipped to enforce.
+  const allowed = allowedProviders(config);
+  if (allowed) {
+    const provider = providerForSub(sub);
+    if (!allowed.includes(provider)) {
+      const mode = ruleMode("IDENTITY_PROVIDER_MODE");
+      if (mode !== "off") logRule("identity-provider", { mode, orgCode, email, provider, allowed });
+      if (mode === "enforce") {
+        throw new AuthError(403, "This organization doesn't allow signing in with that account type");
+      }
+    }
   }
 
   const result = {

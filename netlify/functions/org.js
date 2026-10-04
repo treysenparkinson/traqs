@@ -7,6 +7,7 @@ import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { isValidOrgCode, generateOrgCode } from "./_utils/orgcode.js";
 import { codeIndexKey } from "./_utils/orgindex.js";
+import { IDENTITY_PROVIDERS, providerForSub } from "./_utils/identity-provider.js";
 
 // isValidCode was a third copy of the org-code rule. It now comes from
 // _utils/orgcode.js, which accepts both the legacy alphanumeric shape and the
@@ -259,7 +260,7 @@ export async function handler(event) {
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
 
-    const { newCode, newName, newDomain, deleteOrg } = body ?? {};
+    const { newCode, newName, newDomain, deleteOrg, identityProviders } = body ?? {};
 
     // ── Soft-delete: mark deleted, touch nothing else ──────────────────────
     // Chosen over actually removing the orgs/{code}/ prefix: this exists to
@@ -372,6 +373,46 @@ export async function handler(event) {
       } catch (e) {
         console.error("org PATCH domain error:", e);
         return err(500, "Failed to update the organization domain");
+      }
+    }
+
+    // ── Which identity providers may sign in — BUSINESS ONLY ─────────────
+    //
+    // Sits beside the sign-in domain and is tier-gated the same way, for the
+    // same reason. Stored as a subset of IDENTITY_PROVIDERS; every provider
+    // checked is the same as none (unrestricted), so that is stored as [].
+    // requireOrgMember checks it under IDENTITY_PROVIDER_MODE, which ships in
+    // log -- see auth.js.
+    if (Array.isArray(identityProviders) && !newCode && !newName && typeof newDomain !== "string") {
+      try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
+
+      const billing = (await readJson(`orgs/${currentCode}/billing.json`).catch(() => null)) ?? {};
+      if ((billing.tier || "basic") !== "business") {
+        return err(403, "Restricting sign-in by identity provider is a Business feature.");
+      }
+
+      const picked = IDENTITY_PROVIDERS.filter((p) => identityProviders.includes(p));
+      if (picked.length === 0) return err(400, "Pick at least one identity provider.");
+      const clean = picked.length === IDENTITY_PROVIDERS.length ? [] : picked;
+
+      // THE CALLER MUST NOT LOCK THEMSELVES OUT, same rule as the domain.
+      const mine = providerForSub(member.payload?.sub);
+      if (clean.length && !clean.includes(mine)) {
+        return err(400, "You signed in with a different provider. Turning it off would lock you out.");
+      }
+
+      const configKey = `orgs/${currentCode}/config.json`;
+      try {
+        const existing = await readJson(configKey);
+        if (!existing) return err(404, "Organization not found");
+        const stamped = stampObject({ ...existing, identityProviders: clean }, existing);
+        await writeJson(configKey, stamped);
+        await publishChange(currentCode, "orgConfig", { ids: ["*"] });
+        await sendSilentPush(currentCode, { entity: "orgConfig" });
+        return json(200, { ok: true, config: stamped });
+      } catch (e) {
+        console.error("org PATCH identityProviders error:", e);
+        return err(500, "Failed to update the identity providers");
       }
     }
 

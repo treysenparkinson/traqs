@@ -12,6 +12,8 @@
 //   PERMISSION_GATES_MODE — root cause 4's permission changes, loosening and
 //                         tightening alike: in log both behave exactly as before
 //                         and the change is only recorded
+//   IDENTITY_PROVIDER_MODE — the org's identity-provider allowlist, checked in
+//                         requireOrgMember (tag `identity-provider`)
 //
 // Values: off | log | enforce. Unset or unrecognised means log. Read per call,
 // so a change to the Netlify env takes effect on the next deploy without code.

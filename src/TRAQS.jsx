@@ -13,7 +13,7 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { LIGHT, DARK } from "./themeTokens.js";
@@ -27,7 +27,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -623,8 +623,20 @@ const diffBDSigned = (a, b, opts) => calOf(opts?.workDays, opts?.holidays).diffS
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
 // Productive hours → wall-clock geometry (CLOCK_EPS, buildDayWindows, walkProductiveHours,
 // walkProductiveHoursBack) live in statsMath.js, shared with the server's overlap rule.
-const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
+// Per-account display preferences (Settings › Account › Preferences). Module
+// scope so the plain date helpers below can read them without being threaded
+// through every caller; App sets them from the user-settings blob, and the
+// re-render that follows any change repaints every date and time with them.
+//   DATE_LOCALE — "en-US" (Oct 2, 2026) or "en-GB" (2 Oct 2026)
+//   USER_TZ     — an IANA zone for clock times, or undefined for this device's
+let DATE_LOCALE = "en-US";
+let USER_TZ;
+const applyDisplayPrefs = (p) => {
+  DATE_LOCALE = p?.dateFormat === "intl" ? "en-GB" : "en-US";
+  USER_TZ = p?.timeZone || undefined;
+};
+const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
+const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
 
 // Health: compare progress vs timeline.
@@ -1094,6 +1106,109 @@ animStyle.textContent = `
 .rv-tile-ts span b{display:block;font-size:18px;letter-spacing:-.5px}
 .rv-tile-ts small{color:var(--rv-mute);font-size:9.5px}
 .rv-tile-tf{display:flex;align-items:center;gap:8px;border-top:1px solid var(--rv-line);padding-top:10px;color:var(--rv-mute)}
+/* ── Settings (TRAQS Hi-fi Directions › Settings) ──────────────────────────────
+   Section nav on the left, then open rows: description left, control right,
+   hairlines between them, no cards. */
+.rv-st{display:grid;grid-template-columns:220px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:0 40px;flex:1;min-height:0}
+.rv-snav{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--rv-line);padding-right:28px;min-height:0;overflow-y:auto}
+.rv-snav>small{font-size:15px;letter-spacing:-.2px;color:var(--rv-ink);font-weight:700;padding:22px 12px 8px}
+.rv-snav>small:first-child{padding-top:0}
+.rv-snav>button{display:flex;align-items:center;gap:8px;padding:10px 14px 10px 24px;border-radius:999px;font-size:14px;font-weight:500;color:var(--rv-mute);border:0;background:transparent;text-align:left;font-family:inherit;cursor:pointer}
+.rv-snav>button:hover{background:var(--rv-thead)}
+.rv-snav>button.on{background:var(--rv-acc-soft);color:var(--tq-accent);font-weight:700}
+.rv-scol{display:flex;flex-direction:column;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;padding:0 8px 24px;margin:0 -8px}
+.rv-srow{display:grid;grid-template-columns:260px minmax(0,1fr);gap:40px;padding:22px 0;border-bottom:1px solid var(--rv-line)}
+.rv-srow:first-child{padding-top:4px}
+.rv-srow:last-child{border-bottom:0}
+.rv-sl b{display:block;font-size:16.5px;font-weight:700;letter-spacing:-.2px;color:var(--rv-ink)}
+.rv-sl small{display:block;color:var(--rv-mute);font-size:13px;line-height:1.5;margin-top:4px;text-wrap:pretty}
+.rv-sr{min-width:0;max-width:640px;color:var(--rv-ink);font-size:14.5px}
+.rv-sr.wide{max-width:640px}
+.rv-g2{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+.rv-fld{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--rv-mute);font-weight:600;min-width:0}
+.rv-in{background:var(--rv-chip);border:1px solid var(--rv-track);border-radius:999px;font-size:14.5px;padding:10px 16px;min-height:42px;box-sizing:border-box;color:var(--rv-ink);font-family:inherit;outline:none;width:100%;font-weight:500}
+.rv-in:focus,.rv-in:focus-within{border-color:var(--tq-accent)}
+.rv-in::placeholder{color:var(--rv-mute);opacity:.75}
+select.rv-in{cursor:pointer}
+.rv-ctl{display:flex;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--rv-line);font-size:14.5px;font-weight:600;color:var(--rv-ink)}
+.rv-ctl:last-child{border-bottom:0;padding-bottom:0}
+.rv-ctl.flat{border:0;padding:0}
+.rv-ctl>span:first-child{flex:1;display:flex;flex-direction:column;min-width:0;white-space:nowrap}
+.rv-ctl small{font-weight:500;color:var(--rv-mute);font-size:12.5px;margin-top:2px}
+.rv-sseg{display:inline-flex;gap:3px;background:var(--rv-chip);border:1px solid var(--rv-track);border-radius:999px;padding:3px;flex:none}
+.rv-sseg>button{padding:8px 16px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--rv-mute);border:0;background:transparent;font-family:inherit;cursor:pointer;white-space:nowrap}
+.rv-sseg>button.on{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-sseg.mini{padding:2px;gap:2px}
+.rv-sseg.mini>button{padding:3px 9px;font-size:11.5px}
+.rv-tog{width:42px;height:26px;border-radius:13px;background:var(--rv-track);position:relative;display:inline-block;flex:none;border:0;padding:0;cursor:pointer;transition:background .2s}
+.rv-tog:after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.rv-tog.on{background:var(--tq-accent)}
+.rv-tog.on:after{left:19px}
+.rv-tog.y.on{background:#eda412}
+.rv-tog:disabled{opacity:.45;cursor:default}
+.rv-cb{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--rv-ink);cursor:pointer;border:0;background:none;padding:0;font-family:inherit}
+.rv-cb>i{width:21px;height:21px;border-radius:6px;border:1.5px solid var(--rv-track);display:grid;place-items:center;color:var(--rv-on-acc);box-sizing:border-box}
+.rv-cb>i.on{background:var(--tq-accent);border-color:var(--tq-accent)}
+.rv-x,.rv-ic{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:0;background:none;cursor:pointer;padding:0;flex:none}
+.rv-x{color:#d2452f}
+.rv-ic{color:var(--rv-mute)}
+.rv-x:hover,.rv-ic:hover{background:var(--rv-surface)}
+.rv-dlist{display:flex;flex-direction:column}
+.rv-dlist>div{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rv-line);font-size:14.5px;color:var(--rv-ink)}
+.rv-dlist>div:last-child{border:0}
+.rv-dlist small{margin-right:8px}
+.rv-inl{display:flex;align-items:center;gap:8px;font-size:14px;padding:5px 0;color:var(--rv-mute);flex-wrap:wrap}
+.rv-inl>b{color:var(--rv-ink)}
+.rv-tin{background:var(--rv-chip);border-radius:999px;padding:9px 16px;font-size:14px;font-weight:600;color:var(--rv-ink);border:1px solid var(--rv-track);font-family:inherit;outline:none;box-sizing:border-box}
+.rv-tin:focus{border-color:var(--tq-accent)}
+input.rv-tin[type=number]{width:72px;text-align:center}
+.rv-days{display:flex;gap:6px}
+.rv-days>button{flex:1;text-align:center;padding:10px 0;border-radius:999px;border:1px solid var(--rv-track);font-size:13.5px;font-weight:600;color:var(--rv-mute);background:transparent;font-family:inherit;cursor:pointer}
+.rv-days>button.on{background:var(--tq-accent);border-color:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-tpl{border:1px solid var(--rv-line);border-radius:18px;padding:12px 16px;margin-bottom:8px;color:var(--rv-ink)}
+.rv-tpl>div:first-child{display:flex;align-items:center;gap:10px;font-size:15px}
+.rv-steps{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;color:var(--rv-mute)}
+.rv-steps>span{display:inline-flex;align-items:center;gap:6px;background:var(--rv-acc-soft);color:var(--tq-accent);border-radius:999px;padding:4px 10px 4px 4px;font-size:13px;font-weight:600}
+.rv-steps u{text-decoration:none;width:18px;height:18px;border-radius:50%;background:var(--tq-accent);color:var(--rv-on-acc);display:grid;place-items:center;font-size:11.5px}
+.rv-wlist{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--rv-line);padding-right:20px;min-height:0;overflow-y:auto}
+.rv-wlist>button{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:999px;font-size:14px;border:0;background:transparent;color:var(--rv-ink);font-family:inherit;cursor:pointer;text-align:left;min-width:0}
+.rv-wlist>button:hover{background:var(--rv-thead)}
+.rv-wlist>button>div{min-width:0}
+.rv-wlist b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-wlist small{display:block;color:var(--rv-mute);font-size:11.5px}
+.rv-wlist em{font-style:normal;font-size:11.5px;font-weight:700;color:var(--tq-accent);background:var(--rv-acc-soft);border-radius:999px;padding:2px 7px;margin-left:auto}
+.rv-wlist>button.on{background:var(--rv-acc-soft)}
+.rv-wlist>button.on em{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-wdet{display:flex;flex-direction:column;min-height:0;min-width:0;overflow-y:auto}
+.rv-whd{display:flex;align-items:center;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--rv-line);color:var(--rv-ink);flex-wrap:wrap}
+.rv-whd b{font-size:17.5px;display:block}
+.rv-whd small{color:var(--rv-mute);font-size:13px}
+.rv-wdet .rv-srow{padding:14px 0;grid-template-columns:200px minmax(0,1fr)}
+.rv-wdet .rv-ctl{padding:5px 0;font-weight:500;font-size:14px}
+.rv-mside{border-left:1px solid var(--rv-line);padding-left:32px;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
+.rv-paylist{display:flex;flex-direction:column;margin-top:6px}
+.rv-paylist>div{display:flex;align-items:center;gap:10px;padding:3px 0;border-bottom:1px solid var(--rv-line);font-size:14px;font-weight:500;color:var(--rv-ink)}
+.rv-paylist>div:last-child{border:0}
+.rv-photo-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rv-logo-slot{width:68px;height:68px;border-radius:18px;border:1px dashed var(--rv-track);display:grid;place-items:center;color:var(--rv-mute);font-size:13px;font-weight:600;flex:none;margin-right:8px;background-size:cover;background-position:center}
+.rv-swatches{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:4px}
+.rv-swatches>*{width:34px;height:34px;border-radius:50%;display:block;box-sizing:border-box;border:0;padding:0;cursor:pointer;position:relative;overflow:hidden;flex:none}
+.rv-swatches>.on{box-shadow:0 0 0 2px var(--rv-bg),0 0 0 4px var(--rv-ink)}
+.rv-cust .rv-srow{grid-template-columns:1fr;gap:12px;padding:16px 0}
+.rv-cust .rv-srow:first-child{padding-top:4px}
+.rv-cprev{background:var(--rv-surface);border-radius:24px;padding:16px 28px 28px;display:flex;flex-direction:column;align-items:center;gap:10px;min-height:0;min-width:0;overflow:hidden}
+.rv-ptoggle{display:flex;gap:2px;background:var(--rv-bg);border-radius:999px;padding:3px;flex:none}
+.rv-ptoggle>button{padding:5px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--rv-mute);border:0;background:transparent;font-family:inherit;cursor:pointer}
+.rv-ptoggle>button.on{background:var(--tq-accent);color:var(--rv-on-acc)}
+.rv-saved{color:#1a7b58;display:inline-flex;gap:4px;align-items:center;font-weight:600;font-size:14px;margin-right:8px;white-space:nowrap}
+.rv-saved.dirty{color:#c27c0e}
+.rv-code{font-size:23.5px;letter-spacing:.5px;flex:1;font-weight:700;font-variant-numeric:tabular-nums;color:var(--rv-ink);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rv-note{font-size:13px;color:var(--rv-mute);line-height:1.5;margin-top:8px}
+.rv-err{font-size:13.5px;color:#d2452f;margin-top:8px}
+.rv-st .rv-pill,.rv-shead .rv-pill{font-size:13.5px;padding:10px 17px}
+.rv-st .rv-pill.sm{font-size:12px;padding:7px 12px}
+.rv-st .rv-chip{font-size:11.5px;padding:3px 10px}
+@media (max-width:900px){.rv-srow{grid-template-columns:minmax(0,1fr);gap:10px}.rv-g2{grid-template-columns:minmax(0,1fr)}}
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
 .tq-preview-anim, .tq-preview-anim * {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
@@ -2524,7 +2639,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   const formatDate = iso => {
     if (!iso) return "";
     const d = new Date(iso + "T12:00:00");
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" });
   };
   const now = new Date();
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -2544,7 +2659,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
           <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{viewDate.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" })}</div>
           <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
@@ -2700,8 +2815,8 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
   const days = new Date(y, mo + 1, 0).getDate();
   const cells = [...Array(pad).fill(null), ...Array.from({ length: days }, (_, i) => toDS(new Date(y, mo, i + 1)))];
   const label = datePart
-    ? new Date(datePart + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-      + (withTime ? `  ·  ${new Date(datePart + "T" + (timePart || "00:00")).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "")
+    ? new Date(datePart + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" })
+      + (withTime ? `  ·  ${new Date(datePart + "T" + (timePart || "00:00")).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" })}` : "")
     : placeholder;
   const navBtn = { width: 26, height: 26, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
 
@@ -2722,7 +2837,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
         <div ref={popRef} className="anim-ctx" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0 } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 3000, width: 258, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: 12, fontFamily: T.font }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
             <button type="button" onClick={() => setView(new Date(y, mo - 1, 1))} style={navBtn}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-            <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{view.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{view.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" })}</span>
             <button type="button" onClick={() => setView(new Date(y, mo + 1, 1))} style={navBtn}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
@@ -3913,6 +4028,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return () => { off = true; };
   }, [orgCode, getToken]);
   const [settingsSection, setSettingsSection] = useState("general");
+  // Settings › Account › Preferences. Synced in the per-account user-settings
+  // blob; applied to the module-scope date/time formatters on every render.
+  const [userPrefs, setUserPrefs] = useState({ timeZone: "", dateFormat: "us" });
+  applyDisplayPrefs(userPrefs);
   const [draftMode, setDraftMode] = useState("frost");
   const [draftCustom, setDraftCustom] = useState({ ...DEFAULT_PREFS });
 
@@ -4002,6 +4121,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       // Opaque: the Jobs table's sticky header sits over rows as they scroll.
       root.setProperty("--rv-thead", dk ? blendHex(T.surface, 0.06) : "#f6f7fb");
       root.setProperty("--rv-on-acc", T.accentText);
+      // The page ground, for rings that have to cut a gap against it (Settings swatches).
+      root.setProperty("--rv-bg", T.bg);
       const chips = { g: ["#dcf2e6", "#15603f", "#34d399"], y: ["#fdefcf", "#7a5200", "#fbbf24"], b: ["#dcefff", "#0d5f99", "#60a5fa"], r: ["#ffe3df", "#a62e1f", "#f87171"], o: ["#ffe7d6", "#9a4a10", "#fb923c"] };
       for (const [k, [bg, fg, hue]] of Object.entries(chips)) {
         root.setProperty(`--rv-${k}-bg`, dk ? hexA(hue, 0.18) : bg);
@@ -5219,16 +5340,9 @@ Extraction rules:
   const placeNavPill = () => {
     const pill = navPillRef.current;
     if (!pill) return;
-    // In settings mode the pill follows the active settings section button. Org
-    // children are tabs inside the Settings page, not rail buttons, so an org page
-    // points the pill at the rail's Organization button.
-    let key;
-    if (settingsMode) {
-      const isOrgChild = settingsSection.startsWith("org-");
-      key = isOrgChild ? "settings:org-parent" : "settings:" + settingsSection;
-    } else {
-      key = view;
-    }
+    // Settings keeps the app rail and lights its own button; the sections are
+    // a nav inside the Settings page, not rail buttons.
+    const key = settingsMode ? "settings" : view;
     const btn = navBtnRefs.current[key];
     if (!btn) { pill.style.opacity = "0"; return; }
     pill.style.opacity = "1";
@@ -5409,8 +5523,6 @@ Extraction rules:
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
-  const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
-  const [payClockOpen, setPayClockOpen] = useState(true);        // Time Settings → "Hourly" grid disclosure
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; return withOrgDefaults(merged); }
@@ -5619,6 +5731,12 @@ Extraction rules:
     return () => clearTimeout(t);
   }, [deleteOrgCountdown]);
   useEffect(() => { setOrgName(orgConfig?.name || ""); }, [orgConfig?.name]);
+  // orgConfig is App.jsx's prop and isn't refreshed by a save from here, so the
+  // fields Settings writes (domain, identityProviders) are mirrored over it.
+  const [orgCfgLocal, setOrgCfgLocal] = useState({});
+  const orgCfg = { ...(orgConfig || {}), ...orgCfgLocal };
+  // A refused save (bad domain, provider lockout) — shown under the Settings title.
+  const [settingsSaveError, setSettingsSaveError] = useState("");
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
   useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
@@ -6310,7 +6428,7 @@ Extraction rules:
       case "job": default: return job ? jobCardHtml(job, o) : `<div class="empty">Job not found</div>`;
     }
   };
-  const exportCtx = (jobs, layout, extra = {}) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), ...extra }; };
+  const exportCtx = (jobs, layout, extra = {}) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString(DATE_LOCALE, { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" }), ...extra }; };
   const blocksHtml = (page, ctx) => ((page && page.blocks) || []).map(b => `<div class="blk" id="blk-${b.id}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">${renderBlockHtml(b, ctx)}</div>`).join("");
   // Locked branding footer — rendered into every page (editor + export), bottom-left, greyed
   // out and small. Not part of the blocks array, so it can't be selected, moved, or removed.
@@ -6505,8 +6623,8 @@ Extraction rules:
     const payPeriod = period || getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
     const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
     const r2 = n => Math.round(n * 100) / 100;
-    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { year: "numeric", month: "short", day: "numeric" });
+    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
     const workDays = orgSettings.workDays || [1, 2, 3, 4, 5];
     const holidays = orgSettings.holidays || [];
     // A pay day's gross length (the work window) — what org hpd always held.
@@ -6805,8 +6923,8 @@ Extraction rules:
         if (e.confirmedAt && (!cur.at || e.confirmedAt > cur.at)) { cur.at = e.confirmedAt; cur.by = e.confirmedBy || cur.by; }
       }
     }
-    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
+    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { year: "numeric", month: "short", day: "numeric" });
     return [...byStart.values()]
       .sort((a, b) => b.start.localeCompare(a.start))   // most recent at the top
       .map(p => ({ ...p, label: `${fmtMD(p.start)} – ${fmtY(p.end)}` }));
@@ -8182,6 +8300,7 @@ Extraction rules:
         if (Array.isArray(remote.colOrder) && remote.colOrder.length) setColOrder(backfillColOrder(remote.colOrder));
         if (remote.colLabels && typeof remote.colLabels === "object") setColLabels(remote.colLabels);
         if (remote.groupColPref && typeof remote.groupColPref === "object") setGroupColPref(remote.groupColPref);
+        if (remote.userPrefs && typeof remote.userPrefs === "object") setUserPrefs(p => ({ ...p, ...remote.userPrefs }));
         // statusOpts/priOpts are NOT applied here any more: they are org-wide now,
         // and writing this account's old copy straight in would hand the whole
         // organization one user's stale list on every sign-in.
@@ -8202,7 +8321,7 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref };
+    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs };
     const snapshot = JSON.stringify(bundle);
     if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
     const t = setTimeout(() => {
@@ -8211,7 +8330,7 @@ Extraction rules:
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -11604,7 +11723,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const timeOffNotifRange = (r) => {
-    const fmtD = ds => { try { return new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ds; } };
+    const fmtD = ds => { try { return new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" }); } catch { return ds; } };
     return r.start === r.end ? fmtD(r.start) : `${fmtD(r.start)} – ${fmtD(r.end)}`;
   };
 
@@ -11815,14 +11934,14 @@ ${jobsCtx || "No jobs found."}`;
       const dt = new Date(day + "T12:00:00");
       if (gMode === "month") {
         const key = `${dt.getFullYear()}-${dt.getMonth()}`;
-        if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }), span: 1 });
+        if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, label: dt.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" }), span: 1 });
         else groups[groups.length - 1].span++;
       } else {
         const wk = new Date(dt); wk.setDate(wk.getDate() - wk.getDay());
         const key = toDS(wk);
         if (!groups.length || groups[groups.length - 1].key !== key) {
           const wkEnd = new Date(wk); wkEnd.setDate(wkEnd.getDate() + 6);
-          groups.push({ key, label: `${wk.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${wkEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, span: 1 });
+          groups.push({ key, label: `${wk.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })} – ${wkEnd.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })}`, span: 1 });
         } else groups[groups.length - 1].span++;
       }
     });
@@ -12267,7 +12386,7 @@ ${jobsCtx || "No jobs found."}`;
       if (!iso) return "";
       const d = new Date(iso);
       if (isNaN(d.getTime())) return "";
-      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return d.toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" });
     };
 
     // Filter out people who shouldn't appear on the board: deleted/hidden/system users.
@@ -12387,7 +12506,7 @@ ${jobsCtx || "No jobs found."}`;
 
     // Date + time only. The "auto-refresh" note is gone — the page has always
     // refreshed on its own, so saying so was noise next to the title.
-    const headerLine = `${new Date(now).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${new Date(now).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+    const headerLine = `${new Date(now).toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" })} · ${new Date(now).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" })}`;
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
       {/* Title */}
@@ -13073,7 +13192,7 @@ ${jobsCtx || "No jobs found."}`;
                   hrs, pct, pc, indent, isScheduledLater, nameHasSubs, groupExpKey, nameIsExpanded, who }
             = ctx || stdCellCtx(item, level, jobId, alwaysExpand, groupPrefix);
           const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
-          const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+          const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" }); };
           switch (colId) {
             case "name": return (
               <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 22 : 20) + indent, position: "relative" }}
@@ -13262,7 +13381,7 @@ ${jobsCtx || "No jobs found."}`;
                     const mineToSign = !step.assigneeId || sameId(step.assigneeId, loggedInUser?.id);
                     const clickable = isActive && canApprove && mineToSign;
                     const title = signed
-                      ? `${step.label} — ${step.rec.byName || "signed"}${step.rec.at ? " · " + new Date(step.rec.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
+                      ? `${step.label} — ${step.rec.byName || "signed"}${step.rec.at ? " · " + new Date(step.rec.at).toLocaleString(DATE_LOCALE, { timeZone: USER_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
                       : isActive
                         ? (clickable ? `Sign ${step.label}` : step.assigneeId ? `${step.label} — assigned to someone else` : `${step.label} — you don't have approval access`)
                         : step.label;
@@ -13386,13 +13505,13 @@ ${jobsCtx || "No jobs found."}`;
                       {!act
                         ? <span style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>—</span>
                         : <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}
-                            title={`${act.verb}${act.step ? " " + act.step : ""}${act.byName ? " by " + act.byName : ""}${act.at ? " on " + new Date(act.at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`}>
+                            title={`${act.verb}${act.step ? " " + act.step : ""}${act.byName ? " by " + act.byName : ""}${act.at ? " on " + new Date(act.at).toLocaleString(DATE_LOCALE, { timeZone: USER_TZ, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: APPR_VERB_COLOR(act.verb, T), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {act.verb}{act.step ? " " + act.step : ""}
                             </span>
                             <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {act.byName || "—"}{act.at ? " · " : ""}
-                              <span style={{ fontFamily: T.mono }}>{act.at ? new Date(act.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span>
+                              <span style={{ fontFamily: T.mono }}>{act.at ? new Date(act.at).toLocaleString(DATE_LOCALE, { timeZone: USER_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span>
                             </span>
                           </span>}
                     </div>
@@ -14292,7 +14411,7 @@ ${jobsCtx || "No jobs found."}`;
     // dashNow (not Date.now()) is what makes the elapsed figure tick.
     const myState = meRec ? effectiveClockState(meRec, dashNow) : null;
     const myMins = myState?.isClocked ? Math.max(0, Math.floor((myState.runningMs || 0) / 60000)) : 0;
-    const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+    const hhmm = (iso) => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" }) : "";
     // Every clock action is PIN-gated server-side, and the keypad lives on the
     // Time Clock page, so this primes the same shared pin state and switches there
     // — the keypad is already open on arrival.
@@ -14325,13 +14444,13 @@ ${jobsCtx || "No jobs found."}`;
         busy: activeJobs.some(j => j.start && j.end && j.start <= ds && j.end >= ds),
       });
     }
-    const monthLabel = mNow.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const monthLabel = mNow.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" });
 
     // ── Copy ─────────────────────────────────────────────────────────────────
     const hr = Math.floor(shopHour());
     const firstName = String(loggedInUser?.name || "").trim().split(/\s+/)[0] || (orgName || "").trim();
     const greeting = `Good ${hr < 12 ? "morning" : hr < 17 ? "afternoon" : "evening"}${firstName ? `, ${firstName}` : ""}`;
-    const dateLine = new Date(TD + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const dateLine = new Date(TD + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "long", month: "long", day: "numeric" });
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     const soonCount = isBasic ? scheduledNext7.length : dueSoon.length;
     const summary = `${hourlyOnClock === 1 ? "One teammate is" : `${hourlyOnClock} teammates are`} on the clock, `
@@ -14381,7 +14500,7 @@ ${jobsCtx || "No jobs found."}`;
       const sub = isBasic ? (j.start > TD ? `Starts ${inDays(dayDiff(j.start))}` : "Scheduled now") : `Due ${inDays(dayDiff(j.end))}`;
       return (
         <div key={j.id} className="rv-hrow" onClick={() => openJobDetailOrEdit(j)} style={{ cursor: "pointer" }}>
-          <span className="rv-date"><small>{d.toLocaleDateString("en-US", { month: "short" })}</small><b className="rv-num">{d.getDate()}</b></span>
+          <span className="rv-date"><small>{d.toLocaleDateString(DATE_LOCALE, { month: "short" })}</small><b className="rv-num">{d.getDate()}</b></span>
           <div className="rv-txt"><b>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</b><span>{sub}</span></div>
         </div>
       );
@@ -14520,7 +14639,7 @@ ${jobsCtx || "No jobs found."}`;
   };
   const renderTeam = () => {
     // The range in view, as the toolbar shows it (display only).
-    const _rl = (ds, o) => new Date(ds + "T12:00:00").toLocaleDateString("en-US", o);
+    const _rl = (ds, o) => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, o);
     // How far the left group has grown, so the centre group can slide clear of it.
     // Each figure is that control's expansion, on the same 0.26s curve: the search
     // box opens 34 → 220px; Select reveals All (56px + gap) and, once something is
@@ -14586,7 +14705,7 @@ ${jobsCtx || "No jobs found."}`;
       const dt = new Date(day + "T12:00:00");
       const key = `${dt.getFullYear()}-${dt.getMonth()}`;
       if (!hGroups.length || hGroups[hGroups.length - 1].key !== key) {
-        hGroups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase(), start: i, span: 1 });
+        hGroups.push({ key, label: dt.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" }).toUpperCase(), start: i, span: 1 });
       } else hGroups[hGroups.length - 1].span++;
     });
     // Utilization is gone from these rows — the clock pills replaced it. Its getUtil /
@@ -16745,7 +16864,7 @@ ${jobsCtx || "No jobs found."}`;
                       if (!at) return;
                       const pv = session.move(at);
                       if (!pv) return;
-                      const _tipDate = new Date(pv.edge.day + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                      const _tipDate = new Date(pv.edge.day + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" });
                       setResizeTooltip({ x: me.clientX, y: me.clientY, time: tMode === "month" ? fmTip(pv.edge.hour) : "", date: _tipDate, side });
                     };
                     const onU = () => {
@@ -17195,7 +17314,7 @@ ${jobsCtx || "No jobs found."}`;
         const months   = [];
         let md = new Date(scrStart+"T12:00:00");
         while (toDS(md) <= scrEnd) {
-          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
+          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString(DATE_LOCALE,{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
           md.setMonth(md.getMonth()+1);
         }
         const handleThumbDrag = e => {
@@ -17238,7 +17357,7 @@ ${jobsCtx || "No jobs found."}`;
         const sH = Math.floor(_sHRounded); const sM = (_sHRounded % 1) >= 0.5 ? 30 : 0;
         const sAmpm = sH >= 12 ? "PM" : "AM"; const sH12 = sH > 12 ? sH - 12 : sH === 0 ? 12 : sH;
         const timeStr = `${sH12}:${String(sM).padStart(2, "0")} ${sAmpm}`;
-        const startLabel = teamDragInfo.snapStart ? new Date(teamDragInfo.snapStart + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
+        const startLabel = teamDragInfo.snapStart ? new Date(teamDragInfo.snapStart + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" }) : "";
         // Same walk the ghost and the drop use, so the time in the tooltip is the time
         // the bar actually lands on — a 1h job dropped at 4pm reads "→ 5:00 PM", on the
         // same day, instead of being reported as spilling into tomorrow.
@@ -17246,7 +17365,7 @@ ${jobsCtx || "No jobs found."}`;
         const _ttWalk = walkProductiveHours(teamDragInfo.dropHour, _ttBarHpd, dayWindowCfg);
         const _endDate = teamDragInfo.snapStart ? addBD(teamDragInfo.snapStart, _ttWalk.days - 1) : "";
         const endLabel = (_ttWalk.days > 1 && _endDate)
-          ? new Date(_endDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+          ? new Date(_endDate + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" })
           : startLabel;
         const _rawEndH = Math.round(_ttWalk.endHour * 60) / 60;
         const eH = Math.floor(_rawEndH + 1e-9); const eM = Math.round((_rawEndH - eH) * 60);
@@ -17315,7 +17434,7 @@ ${jobsCtx || "No jobs found."}`;
     // week/month/year selector above, since payroll periods are their own thing.
     const payPeriod = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
     const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
-    const fmtPP = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const fmtPP = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
     // Show every hourly (non-salary) person, even those with 0 logged hours this
     // period, so managers can spot who hasn't clocked in yet. Sorted by hours
     // desc, then name, so zero-hour people fall to the bottom alphabetically.
@@ -17450,16 +17569,16 @@ ${jobsCtx || "No jobs found."}`;
     // hours: job-clock sessions (productionHours). Both keyed to a record's calendar day.
     const efficiencyBuckets = () => {
       if (analyticsPeriod === "week") {
-        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }), days: [d] }));
+        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short" }), days: [d] }));
       } else if (analyticsPeriod === "pay") {
         // ~15 days, so daily bars still fit — and daily is the granularity a
         // supervisor acts on. Dated labels, since weekdays repeat over a period.
-        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "numeric", day: "numeric" }), days: [d] }));
+        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "numeric", day: "numeric" }), days: [d] }));
       } else if (analyticsPeriod === "month") {
         const chunk = Math.ceil(daysInPeriod.length / 5), out = [];
         for (let i = 0; i < daysInPeriod.length; i += chunk) {
           const slice = daysInPeriod.slice(i, i + chunk);
-          out.push({ label: new Date(slice[0] + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }), days: slice });
+          out.push({ label: new Date(slice[0] + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" }), days: slice });
         }
         return out;
       }
@@ -17467,7 +17586,7 @@ ${jobsCtx || "No jobs found."}`;
       for (let m = 0; m < 12; m++) {
         const ms = toDS(new Date(today.getFullYear(), m, 1)), me = toDS(new Date(today.getFullYear(), m + 1, 0));
         const days = []; { let d = ms; while (d <= me) { days.push(d); d = addD(d, 1); } }
-        out.push({ label: new Date(today.getFullYear(), m, 1).toLocaleDateString("en-US", { month: "short" }), days });
+        out.push({ label: new Date(today.getFullYear(), m, 1).toLocaleDateString(DATE_LOCALE, { month: "short" }), days });
       }
       return out;
     };
@@ -17505,7 +17624,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, minWidth: 0, maxWidth: 14, height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? color : "var(--rv-line)", borderRadius: "4px 4px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
       );
       const empty = totalPay === 0 && totalProd === 0;
-      const fmtR = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const fmtR = ds => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
       return rvSx("Efficiency · pay vs production hours", `${fmtR(periodStart)} – ${fmtR(periodEnd)}`, empty ? emptyMsg("No pay or production hours in this period.") : (
         <>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 190, borderBottom: "1px solid var(--rv-line)" }}>
@@ -17676,13 +17795,13 @@ ${jobsCtx || "No jobs found."}`;
     const selDS = mobileSelDay;
     const dayParents = tasks.filter(t => selDS >= t.start && selDS <= t.end);
     const selDt = new Date(selDS + "T12:00:00");
-    const dayLabel = selDt.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+    const dayLabel = selDt.toLocaleDateString(DATE_LOCALE, { weekday: "long", month: "short", day: "numeric" });
 
     return <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       {/* Month nav */}
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 16, padding: "12px 0 8px" }}>
         <button onClick={() => { if (calM === 0) { setCalM(11); setCalY(y => y - 1); } else setCalM(m => m - 1); }} style={{ background: "none", border: "none", fontSize: 18, color: T.textSec, cursor: "pointer", padding: "4px 12px" }}>◀</button>
-        <span style={{ color: T.text, fontWeight: 700, fontSize: 18, minWidth: 180, textAlign: "center" }}>{new Date(calY, calM).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
+        <span style={{ color: T.text, fontWeight: 700, fontSize: 18, minWidth: 180, textAlign: "center" }}>{new Date(calY, calM).toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" })}</span>
         <button onClick={() => { if (calM === 11) { setCalM(0); setCalY(y => y + 1); } else setCalM(m => m + 1); }} style={{ background: "none", border: "none", fontSize: 18, color: T.textSec, cursor: "pointer", padding: "4px 12px" }}>▶</button>
       </div>
       {/* Day headers */}
@@ -18156,7 +18275,7 @@ ${jobsCtx || "No jobs found."}`;
     const nothing = (msg = "Nothing to see here.") => (
       <div style={{ padding: "34px 12px", textAlign: "center", fontSize: 12.5, color: T.textDim }}>{msg}</div>
     );
-    const hhmm = iso => iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
+    const hhmm = iso => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" }) : "—";
     const h1 = n => (Math.round(n * 10) / 10).toFixed(1);
 
     // ── Person picker — a wall of 3:4 portrait cards ─────────────────────────
@@ -18538,7 +18657,7 @@ ${jobsCtx || "No jobs found."}`;
               const dt = new Date(ds + "T12:00:00");
               return <div key={ds} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
                 <div className={isToday ? "rv-dh on" : "rv-dh"}>
-                  <small>{dt.toLocaleDateString("en-US", { weekday: "short" })}</small>
+                  <small>{dt.toLocaleDateString(DATE_LOCALE, { weekday: "short" })}</small>
                   <b className="rv-num">{dt.getDate()}</b>
                 </div>
                 <div style={{ position: "relative", flex: 1, borderRadius: 12, border: "1px solid var(--rv-line)", background: isToday ? hexA(T.accent, 0.05) : "var(--rv-surface)", overflow: "hidden" }}>
@@ -18737,7 +18856,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 13, color: T.text }}>of each month</span>
               </div>
               <div style={{ fontSize: 11, color: T.textDim }}>
-                {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
+                {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
               </div>
             </div>}
 
@@ -18899,14 +19018,14 @@ ${jobsCtx || "No jobs found."}`;
 
     const fmtTime = iso => {
       if (!iso) return "—";
-      return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+      return new Date(iso).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit", hour12: true });
     };
     const fmtDayHeader = dateStr => {
       if (!dateStr) return "—";
       const d = new Date(dateStr + "T00:00:00");
       const isToday = dateStr === TD;
       const isYesterday = dateStr === (() => { const y = new Date(TD + "T00:00:00"); y.setDate(y.getDate() - 1); return `${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`; })();
-      const label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      const label = d.toLocaleDateString(DATE_LOCALE, { weekday: "long", month: "long", day: "numeric" });
       return isToday ? `Today · ${label}` : isYesterday ? `Yesterday · ${label}` : label;
     };
 
@@ -20249,7 +20368,7 @@ ${jobsCtx || "No jobs found."}`;
         .sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
 
       const fmtRange = (start, end) => {
-        const fmtD = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const fmtD = d => new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
         return end ? `${fmtD(start)} → ${fmtD(end)}` : fmtD(start);
       };
 
@@ -20454,7 +20573,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 14, color: T.text }}>of each month</span>
                 </div>
                 <div style={{ fontSize: 12, color: T.textDim }}>
-                  {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
+                  {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
                 </div>
               </div>}
               {isAdmin && <div style={{ marginBottom: 24 }}>
@@ -21500,10 +21619,10 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}30`, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{statusLabel}</span>
                             </div>
                             <div style={{ fontSize: 12, color: T.textDim }}>
-                              Requested by <strong style={{ color: T.text }}>{req.byName}</strong> · {new Date(req.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              Requested by <strong style={{ color: T.text }}>{req.byName}</strong> · {new Date(req.at).toLocaleString(DATE_LOCALE, { timeZone: USER_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </div>
                             {(req.status === "approved" || req.status === "declined") && <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>
-                              {req.status === "approved" ? "Approved" : "Declined"} by <strong style={{ color: T.text }}>{req.resolvedByName}</strong> · {new Date(req.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {req.status === "approved" ? "Approved" : "Declined"} by <strong style={{ color: T.text }}>{req.resolvedByName}</strong> · {new Date(req.resolvedAt).toLocaleString(DATE_LOCALE, { timeZone: USER_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </div>}
                             {req.status === "declined" && req.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4, fontStyle: "italic" }}>Reason: {req.declineReason}</div>}
                           </div>;
@@ -22109,9 +22228,9 @@ ${jobsCtx || "No jobs found."}`;
     }
     const readLabelTime = (iso) => {
       const day = String(iso).slice(0, 10);
-      if (day === TD) return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      if (day === TD) return new Date(iso).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" });
       if (day === addD(TD, -1)) return "yesterday";
-      return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return new Date(iso).toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
     };
     // Sending → optimistic; Sent → server has it, nobody's read yet; Read →
     // another participant's read cursor has passed this message's timestamp.
@@ -22374,7 +22493,7 @@ ${jobsCtx || "No jobs found."}`;
             )}
             {grouped.map(({ day, msgs }) => {
               const dt = new Date(day + "T12:00:00");
-              const dayLabel = day === TD ? "Today" : day === addD(TD, -1) ? "Yesterday" : dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              const dayLabel = day === TD ? "Today" : day === addD(TD, -1) ? "Yesterday" : dt.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
               return <div key={day}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 18px", marginBottom: 4 }}>
                   <div style={{ flex: 1, height: 1, background: T.border }} />
@@ -22383,13 +22502,13 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {msgs.map((m, i) => {
                   const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
-                  const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+                  const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" });
                   // Label for the tap-to-reveal caption. Today's messages show
                   // just the clock time; older ones lead with the day.
                   const tsDay = String(m.timestamp).slice(0, 10);
                   const tsFull = tsDay === TD ? ts
                     : tsDay === addD(TD, -1) ? `Yesterday ${ts}`
-                    : `${new Date(m.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${ts}`;
+                    : `${new Date(m.timestamp).toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })} ${ts}`;
                   // Only the FIRST message in a consecutive run by the same author
                   // shows the name; follow-on texts stay nameless (an approval/
                   // time-off card breaks the run). Keeps rapid multi-texts tidy.
@@ -22436,7 +22555,7 @@ ${jobsCtx || "No jobs found."}`;
                     const isApproved = frStatus === "approved";
                     const isDeclined = frStatus === "declined";
                     const isExpanded = !!frDetailsExpanded[m.finishRequestId];
-                    const fmtFR = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+                    const fmtFR = d => d ? new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" }) : "—";
                     // Delivered as an incoming message bubble from TRAQS itself:
                     // system badge, then the card carrying the bubble's tail radius.
                     return <div key={m.id} style={{ display: "flex", gap: 10, padding: "8px 14px", alignItems: "flex-end" }}>
@@ -22579,7 +22698,7 @@ ${jobsCtx || "No jobs found."}`;
                     const toNoteV = toReq?.note ?? m.toNote ?? "";
                     const toName = toReq?.personName || m.toPersonName || m.authorName;
                     const toClr = toTypeV === "UTO" ? "#f59e0b" : "#10b981";
-                    const fmtTO = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+                    const fmtTO = d => d ? new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric", year: "numeric" }) : "—";
                     const rangeTO = toStartD === toEndD ? fmtTO(toStartD) : `${fmtTO(toStartD)} – ${fmtTO(toEndD)}`;
                     const toPending = toStatus === "pending";
                     const denying = toDeny === m.timeOffRequestId;
@@ -24242,7 +24361,7 @@ ${jobsCtx || "No jobs found."}`;
       const job = jobOfItem(modal.data) || modal.data;
       if (!job) return null;
       const fmtH = n => (Math.round(n * 10) / 10).toFixed(1);
-      const fmtT = iso => iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
+      const fmtT = iso => iso ? new Date(iso).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" }) : "—";
       // Match on any level: a session records all three ids, but older rows or ones
       // written against a panel/op directly may not carry jobId.
       const opIds = new Set((job.subs || []).flatMap(p => (p.subs || []).map(o => String(o.id))));
@@ -24870,34 +24989,29 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════════════════════════════════════════════════════════════
   // FULL-PAGE SETTINGS — helpers + renderers
   // ═══════════════════════════════════════════════════════════════════════════
-  // Organization is the only expandable group in the settings nav.
+  // Organization's pages, in the order the Settings section nav lists them.
   const SETTINGS_ORG_CHILDREN = [
     { key: "org-general", label: "General" },
     { key: "org-departments", label: "Departments" },
-    { key: "org-permissions", label: "Worker Permissions" },
-    { key: "org-schedule", label: "Schedule Preferences" },
-    { key: "org-approval-templates", label: "Approval Queue Templates" },
+    { key: "org-permissions", label: "Worker permissions" },
+    { key: "org-schedule", label: "Schedule preferences" },
+    { key: "org-approval-templates", label: "Approval templates" },
     { key: "org-timeclock", label: "Time Clock" },
   // Approval Queue Templates is Business-only on Basic. renderSettingsBody's
   // "org-approval-templates" case and renderSettingsApprovalTemplates stay —
   // Business still routes there, this only removes the nav entry.
   ].filter(c => billingTier === "business" || c.key !== "org-approval-templates");
-  // The rail's single Organization button opens the first of these; the rest are
-  // tabs across the top of the Settings page (renderSettingsPage).
-  const SETTINGS_ORG_FIRST = SETTINGS_ORG_CHILDREN[0]?.key;
-  // `group` is the sidebar entry you're under and becomes the page title;
-  // `sub` is the specific page within it, shown small underneath. The two
-  // top-level sections have no sub — their group IS the page, so nothing is
-  // printed beneath them (this is why General no longer says "Profile").
+  // Under the page title: "Group · Page", as the section nav names them.
+  // `title` is what the unsaved-changes dialog calls the section.
   const settingsSectionMeta = {
-    "general":                { group: "General",       sub: "" },
-    "org-general":            { group: "Organization",  sub: "General" },
-    "org-departments":        { group: "Organization",  sub: "Departments" },
-    "org-permissions":        { group: "Organization",  sub: "Worker Permissions" },
-    "org-schedule":           { group: "Organization",  sub: "Schedule Preferences" },
-    "org-approval-templates": { group: "Organization",  sub: "Approval Queue Templates" },
-    "org-timeclock":          { group: "Organization",  sub: "Time Clock" },
-    "customization":          { group: "Customization", sub: "" },
+    "general":                { sub: "Account · General",                     title: "Account" },
+    "org-general":            { sub: "Organization · General",                title: "Organization" },
+    "org-departments":        { sub: "Organization · Departments",            title: "Departments" },
+    "org-permissions":        { sub: "Organization · Worker permissions",     title: "Worker permissions" },
+    "org-schedule":           { sub: "Organization · Schedule preferences",   title: "Schedule preferences" },
+    "org-approval-templates": { sub: "Organization · Approval templates",     title: "Approval templates" },
+    "org-timeclock":          { sub: "Organization · Time Clock",             title: "Time Clock" },
+    "customization":          { sub: "Appearance · Customization",            title: "Customization" },
   };
 
   // Merge a patch into the current section draft (function or object patch).
@@ -24940,9 +25054,11 @@ ${jobsCtx || "No jobs found."}`;
     let d = null;
     if (section === "general") {
       const me = loggedInUser || {};
-      d = { name: me.name || "", email: me.email || "", phone: me.phone || "", color: me.color || "", image: me.image || null };
+      d = { name: me.name || "", title: me.title || "", email: me.email || "", phone: me.phone || "", color: me.color || "", image: me.image || null, timeZone: userPrefs.timeZone || "", dateFormat: userPrefs.dateFormat || "us" };
     } else if (section === "org-general") {
-      d = { orgName: orgName || "" };
+      // Domain and providers are seeded from the config so an untouched field
+      // saves as itself -- an empty seed read as "cleared" and wiped the domain.
+      d = { orgName: orgName || "", domain: orgCfg.domain || "", identityProviders: (orgCfg.identityProviders || []).length ? [...orgCfg.identityProviders] : ["google", "microsoft"] };
     } else if (section === "org-departments") {
       d = { roles: [...(orgSettings.roles || [])] };
     } else if (section === "org-permissions") {
@@ -24960,7 +25076,7 @@ ${jobsCtx || "No jobs found."}`;
     setSettingsDraft(d);
     settingsPristineRef.current = d ? JSON.stringify(d) : null;
     setSignOffTemplateEditing(null);
-    setOrgEditing(null); setOrgCodeError(""); setOrgNameError("");
+    setOrgEditing(null); setOrgCodeError(""); setOrgNameError(""); setSettingsSaveError("");
     // These sections show editable clock-in PINs; fetch the decrypted values so
     // the eye toggle can reveal them (ambient `people` has PINs stripped).
     if (section === "org-timeclock" || section === "org-permissions") hydrateSectionPins();
@@ -24981,12 +25097,15 @@ ${jobsCtx || "No jobs found."}`;
   const saveSection = async () => {
     const sec = settingsSection;
     setSettingsSaving(true);
+    setSettingsSaveError("");
     try {
       if (sec === "general") {
         const dd = settingsDraft || {};
-        const updated = latestPeopleRef.current.map(p => p.id === loggedInUser.id ? { ...p, name: dd.name, email: dd.email, phone: dd.phone, color: dd.color, image: dd.image } : p);
+        const updated = latestPeopleRef.current.map(p => p.id === loggedInUser.id ? { ...p, name: dd.name, title: (dd.title || "").trim(), email: dd.email, phone: dd.phone, color: dd.color, image: dd.image } : p);
         await savePeople(updated, getToken, orgCode);
         setPeople(updated);
+        // Personal preferences ride the user-settings blob, not the roster.
+        setUserPrefs(p => ({ ...p, timeZone: dd.timeZone || "", dateFormat: dd.dateFormat || "us" }));
       } else if (sec === "org-general") {
         const dd = settingsDraft || {};
         const newName = (dd.orgName || "").trim();
@@ -25003,10 +25122,19 @@ ${jobsCtx || "No jobs found."}`;
           const curDomain = String(orgConfig?.domain || "").toLowerCase();
           if (nextDomain !== curDomain) {
             const res = await updateOrgDomain(nextDomain, getToken, orgCode);
+            const domain = res?.config?.domain ?? nextDomain;
+            setOrgCfgLocal(c => ({ ...c, domain }));
             try {
               const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {};
-              sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, domain: res?.config?.domain ?? nextDomain }));
+              sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, domain }));
             } catch { /* private mode */ }
+          }
+          // Both providers checked is stored as [] (unrestricted), so compare
+          // what each side MEANS, not the arrays as written.
+          const norm = list => { const l = (list || []).filter(p => p === "google" || p === "microsoft"); return l.length === 2 ? "" : [...l].sort().join(","); };
+          if (norm(dd.identityProviders) !== norm(orgCfg.identityProviders)) {
+            const res = await updateOrgIdentityProviders(dd.identityProviders || [], getToken, orgCode);
+            setOrgCfgLocal(c => ({ ...c, identityProviders: res?.config?.identityProviders ?? [] }));
           }
         }
       } else if (sec === "org-departments") {
@@ -25046,6 +25174,7 @@ ${jobsCtx || "No jobs found."}`;
       return true;
     } catch (e) {
       console.error("Settings save failed:", e);
+      setSettingsSaveError(e?.message || "Couldn't save. Try again.");
       setSettingsSaving(false);
       return false;
     }
@@ -25067,17 +25196,18 @@ ${jobsCtx || "No jobs found."}`;
     setSettingsMode(true);
     runSettingsCrossfade();
   };
-  const doExitSettings = () => {
+  // `to` is the rail page that was pressed; without one, back to where Settings was opened from.
+  const doExitSettings = (to) => {
     // Keep settingsDraft/pristine intact so the fading-out settings layer still shows its
     // content; the next enterSettings reloads the draft fresh.
     setSettingsMode(false);
     setSettingsGuard(null);
-    setView(priorView || "tasks");
+    if (typeof to === "string") switchView(to); else setView(priorView || "tasks");
     runSettingsCrossfade();
   };
-  const requestExitSettings = () => {
-    if (computeSettingsDirty()) { setSettingsGuard({ kind: "exit" }); return; }
-    doExitSettings();
+  const requestExitSettings = (to) => {
+    if (computeSettingsDirty()) { setSettingsGuard({ kind: "exit", to }); return; }
+    doExitSettings(to);
   };
   const navigateSection = (target) => {
     if (target === settingsSection) return;
@@ -25100,7 +25230,7 @@ ${jobsCtx || "No jobs found."}`;
     if (!g) return null;
     const proceed = () => {
       setSettingsGuard(null);
-      if (g.kind === "exit") doExitSettings();
+      if (g.kind === "exit") doExitSettings(g.to);
       else if (g.kind === "section") { setSettingsSection(g.target); loadSectionDraft(g.target); }
     };
     const ghost = { padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
@@ -25120,15 +25250,66 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   // ── Section bodies ──
-  // Shared style helpers for settings sections (card surface + labeled inputs).
-  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 26, padding: "22px 24px" };
-  const stLabel = { fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 16 };
-  const stFieldLabel = { fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, fontFamily: T.font };
+  // TRAQS Hi-fi Directions › Settings: open rows, description left and control
+  // right, hairlines between them, no cards. The .rv-s* / .rv-tog / .rv-sseg
+  // atoms live in the global sheet beside the other Revamp atoms.
+  // Pill input from the old card layout — Settings no longer uses it, but the
+  // simple-job modal (renderSimpleJobModal) still does.
   const stInput = { width: "100%", padding: "11px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
-  const stInputFocus = e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; };
-  const stInputBlur = e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; };
-  const stGhostBtn = { padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
   const PROFILE_COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#ef4444", "#f59e0b", "#10b981", "#14b8a6", "#6366f1", "#64748b", "#0ea5e9"];
+  const sIco = (d, size = 15) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d={d} /></svg>;
+  const SICO = {
+    up: "M12 16V4M6 10l6-6 6 6M4 20h16",
+    copy: "M8 8h12v12H8zM16 8V4H4v12h4",
+    pen: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+    x: "M18 6L6 18M6 6l12 12",
+    check: "M20 6L9 17l-5-5",
+    chevR: "M9 18l6-6-6-6",
+    eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+    eyeOff: "M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22",
+  };
+  const sRow = (title, desc, body, wide = false) => (
+    <div className="rv-srow">
+      <div className="rv-sl"><b>{title}</b>{desc && <small>{desc}</small>}</div>
+      <div className={"rv-sr" + (wide ? " wide" : "")}>{body}</div>
+    </div>
+  );
+  const sTog = (on, onClick, extra = "") => <button type="button" role="switch" aria-checked={!!on} onClick={onClick} className={"rv-tog tq-noanim" + (on ? " on" : "") + (extra ? " " + extra : "")} />;
+  const sSeg = (opts, value, onPick, mini = false) => (
+    <div className={"rv-sseg" + (mini ? " mini" : "")}>
+      {opts.map(o => <button key={String(o.id)} type="button" className={value === o.id ? "on" : undefined} onClick={() => onPick(o.id)}>{o.label}</button>)}
+    </div>
+  );
+  const sCb = (label, on, onClick) => (
+    <button type="button" role="checkbox" aria-checked={!!on} className="rv-cb" onClick={onClick}>
+      <i className={on ? "on" : undefined}>{on && sIco(SICO.check, 10)}</i>{label}
+    </button>
+  );
+  const sFld = (label, input) => <label className="rv-fld">{label && <span>{label}</span>}{input}</label>;
+  // Clock-in PIN with a reveal eye. PINs are hydrated into the draft by
+  // hydrateSectionPins; "•••• set" stands in for one that can't be revealed.
+  const sPin = (p, upd) => {
+    const show = showPinIds.has(p.id);
+    return (
+      <div className="rv-in" style={{ display: "flex", alignItems: "center", gap: 4, width: 170, padding: "0 6px 0 16px", minHeight: 38, flex: "none" }}>
+        <input className="tq-bare" type={show ? "text" : "password"} value={p.pin || ""} onChange={e => upd(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"}
+          style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none", color: "inherit", fontFamily: T.mono, fontSize: 14, letterSpacing: show ? "normal" : "0.15em", padding: 0 }} />
+        <button type="button" className="rv-ic" aria-label={show ? "Hide PIN" : "Show PIN"} onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}>{sIco(show ? SICO.eyeOff : SICO.eye, 13)}</button>
+      </div>
+    );
+  };
+  // Time-zone <option>s: US zones first, then every zone the browser knows.
+  const SETTINGS_US_TZ = [["America/Denver", "Mountain"], ["America/Phoenix", "Arizona (no DST)"], ["America/Los_Angeles", "Pacific"], ["America/Chicago", "Central"], ["America/New_York", "Eastern"], ["America/Anchorage", "Alaska"], ["Pacific/Honolulu", "Hawaii"]];
+  const tzOptions = (cur) => {
+    const other = (() => { try { return Intl.supportedValuesOf("timeZone").filter(z => !SETTINGS_US_TZ.some(([u]) => u === z)); } catch { return []; } })();
+    const known = !cur || SETTINGS_US_TZ.some(([u]) => u === cur) || other.includes(cur);
+    return <>
+      {!known && <option value={cur}>{cur}</option>}
+      <optgroup label="United States">{SETTINGS_US_TZ.map(([z, label]) => <option key={z} value={z}>{label} — {z}</option>)}</optgroup>
+      {other.length > 0 && <optgroup label="All zones">{other.map(z => <option key={z} value={z}>{z}</option>)}</optgroup>}
+    </>;
+  };
+  const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
 
   const renderSettingsGeneral = () => {
     const d = settingsDraft || {};
@@ -25139,701 +25320,456 @@ ${jobsCtx || "No jobs found."}`;
       if (!file) return;
       try { const data = await downscaleImage(file, 512, 0.85, "image/jpeg"); patchDraft({ image: data }); } catch (e) { console.error("Avatar resize failed:", e); }
     };
+    // Auth0 prefixes the user id with the connection that signed them in.
+    const strategy = String(auth0User?.sub || "").split("|")[0];
+    const provider = strategy === "google-oauth2" ? "Google"
+      : (strategy === "windowslive" || strategy === "waad" || strategy.startsWith("microsoft")) ? "Microsoft"
+      : null;
+    const sample = new Date(TD + "T12:00:00");
+    const sampleOf = loc => sample.toLocaleDateString(loc, { month: "short", day: "numeric", year: "numeric" });
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Profile Photo</div>
-          <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div className="rv-scol">
+        {sRow("Profile photo", "Shown on your clock-ins, messages and the schedule.", <>
+          <div className="rv-photo-row">
             {/* Driven off the live draft through the SAME component every other
                 surface uses, so the preview can't drift from the real thing. */}
-            <PersonAvatar person={{ name: d.name, color: d.color, image: d.image }} size={84} ring={T.border} />
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: d.image ? 0 : 14 }}>
-                <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                  {d.image ? "Change photo" : "Upload photo"}
-                  <input type="file" accept="image/*" onChange={e => onPickImage(e.target.files?.[0])} style={{ display: "none" }} />
-                </label>
-                {d.image && <button onClick={() => patchDraft({ image: null })} style={stGhostBtn}>Remove photo</button>}
-              </div>
-              {!d.image && <>
-                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Or choose an avatar color</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  {PROFILE_COLORS.map(c => <button key={c} onClick={() => patchDraft({ color: c })} title={c} style={{ width: 28, height: 28, borderRadius: T.radiusPill, background: c, border: (d.color || "").toLowerCase() === c ? `2px solid ${T.text}` : "2px solid transparent", boxShadow: (d.color || "").toLowerCase() === c ? `0 0 0 2px ${T.card}` : "none", cursor: "pointer", padding: 0 }} />)}
-                </div>
-                <HexColorPicker color={avatarColor} onChange={c => patchDraft({ color: c })} style={{ width: 190, height: 120 }} />
-              </>}
+            <span style={{ marginRight: 8, lineHeight: 0 }}><PersonAvatar person={{ name: d.name, color: d.color, image: d.image }} size={68} /></span>
+            <label className="rv-pill">
+              {sIco(SICO.up)} {d.image ? "Change photo" : "Upload photo"}
+              <input type="file" accept="image/*" onChange={e => { onPickImage(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+            </label>
+            {d.image && <button type="button" className="rv-pill" onClick={() => patchDraft({ image: null })}>Remove</button>}
+          </div>
+          {!d.image && <div style={{ marginTop: 16 }}>
+            <div className="rv-fld" style={{ marginBottom: 8 }}><span>Or choose an avatar color</span></div>
+            <div className="rv-swatches">
+              {PROFILE_COLORS.map(c => <button key={c} type="button" aria-label={`Avatar color ${c}`} className={(d.color || "").toLowerCase() === c ? "on" : undefined} onClick={() => patchDraft({ color: c })} style={{ background: c }} />)}
             </div>
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Your Details</div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={stFieldLabel}>Full Name</div>
-            <input value={d.name || ""} onChange={e => patchDraft({ name: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="Full name" style={stInput} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={stFieldLabel}>Email</div>
-            <input type="email" value={d.email || ""} onChange={e => patchDraft({ email: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="you@company.com" style={stInput} />
-          </div>
-          <div>
-            <div style={stFieldLabel}>Phone</div>
-            <input type="tel" value={d.phone || ""} onChange={e => patchDraft({ phone: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="(555) 123-4567" style={stInput} />
-          </div>
-        </div>
+            <HexColorPicker color={avatarColor} onChange={c => patchDraft({ color: c })} style={{ width: 190, height: 120, marginTop: 14 }} />
+          </div>}
+        </>)}
+        {sRow("Your details", "How teammates find and reach you.", <div className="rv-g2">
+          {sFld("Full name", <input className="rv-in" value={d.name || ""} onChange={e => patchDraft({ name: e.target.value })} placeholder="Full name" />)}
+          {sFld("Job title", <input className="rv-in" value={d.title || ""} onChange={e => patchDraft({ title: e.target.value })} maxLength={60} placeholder="e.g. Lead wirer" />)}
+          {sFld("Email", <input className="rv-in" type="email" value={d.email || ""} onChange={e => patchDraft({ email: e.target.value })} placeholder="you@company.com" />)}
+          {sFld("Phone", <input className="rv-in" type="tel" value={d.phone || ""} onChange={e => patchDraft({ phone: e.target.value })} placeholder="(555) 123-4567" />)}
+        </div>)}
+        {sRow("Preferences", "Applies to your view of TRAQS only.", <div className="rv-g2">
+          {sFld("Time zone", <select className="rv-in" value={d.timeZone || ""} onChange={e => patchDraft({ timeZone: e.target.value })}>
+            <option value="">Automatic{deviceTz ? ` — ${deviceTz}` : ""}</option>
+            {tzOptions(d.timeZone || "")}
+          </select>)}
+          {sFld("Date format", <select className="rv-in" value={d.dateFormat || "us"} onChange={e => patchDraft({ dateFormat: e.target.value })}>
+            <option value="us">{sampleOf("en-US")}</option>
+            <option value="intl">{sampleOf("en-GB")}</option>
+          </select>)}
+        </div>)}
+        {sRow("Sign-in", provider ? "You sign in with your work account. No password is stored." : "You sign in with your email address.",
+          <div className="rv-ctl flat">
+            <span>{provider || "Email"}<small>{auth0User?.email || d.email || "—"}</small></span>
+            <span className="rv-chip g">Connected</span>
+          </div>)}
       </div>
     );
   };
+
   const renderSettingsOrgGeneral = () => {
     const d = settingsDraft || {};
+    const idps = d.identityProviders || [];
+    // At least one provider stays checked -- none would admit nobody.
+    const flipIdp = (k) => patchDraft(dd => {
+      const cur = dd.identityProviders || [];
+      const next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k];
+      return next.length ? { identityProviders: next } : {};
+    });
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Organization Name</div>
-          <input value={d.orgName || ""} onChange={e => patchDraft({ orgName: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} maxLength={80} placeholder="Company name" style={stInput} />
-          <div style={{ fontSize: 12, color: T.textDim, marginTop: 8 }}>Shown across the app and on exports. Saved with the Save button below.</div>
-        </div>
-        {/* SIGN-IN DOMAIN — Business only.
-            The @ is a fixed prefix, not part of the value: it is rendered
-            beside the field rather than inside it, so there is nothing to
-            delete and nothing to type twice. What is stored is the bare
-            domain, which is also what every comparison against an email
-            wants -- keeping the @ would mean stripping it at every use. */}
-        {billingTier === "business" && (
-          <div className="tq-frost" style={stCard}>
-            <div style={stLabel}>Sign-in Domain</div>
-            {/* ONE PILL, not two. Every input in settings is a full pill, so a
-                prefix chip beside the field read as two disconnected controls
-                with a seam between them. The @ is an adornment INSIDE the
-                field: the container carries the border, background and focus
-                ring that stInput would, and the input itself is borderless. */}
-            <div
-              style={{
-                display: "flex", alignItems: "center", gap: 2,
-                padding: "11px 18px", borderRadius: T.radiusPill,
-                border: `1px solid ${T.glassBorder}`, background: T.glass,
-                boxSizing: "border-box", colorScheme: T.colorScheme,
-                transition: "border 0.2s, box-shadow 0.2s",
-              }}
-              onFocus={e => { const c = e.currentTarget; c.style.borderColor = T.accent + "66"; c.style.boxShadow = `0 0 0 3px ${T.accent}15`; }}
-              onBlur={e => { const c = e.currentTarget; c.style.borderColor = T.glassBorder; c.style.boxShadow = "none"; }}>
-              {/* Not selectable and not part of the value, so there is nothing
-                  to delete and nothing to type twice. */}
-              <span style={{ color: T.textDim, fontSize: 14, fontFamily: T.font, userSelect: "none", flexShrink: 0 }}>@</span>
-              <input
-                value={d.domain || ""}
-                onChange={e => patchDraft({ domain: e.target.value.trim().toLowerCase().replace(/^@+/, "") })}
-                maxLength={253} placeholder="acmefab.com"
-                autoCapitalize="off" autoCorrect="off" spellCheck={false}
-                style={{
-                  flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none",
-                  background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font,
-                }} />
-            </div>
-            <div style={{ fontSize: 12, color: T.textDim, marginTop: 8, lineHeight: 1.5 }}>
-              Only people with an email at this domain can sign in to{" "}
-              <b style={{ color: T.textSec }}>{orgName || "this organization"}</b>.
-              Leave it empty to allow any address.
-              {" "}Anyone already on the team keeps their access.
-            </div>
+      <div className="rv-scol">
+        {sRow("Organization name", "Shown across the app and on exports.",
+          <input className="rv-in" value={d.orgName || ""} onChange={e => patchDraft({ orgName: e.target.value })} maxLength={80} placeholder="Company name" />)}
+        {/* SIGN-IN DOMAIN — Business only. The @ is an adornment inside the one
+            pill, not part of the value: what is stored is the bare domain, which
+            is also what every comparison against an email wants. */}
+        {billingTier === "business" && sRow("Sign-in domain", "Only people with an email at this domain can sign in. Leave empty to allow any address; anyone already on the team keeps access.", <>
+          <div className="rv-in" style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <span className="rv-mute" style={{ userSelect: "none", flexShrink: 0 }}>@</span>
+            <input className="tq-bare" value={d.domain || ""} onChange={e => patchDraft({ domain: e.target.value.trim().toLowerCase().replace(/^@+/, "") })}
+              maxLength={253} placeholder="acmefab.com" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+              style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "inherit", fontSize: "inherit", fontFamily: "inherit" }} />
           </div>
-        )}
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Organization Logo</div>
-          <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div style={{ width: 84, height: 84, borderRadius: 26, background: orgSettings.orgLogo ? T.surface : T.bg, backgroundImage: orgSettings.orgLogo ? `url(${orgSettings.orgLogo})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 12, fontWeight: 700 }}>{orgSettings.orgLogo ? "" : "Logo"}</div>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-                  {orgSettings.orgLogo ? "Change logo" : "Upload logo"}
-                  <input type="file" accept="image/png,image/*" onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 512, 0.92, "image/png"); setOrgSettings(s => ({ ...s, orgLogo: data })); } catch { alert("Could not load that image."); } }} style={{ display: "none" }} />
-                </label>
-                {orgSettings.orgLogo && <button onClick={() => setOrgSettings(s => ({ ...s, orgLogo: null }))} style={stGhostBtn}>Remove logo</button>}
-              </div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 10 }}>Shown on the mobile app sidebar. A transparent PNG works best. Saves immediately.</div>
-            </div>
+          <div className="rv-ctl flat" style={{ marginTop: 14, flexWrap: "wrap" }}>
+            <span>Identity provider<small>Which account people use with this domain</small></span>
+            {sCb("Google", idps.includes("google"), () => flipIdp("google"))}
+            {sCb("Microsoft", idps.includes("microsoft"), () => flipIdp("microsoft"))}
           </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Organization Code</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, fontFamily: T.mono, letterSpacing: "-0.045em" }}>{orgCode || "—"}</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Everyone signs in with this code.</div>
-            </div>
-            {ORG_CODE_RENAME_ENABLED && orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={stGhostBtn}>Change code</button>}
+        </>)}
+        {sRow("Logo", "Shown on the mobile app sidebar. A transparent PNG works best. Saves immediately.",
+          <div className="rv-photo-row">
+            <span className="rv-logo-slot" style={orgSettings.orgLogo ? { backgroundImage: `url(${orgSettings.orgLogo})`, borderStyle: "solid" } : undefined}>{orgSettings.orgLogo ? "" : "Logo"}</span>
+            <label className="rv-pill">
+              {sIco(SICO.up)} {orgSettings.orgLogo ? "Change logo" : "Upload logo"}
+              <input type="file" accept="image/png,image/*" onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 512, 0.92, "image/png"); setOrgSettings(s => ({ ...s, orgLogo: data })); } catch { alert("Could not load that image."); } }} style={{ display: "none" }} />
+            </label>
+            {orgSettings.orgLogo && <button type="button" className="rv-pill" onClick={() => setOrgSettings(s => ({ ...s, orgLogo: null }))}>Remove</button>}
+          </div>)}
+        {sRow("Organization code", "Everyone signs in with this code.", <>
+          <div className="rv-ctl flat" style={{ gap: 8 }}>
+            <b className="rv-code">{orgCode || "—"}</b>
+            <button type="button" className="rv-pill" onClick={() => { try { navigator.clipboard.writeText(orgCode || ""); toast("Organization code copied"); } catch { /* no clipboard */ } }}>{sIco(SICO.copy)} Copy</button>
+            {ORG_CODE_RENAME_ENABLED && orgEditing !== "code" && <button type="button" className="rv-pill" style={{ borderColor: "transparent", background: "transparent", color: "var(--rv-mute)" }} onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }}>Change code</button>}
           </div>
-          {ORG_CODE_RENAME_ENABLED && orgEditing === "code" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 10, display: "flex", gap: 8, alignItems: "flex-start", lineHeight: 1.5 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-              <span>Changing the code reloads the app immediately and everyone must sign in with the new code. This can't be batched with the Save button.</span>
-            </div>
-            <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="NEW CODE" maxLength={20} style={{ ...stInput, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", marginBottom: 8, textTransform: "uppercase" }} />
-            {orgCodeError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={outlineBtnStyle(T.accent)}>Cancel</button>
-              <Btn size="sm" disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }}>{orgCodeSaving ? "Changing…" : "Change code & reload"}</Btn>
+          {ORG_CODE_RENAME_ENABLED && orgEditing === "code" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--rv-line)" }}>
+            <div className="rv-note" style={{ color: "#c27c0e", marginTop: 0, marginBottom: 10 }}>Changing the code reloads the app immediately and everyone must sign in with the new code. This can't be batched with Save changes.</div>
+            <input className="rv-in" autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="NEW CODE" maxLength={20} style={{ fontFamily: T.mono, fontWeight: 700, textTransform: "uppercase" }} />
+            {orgCodeError && <div className="rv-err">{orgCodeError}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button type="button" className="rv-pill" onClick={() => { setOrgEditing(null); setOrgCodeError(""); }}>Cancel</button>
+              <button type="button" className="rv-pill pri" disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }}>{orgCodeSaving ? "Changing…" : "Change code & reload"}</button>
             </div>
           </div>}
-        </div>
-        {can("orgSettings") && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10, paddingTop: 20 }}>
-          {orgCode === "MTX2026TRAQS" ? (
-            <div style={{ fontSize: 12, color: T.textDim }}>This organization can't be deleted.</div>
-          ) : <>
-            {deleteOrgError && <div style={{ fontSize: 12, color: "#ef4444" }}>{deleteOrgError}</div>}
-            {deleteOrgCountdown === null ? (
-              <button onClick={() => { setDeleteOrgError(""); setDeleteOrgCountdown(10); }} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textDecoration: "underline", textUnderlineOffset: 3 }}>Delete Organization</button>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                <div style={{ fontSize: 12, color: T.textDim, maxWidth: 320 }}>
-                  Blocks sign-in for everyone in this organization. Nothing is erased.
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button onClick={() => { setDeleteOrgCountdown(null); setDeleteOrgError(""); }} disabled={deleteOrgBusy} style={outlineBtnStyle(T.accent)}>Cancel</button>
-                  <button
-                    disabled={deleteOrgCountdown > 0 || deleteOrgBusy}
-                    onClick={async () => {
-                      setDeleteOrgBusy(true); setDeleteOrgError("");
-                      try {
-                        await deleteOrg(getToken, orgCode);
-                        localStorage.removeItem("tq_org_code");
-                        localStorage.removeItem("tq_org_config");
-                        localStorage.removeItem("tq_team_people");
-                        sessionStorage.removeItem("tq_org_code");
-                        sessionStorage.removeItem("tq_org_config");
-                        sessionStorage.removeItem("tq_selected_person");
-                        window.location.reload();
-                      } catch (e) {
-                        setDeleteOrgError(e.message || "Failed to delete organization");
-                        setDeleteOrgBusy(false);
-                      }
-                    }}
-                    style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: (deleteOrgCountdown > 0 || deleteOrgBusy) ? T.border : "#ef4444", color: (deleteOrgCountdown > 0 || deleteOrgBusy) ? T.textDim : "#fff", fontSize: 13, fontWeight: 800, cursor: (deleteOrgCountdown > 0 || deleteOrgBusy) ? "not-allowed" : "pointer", fontFamily: T.font, minWidth: 132 }}>
-                    {deleteOrgBusy ? "Deleting…" : deleteOrgCountdown > 0 ? `Confirm in ${deleteOrgCountdown}s` : "Confirm Delete"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </>}
-        </div>}
+        </>)}
+        {can("orgSettings") && sRow("Delete organization", orgCode === "MTX2026TRAQS" ? "This organization is protected." : "Blocks sign-in for everyone in this organization. Nothing is erased.",
+          orgCode === "MTX2026TRAQS" ? <span className="rv-mute" style={{ fontSize: 12 }}>This organization can't be deleted.</span> : <>
+            {deleteOrgError && <div className="rv-err" style={{ marginTop: 0, marginBottom: 8 }}>{deleteOrgError}</div>}
+            {deleteOrgCountdown === null
+              ? <button type="button" className="rv-pill" style={{ color: "#d2452f" }} onClick={() => { setDeleteOrgError(""); setDeleteOrgCountdown(10); }}>Delete organization</button>
+              : <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button type="button" className="rv-pill" disabled={deleteOrgBusy} onClick={() => { setDeleteOrgCountdown(null); setDeleteOrgError(""); }}>Cancel</button>
+                <button type="button" className="rv-pill" disabled={deleteOrgCountdown > 0 || deleteOrgBusy}
+                  style={deleteOrgCountdown > 0 || deleteOrgBusy ? { minWidth: 132, justifyContent: "center" } : { minWidth: 132, justifyContent: "center", background: "#d2452f", borderColor: "#d2452f", color: "#fff" }}
+                  onClick={async () => {
+                    setDeleteOrgBusy(true); setDeleteOrgError("");
+                    try {
+                      await deleteOrg(getToken, orgCode);
+                      localStorage.removeItem("tq_org_code");
+                      localStorage.removeItem("tq_org_config");
+                      localStorage.removeItem("tq_team_people");
+                      sessionStorage.removeItem("tq_org_code");
+                      sessionStorage.removeItem("tq_org_config");
+                      sessionStorage.removeItem("tq_selected_person");
+                      window.location.reload();
+                    } catch (e) {
+                      setDeleteOrgError(e.message || "Failed to delete organization");
+                      setDeleteOrgBusy(false);
+                    }
+                  }}>
+                  {deleteOrgBusy ? "Deleting…" : deleteOrgCountdown > 0 ? `Confirm in ${deleteOrgCountdown}s` : "Confirm delete"}
+                </button>
+              </div>}
+          </>)}
       </div>
     );
   };
+
   const renderSettingsDepartments = () => {
     const d = settingsDraft || {};
     const roles = d.roles || [];
     const addRole = () => { const v = roleInput.trim(); if (v && !roles.includes(v)) { patchDraft(dd => ({ roles: [...(dd.roles || []), v] })); setRoleInput(""); } };
     const commitEdit = () => { const v = roleEditVal.trim(); if (v && !roles.some((x, i) => x === v && i !== roleEditId)) { patchDraft(dd => ({ roles: (dd.roles || []).map((x, i) => i === roleEditId ? v : x) })); } setRoleEditId(null); };
+    const countOf = r => people.filter(p => p.department === r).length;
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Departments</div>
-          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6, marginBottom: 16 }}>Departments determine scheduling eligibility — workers are only assigned to tasks matching their department.</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
-            {roles.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "12px 0", textAlign: "center" }}>No departments yet — add one below</div>}
-            {roles.map((r, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radius, transition: "border-color 0.15s" }}>
-                {roleEditId === idx
-                  ? <input className="tq-bare" autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: T.text, fontFamily: T.font }} />
-                  : <span style={{ flex: 1, fontSize: 14, color: T.text }}>{r}</span>}
-                {roleEditId !== idx && <Tip label="Edit"><button onClick={() => { setRoleEditId(idx); setRoleEditVal(r); }} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px", lineHeight: 1, display: "flex", alignItems: "center" }}>✎</button></Tip>}
-                <Tip label="Delete"><button onClick={() => { patchDraft(dd => ({ roles: (dd.roles || []).filter((_, i) => i !== idx) })); if (roleEditId === idx) setRoleEditId(null); }} style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button></Tip>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-            <input value={roleInput} onChange={e => setRoleInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addRole(); }} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="New department name, e.g. Wiring, Fabrication…" style={{ ...stInput, flex: 1 }} />
-            <Btn size="sm" onClick={addRole}>Add</Btn>
-          </div>
-        </div>
+      <div className="rv-scol">
+        {sRow("Departments", "Departments determine scheduling eligibility. Workers are only assigned to tasks matching their department.",
+          <div className="rv-dlist">
+            {roles.length === 0 && <div className="rv-mute">No departments yet. Add one below.</div>}
+            {roles.map((r, idx) => {
+              const n = countOf(r);
+              return (
+                <div key={idx}>
+                  {roleEditId === idx
+                    ? <input className="rv-in" autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, minHeight: 30, padding: "5px 12px" }} />
+                    : <b style={{ flex: 1, minWidth: 0 }}>{r}</b>}
+                  <small className="rv-mute rv-num">{n} {n === 1 ? "person" : "people"}</small>
+                  {roleEditId !== idx && <button type="button" className="rv-ic" aria-label={`Rename ${r}`} title="Rename" onClick={() => { setRoleEditId(idx); setRoleEditVal(r); }}>{sIco(SICO.pen)}</button>}
+                  <button type="button" className="rv-x" aria-label={`Delete ${r}`} title="Delete" onClick={() => { patchDraft(dd => ({ roles: (dd.roles || []).filter((_, i) => i !== idx) })); if (roleEditId === idx) setRoleEditId(null); }}>{sIco(SICO.x, 12)}</button>
+                </div>
+              );
+            })}
+          </div>)}
+        {sRow("Add a department", "New departments start empty; assign people from their profile.",
+          <div className="rv-ctl flat" style={{ gap: 8 }}>
+            <input className="rv-in" value={roleInput} onChange={e => setRoleInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addRole(); }} placeholder="New department name, e.g. Wiring, Fabrication…" style={{ flex: 1 }} />
+            <button type="button" className="rv-pill pri" onClick={addRole} disabled={!roleInput.trim()}>Add</button>
+          </div>)}
       </div>
     );
   };
+
   const renderSettingsPermissions = () => {
     const d = settingsDraft || {};
     const dp = d.people || [];
     const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
-    const sorted = [...dp].sort((a, b) => a.name.localeCompare(b.name));
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Worker Permissions</div>
-          <div style={{ marginBottom: 14, fontSize: 12, color: T.textDim }}>Click a person to expand their permissions. New members have no admin permissions until explicitly granted. Changes save when you press Save below.</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {sorted.map(person => {
-              const isSelected = settingsUser === person.id;
-              const isAdm = person.userRole === "admin";
-              const permsEnabled = perm => permGranted(person.adminPerms, perm);
-              const togglePerm = (key, val) => updDraftPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
-              const showPin = showPinIds.has(person.id);
-              return <div key={person.id}>
-                <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radius, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
-                  <PersonAvatar person={person} size={34} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
-                    <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
-                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
-                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
-                  </div>
-                  <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
+    const sorted = [...dp].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const person = sorted.find(p => p.id === settingsUser) || sorted[0];
+    const rolesOf = p => [p.userRole === "admin" && "Admin", p.canSignOff && "Approver", p.noAutoSchedule && "No auto"].filter(Boolean);
+    let detail = <div className="rv-wdet"><div className="rv-mute">No team members yet.</div></div>;
+    if (person) {
+      const isAdm = person.userRole === "admin";
+      const togglePerm = (key, val) => updDraftPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
+      detail = (
+        <div className="rv-wdet">
+          <div className="rv-whd">
+            <PersonAvatar person={person} size={50} />
+            <div style={{ minWidth: 0 }}><b>{person.name}</b><small>{[person.department || "No department", person.email].filter(Boolean).join(" · ")}</small></div>
+            <span style={{ flex: 1 }} />
+            {isAdm && <span className="rv-chip b">Admin</span>}
+            {person.canSignOff && <span className="rv-chip b">Approver</span>}
+            {person.noAutoSchedule && <span className="rv-chip y">No auto</span>}
+          </div>
+          {sRow("Admin capabilities", "Grant only what this person needs.", <>
+            <div className="rv-ctl" style={{ paddingTop: 0 }}>
+              <span><b>Admin</b><small>Turns on the admin tools; pick which ones below</small></span>
+              {/* The master switch grants a set of powers that have no toggle of
+                  their own, so say so rather than leaving it to be discovered. */}
+              <span role="button" tabIndex={0} aria-label="What the Admin toggle grants"
+                onMouseEnter={e => tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY)} onMouseLeave={() => tipCtx.hide()}
+                onFocus={e => { const r = e.currentTarget.getBoundingClientRect(); tipCtx.show(ADMIN_BASE_TIP, r.right, r.bottom); }} onBlur={() => tipCtx.hide()}
+                onClick={e => tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY)}
+                style={{ display: "inline-grid", placeItems: "center", width: 16, height: 16, borderRadius: 999, border: "1px solid var(--rv-track)", color: "var(--rv-mute)", fontSize: 10, fontWeight: 700, cursor: "help", flex: "none" }}>i</span>
+              {sTog(isAdm, () => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} }))}
+            </div>
+            {ADMIN_PERMS.map(({ key, label }) => {
+              const on = isAdm && permGranted(person.adminPerms, key);
+              return (
+                <div key={key} className="rv-ctl" style={isAdm ? undefined : { opacity: 0.45 }}>
+                  <span>{label}</span>
+                  {sTog(on, () => { if (isAdm) togglePerm(key, !on); })}
                 </div>
-                <div style={{ display: "grid", gridTemplateRows: isSelected ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin 0.28s cubic-bezier(0.22,1,0.36,1)", opacity: isSelected ? 1 : 0, margin: isSelected ? "2px 0 4px" : "0", pointerEvents: isSelected ? "auto" : "none" }}>
-                  <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    <div style={{ padding: "16px 18px", background: T.bg, borderRadius: T.radius, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div onClick={() => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
-                        <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
-                            Admin Capabilities
-                            {/* The master switch grants a set of powers that have no toggle of
-                                their own, so say so rather than leaving it to be discovered.
-                                Hover bubble via the shared tooltip; also opens on tap and on
-                                keyboard focus, since hover alone strands touch and keyboard. */}
-                            <span role="button" tabIndex={0} aria-label="What the Admin toggle grants"
-                              onMouseEnter={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
-                              onMouseLeave={() => tipCtx.hide()}
-                              onFocus={e => { const r = e.currentTarget.getBoundingClientRect(); tipCtx.show(ADMIN_BASE_TIP, r.right, r.bottom); }}
-                              onBlur={() => tipCtx.hide()}
-                              onClick={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
-                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 999, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, cursor: "help", lineHeight: 1, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }}
-                              onMouseOver={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
-                              onMouseOut={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; }}>i</span>
-                          </div>
-                        </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 20, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                        </div>
-                      </div>
-                      {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-                        {ADMIN_PERMS.map(({ key, icon, label }) => {
-                          const on = permsEnabled(key);
-                          return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radius, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
-                            <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
-                            <div style={{ width: 28, height: 16, borderRadius: 20, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
-                            </div>
-                          </div>;
-                        })}
-                      </div>}
-                      <div onClick={() => updDraftPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
-                        <span style={{ lineHeight: 0, color: person.canSignOff ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
-                        </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 20, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                        </div>
-                      </div>
-                      <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
-                        <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
-                        </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 20, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                        </div>
-                      </div>
-                      <div style={{ padding: "10px 10px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                          <span style={{ lineHeight: 0, color: T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Clock-In PIN</div>
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.bg, overflow: "hidden" }}>
-                            <input className="tq-bare" type={showPin ? "text" : "password"} value={person.pin || ""} onChange={e => updDraftPerson(person.id, { pin: e.target.value })} placeholder="PIN" style={{ width: 110, padding: "6px 10px", border: "none", background: "transparent", color: T.bgText, fontSize: 16, fontFamily: T.mono, letterSpacing: showPin ? "0.15em" : "0.3em", outline: "none", textAlign: "center" }} />
-                            <button onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(person.id) ? n.delete(person.id) : n.add(person.id); return n; })} style={{ flexShrink: 0, padding: "0 8px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: 30 }}>
-                              {showPin
-                                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>;
+              );
             })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-  const renderSettingsSchedule = () => {
-    const d = settingsDraft || {};
-    const parseH = t => { const [h, m] = (t || "00:00").split(":").map(Number); return h + m / 60; };
-    const timeInput = { padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, colorScheme: T.colorScheme };
-    const xBtn = { background: T.surface, border: "none", color: T.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" };
-    // The shop's zone. Read server-side (timeclock day stamps, forgot-clockout's
-    // end-of-day alert) where there is no device zone to fall back on — unset,
-    // those treat the day as UTC. Work Hours above are wall-clock times in it.
-    const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
-    const US_TZ = [["America/Denver", "Mountain"], ["America/Phoenix", "Arizona (no DST)"], ["America/Los_Angeles", "Pacific"], ["America/Chicago", "Central"], ["America/New_York", "Eastern"], ["America/Anchorage", "Alaska"], ["Pacific/Honolulu", "Hawaii"]];
-    const otherTz = (() => { try { return Intl.supportedValuesOf("timeZone").filter(z => !US_TZ.some(([u]) => u === z)); } catch { return []; } })();
-    const tz = d.timeZone || "";
-    const tzKnown = !tz || US_TZ.some(([u]) => u === tz) || otherTz.includes(tz);
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Time Zone</div>
-          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>The shop's local time. Work hours, clock-in days, and after-hours job clock alerts all use it.</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <select value={tz} onChange={e => patchDraft({ timeZone: e.target.value })} style={{ ...timeInput, minWidth: 240, cursor: "pointer" }}>
-              <option value="">Not set</option>
-              {!tzKnown && <option value={tz}>{tz}</option>}
-              <optgroup label="United States">
-                {US_TZ.map(([z, label]) => <option key={z} value={z}>{label} — {z}</option>)}
-              </optgroup>
-              {otherTz.length > 0 && <optgroup label="All zones">
-                {otherTz.map(z => <option key={z} value={z}>{z}</option>)}
-              </optgroup>}
-            </select>
-            {deviceTz && deviceTz !== tz && <Btn size="sm" onClick={() => patchDraft({ timeZone: deviceTz })}>Use this device's zone ({deviceTz})</Btn>}
-          </div>
-          {!tz && <div style={{ fontSize: 12, color: T.textDim, marginTop: 10 }}>Not set: the server counts days in UTC, so evening punches can land on the next day, and after-hours alerts only fire once a job clock has run 12 hours.</div>}
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Work Hours</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
-              <input type="time" value={d.workStart || "07:00"} onChange={e => { const ns = e.target.value; const hpd = Math.max(0.5, parseFloat((parseH(d.workEnd || "15:00") - parseH(ns)).toFixed(2))); patchDraft({ workStart: ns, hpd }); }} style={timeInput} />
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
-              <input type="time" value={d.workEnd || "15:00"} onChange={e => { const ne = e.target.value; const hpd = Math.max(0.5, parseFloat((parseH(ne) - parseH(d.workStart || "07:00")).toFixed(2))); patchDraft({ workEnd: ne, hpd }); }} style={timeInput} />
-            </div>
-            <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {d.hpd} hrs/day</span>
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Breaks</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {(d.breaks || []).map((brk, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input type="time" value={brk.time} onChange={e => { const v = e.target.value; patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, time: v } : b) })); }} style={timeInput} />
-                <input type="number" min="1" max="120" value={brk.durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, durationMinutes: v } : b) })); }} style={{ ...timeInput, width: 56 }} />
-                <span style={{ fontSize: 12, color: T.textDim }}>min</span>
-                <button onClick={() => patchDraft(dd => ({ breaks: (dd.breaks || []).filter((_, j) => j !== i) }))} style={xBtn}>✕</button>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Lunch</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="time" value={(d.lunch || { time: "12:00" }).time} onChange={e => { const v = e.target.value; patchDraft(dd => ({ lunch: { ...(dd.lunch || { durationMinutes: 30 }), time: v } })); }} style={timeInput} />
-            <input type="number" min="1" max="120" value={(d.lunch || { durationMinutes: 30 }).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ lunch: { ...(dd.lunch || { time: "12:00" }), durationMinutes: v } })); }} style={{ ...timeInput, width: 56 }} />
-            <span style={{ fontSize: 12, color: T.textDim }}>min</span>
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Working Days</div>
-          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Days that can be scheduled. Existing jobs are unaffected — only new jobs use the current selection.</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[{ idx: 0, label: "Sun" }, { idx: 1, label: "Mon" }, { idx: 2, label: "Tue" }, { idx: 3, label: "Wed" }, { idx: 4, label: "Thu" }, { idx: 5, label: "Fri" }, { idx: 6, label: "Sat" }].map(({ idx, label }) => {
-              const on = (d.workDays || []).includes(idx); const isLast = on && (d.workDays || []).length === 1;
-              return <button key={idx} onClick={() => patchDraft(dd => { const has = (dd.workDays || []).includes(idx); if (has && (dd.workDays || []).length === 1) return {}; const next = has ? (dd.workDays || []).filter(x => x !== idx) : [...(dd.workDays || []), idx].sort((a, b) => a - b); return { workDays: next }; })} title={isLast ? "At least one working day is required" : (on ? "Click to disable" : "Click to enable")} style={{ flex: 1, padding: "10px 0", borderRadius: T.radius, border: `1px solid ${on ? T.accent : T.border}`, background: on ? brandGrad(T.accent) : "transparent", color: on ? "#fff" : T.textDim, fontSize: 12, fontWeight: 600, cursor: isLast ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "-0.045em" }}>{label}</button>;
-            })}
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Holidays</div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            {/* portal: the calendar renders to document.body instead of inside the
-                settings card, so the card's overflow and stacking context can't clip it
-                or let the page show through it. */}
-            <TraqsDatePicker portal compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
-            <Btn size="sm" onClick={() => { if (!holidayInput || (d.holidays || []).includes(holidayInput)) return; patchDraft(dd => ({ holidays: [...(dd.holidays || []), holidayInput].sort() })); setHolidayInput(""); }}>Add</Btn>
-          </div>
-          {(d.holidays || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(d.holidays || []).map(h => { const dt = new Date(h + "T12:00:00"); const label = dt.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" }); return (
-              <div key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius }}>
-                <span style={{ fontSize: 13, color: T.text, flex: 1 }}>{label}</span>
-                <button onClick={() => patchDraft(dd => ({ holidays: (dd.holidays || []).filter(x => x !== h) }))} style={xBtn}>✕</button>
-              </div>
-            ); })}
-          </div>
-        </div>
-        {/* Estimates written under an old meaning of hpd, for an admin to check by hand.
-            Nothing is rewritten — see suspectHpdOps in statsMath.js. */}
-        {(() => {
-          const _suspects = suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay: (ds) => isWorkDay(ds, orgSettings.workDays) && !(orgSettings.holidays || []).includes(ds) });
-          const _why = { perPersonTotal: "Looks like one person's hours, not the team's total — resized before the fix", perDayRate: "Looks like a per-day rate (7.5 h), not a total — entered as a simple job on iOS" };
-          return (
-            <div className="tq-frost" style={stCard}>
-              <div style={stLabel}>Estimates to check</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>
-                Estimated hours are the total for the whole team. These ops look like they were saved under an older meaning. Nothing has been changed — open each one and correct it if needed.
-              </div>
-              {_suspects.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>Nothing to check</div>}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {_suspects.map(x => (
-                  <div key={x.id} onClick={() => { const job = tasks.find(t => sameId(t.id, x.jobId)); if (job) openJobDetailOrEdit(job); }}
-                    style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer" }}>
-                    <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{x.jobNumber ? `${x.jobNumber} · ` : ""}{x.jobTitle}{x.title ? ` › ${x.title}` : ""}</span>
-                    <span style={{ fontSize: 11, color: T.textDim }}>{_why[x.reason]} · {x.hpd} h over {x.days} working day{x.days === 1 ? "" : "s"}, team of {x.team}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-      </div>
-    );
-  };
-  const renderSettingsApprovalTemplates = () => {
-    const d = settingsDraft || {};
-    const templates = d.signOffTemplates || [];
-    const ed = signOffTemplateEditing;
-    if (ed) {
-      return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          <div className="tq-frost" style={stCard}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <button onClick={() => setSignOffTemplateEditing(null)} style={{ ...stGhostBtn, padding: "6px 12px" }}>← Back</button>
-              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{ed.id ? "Edit Template" : "New Template"}</div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={stFieldLabel}>Template Name</div>
-              <input autoFocus value={ed.name} onChange={e => setSignOffTemplateEditing(p => ({ ...p, name: e.target.value }))} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="e.g. Engineering, Sales, QA…" style={stInput} />
-            </div>
-            <div>
-              <div style={stFieldLabel}>Steps</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {(ed.steps || []).map((step, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
-                    <input value={step} onChange={e => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? e.target.value : s) }))} onFocus={stInputFocus} onBlur={stInputBlur} placeholder={`Step ${i + 1} label…`} style={{ ...stInput, padding: "8px 10px", fontSize: 13 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
-                    {(ed.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>}
-                  </div>
-                ))}
-                <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
-              <button onClick={() => setSignOffTemplateEditing(null)} style={outlineBtnStyle(T.accent)}>Cancel</button>
-              <Btn size="sm" onClick={() => { const name = (ed.name || "").trim(); const steps = (ed.steps || []).map(s => s.trim()).filter(Boolean); if (!name || steps.length === 0) return; if (ed.id) { patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).map(t => t.id === ed.id ? { ...t, name, steps } : t) })); } else { patchDraft(dd => ({ signOffTemplates: [...(dd.signOffTemplates || []), { id: uid(), name, steps }] })); } setSignOffTemplateEditing(null); }}>{ed.id ? "Save Changes" : "Create Template"}</Btn>
-            </div>
-          </div>
+          </>)}
+          {sRow("Approval queue", "Can sign off steps in approval templates.",
+            <div className="rv-ctl flat"><span>Approval queue access</span>{sTog(person.canSignOff, () => updDraftPerson(person.id, { canSignOff: !person.canSignOff }))}</div>)}
+          {sRow("Scheduling", "Auto-scheduling will skip this person.",
+            <div className="rv-ctl flat"><span>Exclude from auto-scheduling</span>{sTog(person.noAutoSchedule, () => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule }), "y")}</div>)}
+          {sRow("Clock-in PIN", "Entered at the shop clock to clock in.",
+            <div className="rv-ctl flat"><span>PIN</span>{sPin(person, updDraftPerson)}</div>)}
         </div>
       );
     }
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Approval Queue Templates</div>
-          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6, marginBottom: 16 }}>Reusable approval workflows. Each template defines a name and an ordered series of steps that must be signed off. Changes here save when you press Save below.</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-            {templates.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "16px 0", textAlign: "center" }}>No templates yet — add one below</div>}
-            {templates.map(tmpl => (
-              <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
-                </div>
-                <Tip label="Edit"><button onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...(tmpl.steps || [])] })} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "2px 6px", lineHeight: 1 }}>✎</button></Tip>
-                <Tip label="Delete"><button onClick={() => patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).filter(t => t.id !== tmpl.id) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}>✕</button></Tip>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px 0", borderRadius: T.radius, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ New Template</button>
+      <div style={{ display: "grid", gridTemplateColumns: "250px minmax(0,1fr)", gridTemplateRows: "minmax(0,1fr)", gap: "0 32px", minHeight: 0 }}>
+        <div className="rv-wlist">
+          {sorted.map(p => {
+            const n = rolesOf(p).length;
+            return (
+              <button key={p.id} type="button" className={person && p.id === person.id ? "on" : undefined} onClick={() => setSettingsUser(p.id)}>
+                <PersonAvatar person={p} size={32} />
+                <div><b>{p.name}</b><small>{p.department || "No department"}</small></div>
+                {n > 0 && <em>{n}</em>}
+              </button>
+            );
+          })}
         </div>
+        {detail}
       </div>
     );
   };
+
+  const renderSettingsSchedule = () => {
+    const d = settingsDraft || {};
+    const parseH = t => { const [h, m] = (t || "00:00").split(":").map(Number); return h + m / 60; };
+    // The shop's zone. Read server-side (timeclock day stamps, forgot-clockout's
+    // end-of-day alert) where there is no device zone to fall back on — unset,
+    // those treat the day as UTC. Work hours are wall-clock times in it.
+    const tz = d.timeZone || "";
+    // "Same as Account": the zone you see TRAQS in (Account › Preferences, or
+    // this device when that is Automatic).
+    const accountTz = userPrefs.timeZone || deviceTz;
+    const sameAsAccount = !!tz && tz === accountTz;
+    const hrs = Math.max(0, parseH(d.workEnd || "15:00") - parseH(d.workStart || "07:00"));
+    const breakRow = (label, value, onTime, mins, onMins, onRemove) => (
+      <div className="rv-inl">
+        <b style={{ width: 76 }}>{label}</b>
+        <input type="time" className="rv-tin rv-num" value={value} onChange={onTime} />
+        <input type="number" min="1" max="120" className="rv-tin rv-num" value={mins} onChange={onMins} />
+        <span>min</span>
+        {onRemove && <button type="button" className="rv-x" aria-label={`Remove ${label.toLowerCase()}`} onClick={onRemove}>{sIco(SICO.x, 12)}</button>}
+      </div>
+    );
+    return (
+      <div className="rv-scol">
+        {sRow("Time zone", "The shop's local time. Work hours, clock-in days and after-hours alerts all use it.", <>
+          <div style={{ opacity: sameAsAccount ? 0.55 : 1 }}>
+            <select className="rv-in" value={tz} onChange={e => patchDraft({ timeZone: e.target.value })}>
+              <option value="">Not set</option>
+              {tzOptions(tz)}
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+            {accountTz && sCb("Same as Account time zone", sameAsAccount, () => { if (!sameAsAccount) patchDraft({ timeZone: accountTz }); })}
+            {deviceTz && deviceTz !== tz && deviceTz !== accountTz && <button type="button" className="rv-pill sm" onClick={() => patchDraft({ timeZone: deviceTz })}>Use this device's zone ({deviceTz})</button>}
+          </div>
+          {!tz && <div className="rv-note">Not set: the server counts days in UTC, so evening punches can land on the next day, and after-hours alerts only fire once a job clock has run 12 hours.</div>}
+        </>)}
+        {sRow("Work hours", "Opening and closing time for the shop floor.",
+          <div className="rv-inl">
+            <span>Opens</span>
+            <input type="time" className="rv-tin rv-num" value={d.workStart || "07:00"} onChange={e => patchDraft({ workStart: e.target.value })} />
+            <span>Closes</span>
+            <input type="time" className="rv-tin rv-num" value={d.workEnd || "15:00"} onChange={e => patchDraft({ workEnd: e.target.value })} />
+            <span className="rv-num">= {parseFloat(hrs.toFixed(2))} hrs/day</span>
+          </div>)}
+        {sRow("Breaks & lunch", "Scheduled automatically inside every working day.", <>
+          {(d.breaks || []).map((brk, i) => <Fragment key={i}>{breakRow("Break", brk.time,
+            e => { const v = e.target.value; patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, time: v } : b) })); },
+            brk.durationMinutes,
+            e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, durationMinutes: v } : b) })); },
+            () => patchDraft(dd => ({ breaks: (dd.breaks || []).filter((_, j) => j !== i) })))}</Fragment>)}
+          {breakRow("Lunch", (d.lunch || { time: "12:00" }).time,
+            e => { const v = e.target.value; patchDraft(dd => ({ lunch: { ...(dd.lunch || { durationMinutes: 30 }), time: v } })); },
+            (d.lunch || { durationMinutes: 30 }).durationMinutes,
+            e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ lunch: { ...(dd.lunch || { time: "12:00" }), durationMinutes: v } })); },
+            null)}
+          <button type="button" className="rv-pill sm" style={{ marginTop: 8 }} onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))}>+ Add break</button>
+        </>)}
+        {sRow("Working days", "Days that can be scheduled. Existing jobs are unaffected; only new jobs use the current selection.",
+          <div className="rv-days">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, idx) => {
+              const on = (d.workDays || []).includes(idx); const isLast = on && (d.workDays || []).length === 1;
+              return <button key={idx} type="button" className={on ? "on" : undefined} title={isLast ? "At least one working day is required" : undefined} style={isLast ? { cursor: "not-allowed" } : undefined}
+                onClick={() => patchDraft(dd => { const has = (dd.workDays || []).includes(idx); if (has && (dd.workDays || []).length === 1) return {}; const next = has ? (dd.workDays || []).filter(x => x !== idx) : [...(dd.workDays || []), idx].sort((a, b) => a - b); return { workDays: next }; })}>{label}</button>;
+            })}
+          </div>)}
+        {sRow("Holidays", "Non-working dates for the whole team.", <>
+          <div className="rv-ctl flat" style={{ gap: 8 }}>
+            {/* portal: the calendar renders to document.body so the scrolling
+                column can't clip it. */}
+            <TraqsDatePicker portal compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
+            <button type="button" className="rv-pill pri" disabled={!holidayInput} onClick={() => { if (!holidayInput || (d.holidays || []).includes(holidayInput)) return; patchDraft(dd => ({ holidays: [...(dd.holidays || []), holidayInput].sort() })); setHolidayInput(""); }}>Add</button>
+          </div>
+          {(d.holidays || []).length === 0
+            ? <small className="rv-mute" style={{ display: "block", marginTop: 8 }}>No holidays added</small>
+            : <div className="rv-dlist" style={{ marginTop: 8 }}>
+              {(d.holidays || []).map(h => (
+                <div key={h}>
+                  <span style={{ flex: 1 }}>{new Date(h + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "long", day: "numeric", year: "numeric" })}</span>
+                  <button type="button" className="rv-x" aria-label="Remove holiday" onClick={() => patchDraft(dd => ({ holidays: (dd.holidays || []).filter(x => x !== h) }))}>{sIco(SICO.x, 12)}</button>
+                </div>
+              ))}
+            </div>}
+        </>)}
+      </div>
+    );
+  };
+
+  const renderSettingsApprovalTemplates = () => {
+    const d = settingsDraft || {};
+    const templates = d.signOffTemplates || [];
+    const ed = signOffTemplateEditing;
+    const chain = steps => (
+      <div className="rv-steps">
+        {(steps || []).map((s, i) => <Fragment key={i}><span><u>{i + 1}</u>{s}</span>{i < steps.length - 1 && sIco(SICO.chevR, 12)}</Fragment>)}
+      </div>
+    );
+    const editor = ed && (
+      <div className="rv-tpl">
+        <div><b>{ed.id ? "Edit template" : "New template"}</b></div>
+        <div style={{ marginTop: 12 }}>{sFld("Template name", <input className="rv-in" autoFocus value={ed.name} onChange={e => setSignOffTemplateEditing(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Engineering, Sales, QA…" />)}</div>
+        <div className="rv-fld" style={{ marginTop: 12 }}><span>Steps</span></div>
+        {(ed.steps || []).map((step, i) => (
+          <div key={i} className="rv-inl">
+            <span className="rv-steps" style={{ marginTop: 0 }}><span style={{ padding: 0, background: "transparent" }}><u>{i + 1}</u></span></span>
+            <input className="rv-in" value={step} onChange={e => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? e.target.value : s) }))} placeholder={`Step ${i + 1} label…`} style={{ flex: 1, minHeight: 32, padding: "6px 14px" }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
+            {(ed.steps || []).length > 1 && <button type="button" className="rv-x" aria-label="Remove step" onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))}>{sIco(SICO.x, 12)}</button>}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button type="button" className="rv-pill sm" onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))}>+ Add step</button>
+          <span style={{ flex: 1 }} />
+          <button type="button" className="rv-pill" onClick={() => setSignOffTemplateEditing(null)}>Cancel</button>
+          <button type="button" className="rv-pill pri" disabled={!(ed.name || "").trim() || !(ed.steps || []).some(s => s.trim())}
+            onClick={() => { const name = (ed.name || "").trim(); const steps = (ed.steps || []).map(s => s.trim()).filter(Boolean); if (!name || steps.length === 0) return; if (ed.id) { patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).map(t => t.id === ed.id ? { ...t, name, steps } : t) })); } else { patchDraft(dd => ({ signOffTemplates: [...(dd.signOffTemplates || []), { id: uid(), name, steps }] })); } setSignOffTemplateEditing(null); }}>{ed.id ? "Done" : "Add template"}</button>
+        </div>
+      </div>
+    );
+    return (
+      <div className="rv-scol">
+        {sRow("Approval queue templates", "Reusable approval workflows. Each template defines a name and an ordered series of steps that must be signed off.", <>
+          {templates.length === 0 && !ed && <div className="rv-mute" style={{ marginBottom: 10 }}>No templates yet.</div>}
+          {templates.map(tmpl => ed && ed.id === tmpl.id ? <Fragment key={tmpl.id}>{editor}</Fragment> : (
+            <div key={tmpl.id} className="rv-tpl">
+              <div>
+                <b>{tmpl.name}</b>
+                <span style={{ flex: 1 }} />
+                <button type="button" className="rv-ic" aria-label={`Edit ${tmpl.name}`} title="Edit" onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...(tmpl.steps || [])] })}>{sIco(SICO.pen)}</button>
+                <button type="button" className="rv-x" aria-label={`Delete ${tmpl.name}`} title="Delete" onClick={() => patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).filter(t => t.id !== tmpl.id) }))}>{sIco(SICO.x, 12)}</button>
+              </div>
+              {chain(tmpl.steps)}
+            </div>
+          ))}
+          {ed && !ed.id && editor}
+          {!ed && <button type="button" className="rv-pill" style={{ marginTop: 10 }} onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })}>+ New template</button>}
+        </>, true)}
+      </div>
+    );
+  };
+
   const renderSettingsTimeClock = () => {
     const d = settingsDraft || {};
     const payDates = d.payDates || [5, 20];
     const dp = d.people || [];
     const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
-    const numInput = { width: 60, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" };
-    const Toggle = ({ on, onClick }) => (
-      <button type="button" onClick={onClick} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
-      </button>
-    );
-    // Four-up grid of person tiles. Pressing a tile flips that person and leaves
-    // them there; the page's own Save commits the draft, same as every other
-    // control in this section.
-    const personTiles = ({ list, isOn, onToggle }) => (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
-        {list.map((p, i) => {
-          const on = isOn(p);
-          return (
-            <button key={p.id} type="button" onClick={() => onToggle(p, on)} title={`${p.name || "—"} — ${on ? "on" : "off"}`}
-              style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 7,
-                padding: "14px 8px 11px", minWidth: 0,
-                borderRadius: T.radius, cursor: "pointer", fontFamily: T.font, textAlign: "center",
-                border: `1.5px solid ${on ? T.accent : T.border}`,
-                background: on ? T.accent + "14" : T.surface,
-                transition: "border-color 0.14s, background 0.14s",
-              }}>
-              <PersonAvatar person={p} size={40} ring={on ? T.accent : null} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "—"}</span>
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "-0.03em", textTransform: "uppercase", color: on ? T.accent : T.textDim }}>{on ? "On" : "Off"}</span>
-            </button>
-          );
-        })}
-        {list.length === 0 && <div style={{ gridColumn: "1 / -1", fontSize: 12, color: T.textDim, padding: "8px 0" }}>No team members yet.</div>}
-      </div>
+    const isHourly = p => (p.payType || "hourly") !== "salary";
+    const byName = [...dp].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const hourlyN = dp.filter(isHourly).length;
+    const pp = getPayPeriodFromDates(payDates, TD);
+    const fmtD = ds => new Date(ds + "T00:00:00").toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" });
+    const dayIn = (i) => (
+      <input type="number" min="1" max="31" className="rv-tin rv-num" value={payDates[i]}
+        onChange={e => { const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1)); patchDraft(dd => { const cur = dd.payDates || [5, 20]; return { payDates: i === 0 ? [v, cur[1]] : [cur[0], v] }; }); }} />
     );
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Pay Period</div>
-          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Pay period dates (day of month)</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: T.text }}>From the</span>
-            <input type="number" min="1" max="31" value={payDates[0]} onChange={e => { const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1)); patchDraft(dd => ({ payDates: [v, (dd.payDates || [5, 20])[1]] })); }} style={numInput} />
-            <span style={{ fontSize: 13, color: T.text }}>to the</span>
-            <input type="number" min="1" max="31" value={payDates[1]} onChange={e => { const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1)); patchDraft(dd => ({ payDates: [(dd.payDates || [5, 20])[0], v] })); }} style={numInput} />
-            <span style={{ fontSize: 13, color: T.text }}>of each month</span>
-          </div>
-          <div style={{ fontSize: 11, color: T.textDim }}>
-            {(() => { const pp = getPayPeriodFromDates(payDates, TD); const fmtD = dd2 => new Date(dd2 + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Hours Cap</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: T.text }}>Cap each person at</span>
-            <input type="number" min="1" max="999" step="1" value={d.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); patchDraft({ payPeriodHourCap: v }); }} style={{ ...numInput, width: 60 }} />
-            <span style={{ fontSize: 13, color: T.text }}>hours per pay period</span>
-          </div>
-        </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={{ ...stLabel, display: "flex", alignItems: "center", gap: 6 }}>
-            Mobile Clock-In
-            <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 9, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Toggle on={!!d.iosPayClockEnabled} onClick={() => patchDraft(dd => ({ iosPayClockEnabled: !dd.iosPayClockEnabled }))} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
-            </div>
-          </div>
-          {/* Per-worker clock-in access: a master toggle (enable/disable all) plus a
-              collapsible list to flip individual workers. Per person it's opt-out
-              (absent/true = allowed); the master reflects "any enabled" with an X/N count. */}
-          <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-            {(() => {
-              const workers = [...(d.people || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-              const enabled = workers.filter(p => p.canClockInOut !== false).length;
-              const setAll = (val) => patchDraft(dd => ({ people: (dd.people || []).map(p => ({ ...p, canClockInOut: val })) }));
-              const setOne = (id) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, canClockInOut: p.canClockInOut === false } : p) }));
-              // Rows used to cascade in (staggerUp) on every expand. Expanding
-              // lists no longer stagger (redesign pass 1); rows appear with the list.
-              const rowAnim = () => ({});
-              return (<>
-                <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Per-worker access</div>
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: enabled > 0 ? T.accent : T.textDim }}>{enabled}/{workers.length}</span>
-                  <span style={{ transform: clockAccessOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 380px", gridTemplateRows: "minmax(0,1fr)", gap: "0 40px", minHeight: 0 }}>
+        <div className="rv-scol">
+          {sRow("Pay period", "First and last day of each pay period, as days of the month.", <>
+            <div className="rv-inl"><span style={{ width: 70 }}>First day</span>{dayIn(0)}<span>of each month</span></div>
+            <div className="rv-inl"><span style={{ width: 70 }}>Last day</span>{dayIn(1)}<span>of each month</span></div>
+            <small className="rv-mute" style={{ display: "block", marginTop: 8 }}>Current pay period: {fmtD(pp.start)} – {fmtD(pp.end)}</small>
+          </>)}
+          {sRow("Hours cap", "Maximum paid hours per person per pay period.",
+            <div className="rv-inl">
+              <span>Cap each person at</span>
+              <input type="number" min="1" max="999" step="1" className="rv-tin rv-num" value={d.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); patchDraft({ payPeriodHourCap: v }); }} />
+              <span>hours per pay period</span>
+            </div>)}
+          {sRow("Clock events", "Buttons shown to hourly workers on the clock.", <>
+            <div className="rv-ctl"><span>Track lunch<small>Show Start / End Lunch buttons</small></span>{sTog(!!d.trackLunch, () => patchDraft(dd => ({ trackLunch: !dd.trackLunch })))}</div>
+            <div className="rv-ctl"><span>Track breaks<small>Show Start / End Break buttons</small></span>{sTog(!!d.trackBreaks, () => patchDraft(dd => ({ trackBreaks: !dd.trackBreaks })))}</div>
+          </>)}
+          {sRow("Mobile clock-in", "Allow workers to clock in for pay from the iOS app. If disabled, clock-in on desktop is required for workers.",
+            <div className="rv-ctl flat"><span>Allow clock-in from the iOS app</span>{sTog(!!d.iosPayClockEnabled, () => patchDraft(dd => ({ iosPayClockEnabled: !dd.iosPayClockEnabled })))}</div>)}
+          {sRow("Clock-in PINs", "Hourly workers enter these at the shop clock.",
+            hourlyN === 0 ? <span className="rv-mute">Nobody is set to hourly.</span> :
+            <div className="rv-dlist">
+              {byName.filter(isHourly).map(p => (
+                <div key={p.id} style={{ padding: "5px 0" }}>
+                  <PersonAvatar person={p} size={28} />
+                  <span style={{ flex: 1, minWidth: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  {sPin(p, updDraftPerson)}
                 </div>
-                {/* Smooth real-height expand/collapse via grid-template-rows (no max-height
-                    guessing, no parent transform to fight the row stagger). */}
-                <div style={{ display: "grid", gridTemplateRows: clockAccessOpen ? "1fr" : "0fr", opacity: clockAccessOpen ? 1 : 0, transition: "grid-template-rows 0.3s ease, opacity 0.24s ease" }}>
-                  <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface, ...rowAnim(0) }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>All Workers</div>
-                          <div style={{ fontSize: 11, color: T.textDim }}>{enabled} of {workers.length} enabled</div>
-                        </div>
-                        <Toggle on={enabled > 0} onClick={() => setAll(enabled > 0 ? false : true)} />
-                      </div>
-                      {personTiles({
-                        list: workers,
-                        isOn: p => p.canClockInOut !== false,
-                        onToggle: p => setOne(p.id),
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </>);
-            })()}
-          </div>
+              ))}
+            </div>)}
         </div>
-        <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Clock Events</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
-              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <Toggle on={!!d[key]} onClick={() => patchDraft(dd => ({ [key]: !dd[key] }))} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{desc}</div>
-                </div>
+        <div className="rv-mside">
+          <div className="rv-ctl" style={{ paddingTop: 0 }}>
+            <span><b style={{ fontSize: 16.5 }}>Pay type</b><small>Hourly workers use the clock · {hourlyN} hourly, {dp.length - hourlyN} salary</small></span>
+          </div>
+          <div className="rv-paylist">
+            {byName.length === 0 && <span className="rv-mute">No team members yet.</span>}
+            {byName.map(p => (
+              <div key={p.id}>
+                <PersonAvatar person={p} size={28} />
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                {sSeg([{ id: "hourly", label: "Hourly" }, { id: "salary", label: "Salary" }], isHourly(p) ? "hourly" : "salary", v => updDraftPerson(p.id, { payType: v }), true)}
               </div>
             ))}
           </div>
         </div>
-        <div className="tq-frost" style={stCard}>
-          {(() => {
-            const payOn = dp.filter(p => (p.payType || "hourly") !== "salary").length;
-            return (<>
-              <div onClick={() => setPayClockOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                <div style={{ ...stLabel, flex: 1, marginBottom: 0 }}>Hourly</div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: payOn > 0 ? T.accent : T.textDim }}>{payOn}/{dp.length}</span>
-                <span style={{ transform: payClockOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
-              </div>
-              {/* Real-height expand/collapse, matching Per-worker access above. */}
-              <div style={{ display: "grid", gridTemplateRows: payClockOpen ? "1fr" : "0fr", opacity: payClockOpen ? 1 : 0, transition: "grid-template-rows 0.28s ease, opacity 0.2s ease" }}>
-                <div style={{ overflow: "hidden", minHeight: 0 }}>
-                  <div style={{ marginTop: 12 }}>
-                    {personTiles({
-                      list: dp,
-                      isOn: p => (p.payType || "hourly") !== "salary",
-                      onToggle: (p, on) => updDraftPerson(p.id, { payType: on ? "salary" : "hourly" }),
-                    })}
-                  </div>
-                </div>
-              </div>
-            </>);
-          })()}
-          <div style={{ ...stLabel, marginTop: 26 }}>PIN</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 150px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-            {["Name", "PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</span>)}
-          </div>
-          {dp.filter(p => (p.payType || "hourly") !== "salary").length === 0 && (
-            <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>Nobody is set to hourly.</div>
-          )}
-          {dp.filter(p => (p.payType || "hourly") !== "salary").map(p => {
-            const showPin = showPinIds.has(p.id);
-            return (
-              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 150px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <PersonAvatar person={p} size={22} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, overflow: "hidden" }}>
-                  <input className="tq-bare" type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
-                  <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
-                    {showPin
-                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
     );
   };
+
   const renderSettingsCustomization = () => {
     const dc = draftCustom;
     const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
@@ -25845,8 +25781,6 @@ ${jobsCtx || "No jobs found."}`;
     const pSolid = pT.systemBg || pT.surfaceSolid || pT.surface;
     const pSysText = pT.systemText || pT.text;
     const pSysBorder = pT.systemBorder || pT.border;
-    const lbl = { fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 14 };
-    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: 26, padding: "20px 22px", marginBottom: 28 };
     const ROSTER = 132;
     const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
     // Six groups, 20 people, 28 bars — against 4 / 8 / 9 before, so the mockup
@@ -25871,97 +25805,48 @@ ${jobsCtx || "No jobs found."}`;
     const pGridOn = pT.scheduleGrid !== false;
     const pGridLine = blendHex(pT.surfaceSolid || pT.surface, wantsLightText(pT.surfaceSolid || pT.surface) ? 0.15 : -0.15);
     const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
+    // null = the mode's own accent, which is ACCENTS[0]; picking that swatch
+    // stores null so the default stays the default.
+    const baseAccent = (THEMES[draftMode] || THEMES.frost).accent;
+    const curAccent = (dc.accent || baseAccent).toLowerCase();
+    const isPresetAccent = ACCENTS.some(c => c.toLowerCase() === curAccent);
     return (
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "380px minmax(0,1fr)", gridTemplateRows: "minmax(0,1fr)", gap: "0 32px", minHeight: 0, paddingBottom: 24 }}>
         <style>{`
           .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
           @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
         `}</style>
-        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {/* Controls */}
-          <div style={{ width: 460, flexShrink: 0, overflowY: "auto", padding: "24px 22px 20px", background: T.surfaceSolid || T.card }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}><h1 style={{ ...pageTitleStyle, color: T.text }}>Customization</h1>{titleActions}</div>
-            <div style={card}>
-              <div style={lbl}>Background</div>
-              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                {[{ id: "frost", label: "Light" }, { id: "midnight", label: "Dark" }].map(th => {
-                  const active = draftMode === th.id;
-                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
-                })}
-              </div>
-            </div>
-            <div style={card}>
-              <div style={lbl}>Accent Color</div>
-              {(() => {
-                // null = the mode's own accent, which is ACCENTS[0]; picking that
-                // swatch stores null so the default stays the default.
-                const base = (THEMES[draftMode] || THEMES.frost).accent;
-                const cur = (dc.accent || base).toLowerCase();
-                const isPreset = ACCENTS.some(c => c.toLowerCase() === cur);
-                const ring = on => ({ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer", border: "none", boxShadow: on ? `0 0 0 2px ${T.surfaceSolid || T.card}, 0 0 0 4px ${T.text}` : `inset 0 0 0 1px ${hexA(T.text, 0.12)}` });
-                return <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-                  {ACCENTS.map(c => <button key={c} type="button" aria-label={`Accent ${c}`} title={c}
-                    onClick={() => setDc({ accent: c.toLowerCase() === base.toLowerCase() ? null : c })}
-                    style={{ ...ring(cur === c.toLowerCase()), background: c }} />)}
-                  <label title="Custom color" style={{ ...ring(!isPreset), position: "relative", overflow: "hidden", display: "block",
-                    background: isPreset ? "conic-gradient(#f43f5e, #f59e0b, #10b981, #38BDF8, #7c3aed, #f43f5e)" : dc.accent }}>
-                    <input type="color" value={dc.accent || base} onChange={e => setDc({ accent: e.target.value })}
-                      style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%", border: "none", padding: 0 }} />
-                  </label>
-                </div>;
-              })()}
-            </div>
-            <div style={card}>
-              <div style={lbl}>Colors</div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Job Cards</div>
-                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                    {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
-                      const a = (dc.jobBarMode || "system") === o.id;
-                      return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                    })}
-                  </div>
-                  {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
-                    <label style={{ position: "relative", width: 40, height: 40, borderRadius: "50%", border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
-                      <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || pT.accent }} />
-                      <input type="color" value={dc.jobBarColor || pT.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                    </label>
-                    <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>All colored elements use this color.</div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || pT.accent}</div>
-                  </div>}
-                </div>
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Job List Cells</div>
-                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                    {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
-                      const a = (dc.cellColorMode || "system") === o.id;
-                      return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                    })}
-                  </div>
-                </div>
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Schedule Grid</div>
-                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                    {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
-                      const a = (dc.scheduleGrid !== false) === o.id;
-                      return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
-                    })}
-                  </div>
-                </div>
-            </div>
-            {renderSettingsActions()}
+        <div className="rv-scol rv-cust">
+          {sRow("Background", "Light or dark canvas.", sSeg([{ id: "frost", label: "Light" }, { id: "midnight", label: "Dark" }], draftMode === "midnight" ? "midnight" : "frost", setDraftMode))}
+          {sRow("Accent color", "Buttons and highlights.",
+            <div className="rv-swatches">
+              {ACCENTS.map(c => <button key={c} type="button" aria-label={`Accent ${c}`} title={c} className={curAccent === c.toLowerCase() ? "on" : undefined}
+                onClick={() => setDc({ accent: c.toLowerCase() === baseAccent.toLowerCase() ? null : c })} style={{ background: c }} />)}
+              <label title="Custom color" className={isPresetAccent ? undefined : "on"} style={{ background: isPresetAccent ? "conic-gradient(#ff6b5b, #eda412, #1a9b6a, #30b8f8, #6c4fe0, #d63c8c, #ff6b5b)" : dc.accent }}>
+                <input type="color" value={dc.accent || baseAccent} onChange={e => setDc({ accent: e.target.value })}
+                  style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%", border: "none", padding: 0 }} />
+              </label>
+            </div>)}
+          {sRow("Job colors", "Cards and list cells.", <>
+            <div className="rv-ctl"><span>Job cards</span>{sSeg([{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }], dc.jobBarMode || "system", v => { setDc({ jobBarMode: v }); setPreviewView("schedule"); })}</div>
+            {(dc.jobBarMode || "system") === "custom" && <div className="rv-ctl">
+              <span>Card color<small className="rv-num">{dc.jobBarColor || pT.accent}</small></span>
+              <label style={{ position: "relative", width: 30, height: 30, borderRadius: "50%", overflow: "hidden", cursor: "pointer", flex: "none", display: "block", background: dc.jobBarColor || pT.accent, boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.12)" }}>
+                <input type="color" value={dc.jobBarColor || pT.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+              </label>
+            </div>}
+            <div className="rv-ctl"><span>Job list cells</span>{sSeg([{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }], dc.cellColorMode || "system", v => { setDc({ cellColorMode: v }); setPreviewView("jobs"); })}</div>
+          </>)}
+          <div className="rv-srow">
+            <div className="rv-ctl flat"><span>Schedule grid</span>{sTog(dc.scheduleGrid !== false, () => { setDc({ scheduleGrid: dc.scheduleGrid === false }); setPreviewView("schedule"); })}</div>
           </div>
-          {/* Live preview */}
-          <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
-                {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
-                  const a = previewView === v.id;
-                  return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
-                })}
-              </div>
-            </div>
-            <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 20, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
+        </div>
+        {/* Live preview */}
+        <div className="rv-cprev">
+          <div className="rv-ptoggle">
+            {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => <button key={v.id} type="button" className={previewView === v.id ? "on" : undefined} onClick={() => setPreviewView(v.id)}>{v.label}</button>)}
+          </div>
+            <div className="tq-preview-anim" style={{ flex: 1, alignSelf: "stretch", minHeight: 0, borderRadius: 18, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 6px 22px rgba(20,24,50,0.08)", background: pSolid }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
                 <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.045em", marginLeft: 46 }}>traqs</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -26078,7 +25963,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
             </div>
-          </div>
         </div>
       </div>
     );
@@ -26097,72 +25981,57 @@ ${jobsCtx || "No jobs found."}`;
     }
   };
 
-  // Full-page settings content (rendered into the main content panel when settingsMode).
-  // Save / Discard row — rendered inline BELOW a section's elements (not a page-bottom bar).
-  const renderSettingsActions = () => {
-    const dirty = computeSettingsDirty();
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
-        <Btn size="sm" disabled={!dirty || settingsSaving} onClick={async () => { await saveSection(); }}>{settingsSaving ? "Saving…" : "Save"}</Btn>
-        <button onClick={discardSection} disabled={!dirty || settingsSaving} style={{ ...stGhostBtn, padding: "9px 18px", fontSize: 13, cursor: (!dirty || settingsSaving) ? "not-allowed" : "pointer", opacity: (!dirty || settingsSaving) ? 0.45 : 1 }}>Discard</button>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: dirty ? "#f59e0b" : "#10b981", display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 8, background: dirty ? "#f59e0b" : "#10b981" }} />
-          {dirty ? "Unsaved changes" : "All changes saved"}
-        </span>
-      </div>
-    );
-  };
-
+  // Full-page Settings, inside the app like every other page: the rail stays,
+  // the title sits top-left with the save state and actions on its right, and
+  // the sections are a nav down the left of the page.
   const renderSettingsPage = () => {
-    const meta = settingsSectionMeta[settingsSection] || { group: "Settings", sub: "" };
-    const wide = settingsSection === "customization";
+    const meta = settingsSectionMeta[settingsSection] || { sub: "" };
+    const dirty = computeSettingsDirty();
     const showBg = T.adaptive && T.bgImage;
-    // Transparent, like every other page. The content panel behind this already paints
-    // the solid colour and renders the liquid wash, so an opaque fill here hid both —
-    // settings was the one view where a liquid background never showed.
+    const sec = settingsSection;
+    const navBtn = (key, label) => <button key={key} type="button" className={sec === key ? "on" : undefined} aria-current={sec === key ? "page" : undefined} onClick={() => navigateSection(key)}>{label}</button>;
     return (
       <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "transparent", fontFamily: T.font, overflow: "hidden" }}>
-        {/* Pinned background image — section cards (.tq-frost) blur over it, matching the rest of the app */}
+        {/* Pinned background image, matching the rest of the app */}
         {showBg && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", zIndex: 0, pointerEvents: "none" }} />}
-        {/* Top row — breadcrumb + section title. Hidden on Customization so the split view fills the page. */}
-        {/* Same top-left title as every other page. Padding matches frostScroll
-            (24 top / 32 left) so it lands in the identical spot when you switch
-            in and out of Settings. The section name + breadcrumb move to the
-            RIGHT of it — they're the thing that used to sit here. */}
-        {/* Title is the sidebar group you're in, with the specific page small
-            underneath. Rendered for Customization too — it needs a title like
-            every other section; only its BODY is full-bleed. */}
-        {/* No fill. It used to paint T.bg to stop the background image bleeding up
-            behind the title, but that drew a hard opaque band across the top of the
-            page — the image ran everywhere except this strip. Every other page lets
-            its background run under the title, and so does this one now.
-            The title switches to bgText for the same reason it does elsewhere: it sits
-            on the page background, not on a card, so a surface-derived colour is wrong. */}
-        {!wide && <div style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: "24px 32px 12px", background: "transparent" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-            <h1 style={pageTitleStyle}>{meta.group}</h1>{titleActions}
+        {/* Padding matches frostScroll (24 top / 32 left) so the title lands in
+            the same spot as every other page's. */}
+        <div className="rv-shead" style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: isMobile ? "12px 14px" : "24px 32px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, flexWrap: "wrap" }}>
+            <h1 style={pageTitleStyle}>Settings</h1>{titleActions}
+            <span style={{ flex: 1 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {dirty
+                ? <button type="button" className="rv-pill" disabled={settingsSaving} onClick={discardSection}>Discard</button>
+                : <span className="rv-saved">{sIco(SICO.check, 12)} All changes saved</span>}
+              <button type="button" className="rv-pill pri" disabled={!dirty || settingsSaving} onClick={() => { saveSection(); }}>{settingsSaving ? "Saving…" : "Save changes"}</button>
+            </div>
           </div>
-          {meta.sub && <div style={{ fontSize: 13, fontWeight: 600, color: hexA(T.bgText || T.text, 0.7), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta.sub}</div>}
-          {/* Organization's pages, as tabs. They were a second list in the sidebar,
-              which a rail that never expands has no room for -- six text-only
-              entries with no icons. The rail keeps one Organization button. */}
-          {settingsSection.startsWith("org-") && <div role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 16 }}>
-            {SETTINGS_ORG_CHILDREN.map(c => { const on = settingsSection === c.key; return (
-              <button key={c.key} role="tab" aria-selected={on} onClick={() => { if (!on) navigateSection(c.key); }}
-                style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: `1px solid ${on ? T.accent : T.borderLight}`, background: on ? hexA(T.accent, 0.14) : T.surface, color: on ? T.text : T.textSec, fontSize: 12.5, fontWeight: on ? 700 : 600, cursor: on ? "default" : "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}
-                onMouseEnter={e => { if (!on) e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { if (!on) e.currentTarget.style.background = T.surface; }}>
-                {c.label}
-              </button>
-            ); })}
-          </div>}
-        </div>}
-        {/* Section body — full-bleed flex for Customization (split view), padded scroll otherwise.
-            Save/Discard now render inline below the section's elements (see renderSettingsActions). */}
-        {wide
-          ? <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{renderSettingsBody()}</div>
-          : <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 32px 32px" }}><div style={{ maxWidth: 1120, margin: "0 auto" }}>{renderSettingsBody()}{renderSettingsActions()}</div></div>}
+          {settingsSaveError && <div className="rv-err">{settingsSaveError}</div>}
+        </div>
+        <div className="rv-st" style={{ position: "relative", zIndex: 1, padding: isMobile ? "0 14px" : "4px 32px 0", ...(isMobile ? { gridTemplateColumns: "minmax(0,1fr)", gridTemplateRows: "auto minmax(0,1fr)", gap: 12 } : null) }}>
+          {isMobile
+            ? <select className="rv-in" value={sec} onChange={e => navigateSection(e.target.value)} aria-label="Settings section">
+              <optgroup label="Account"><option value="general">General</option></optgroup>
+              {can("orgSettings") && <optgroup label="Organization">{SETTINGS_ORG_CHILDREN.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
+              <optgroup label="Appearance"><option value="customization">Customization</option></optgroup>
+            </select>
+            : <nav className="rv-snav" aria-label="Settings sections">
+              <small>Account</small>
+              {navBtn("general", "General")}
+              {can("orgSettings") && <><small>Organization</small>{SETTINGS_ORG_CHILDREN.map(c => navBtn(c.key, c.label))}</>}
+              <small>Appearance</small>
+              {navBtn("customization", "Customization")}
+              {/* FAST TRAQS used to sit on the Settings rail, which is the app rail now. */}
+              {can("editJobs") && <>
+                <small>Tools</small>
+                <button type="button" style={{ color: "var(--tq-accent)", fontWeight: 600 }} onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" /></svg>FAST TRAQS
+                </button>
+              </>}
+            </nav>}
+          {renderSettingsBody()}
+        </div>
         <FadeOnClose open={!!settingsGuard} duration={220}>{renderSettingsGuard()}</FadeOnClose>
       </div>
     );
@@ -26288,14 +26157,11 @@ ${jobsCtx || "No jobs found."}`;
       // Selection paint, shared by the press and the per-commit sync.
       const railColors = { on: T.accent, onInk: T.accentText, off: "transparent", offInk: railInk };
       railColorsRef.current = railColors;
-      railActiveKeyRef.current = settingsMode
-        ? "settings:" + (settingsSection.startsWith("org-") ? "org-parent" : settingsSection)
-        : view;
+      railActiveKeyRef.current = settingsMode ? "settings" : view;
       // Paint the pressed button on mouse-down so the highlight moves with the
       // press instead of after the new page has rendered (railPress.js).
       const pressNav = e => { railTipOff(); if (e.button !== 0) return; paintPress(e.currentTarget, Object.values(navBtnRefs.current), railColors); };
       const divider = (m = "6px 0") => <div aria-hidden="true" style={{ width: 28, height: 1, background: T.border, margin: m, flexShrink: 0 }} />;
-      const backIcon = <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>;
       // A popup the rail opens, to the right of the rail, anchored to the bottom.
       const railPop = { position: "fixed", left: SB_W + 10, bottom: 14, background: Tpage.card, border: `1px solid ${Tpage.borderLight}`, borderRadius: Tpage.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.22)", zIndex: 9999, overflow: "hidden", fontFamily: Tpage.font };
       return (<aside className="tq-sidebar" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: SB_W, background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", padding: `${RAIL_PAD_TOP}px 0 14px`, boxSizing: "border-box", overflow: "hidden", zIndex: 100 }}>
@@ -26309,12 +26175,14 @@ ${jobsCtx || "No jobs found."}`;
           ~920px tall, more than a 14" laptop window, and overflow:hidden on the
           rail would otherwise clip the bell and the avatar off the bottom. */}
       <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
-        {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
-        {!settingsMode && <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: 4 }}>
+        {/* ─── App navigation. Settings keeps it (TRAQS Hi-fi Directions › Settings:
+            "same rail"), with the Settings button lit; its sections are a nav inside
+            the page. Leaving for another page goes through the unsaved-changes guard. ─── */}
+        <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: 4 }}>
         {views.map(v => {
-          const active = view === v.id;
+          const active = !settingsMode && view === v.id;
           return (
-            <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
+            <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => settingsMode ? requestExitSettings(v.id) : switchView(v.id)}
               aria-label={v.label} data-nav-active={active ? "1" : "0"} style={navBtn(active)}
               onMouseEnter={hoverIn(v.label)} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
               <span style={navIcon}>{v.icon}</span>
@@ -26324,9 +26192,9 @@ ${jobsCtx || "No jobs found."}`;
         {divider()}
         {/* Admin — live worker-status board (admins only) */}
         {isAdmin && (() => {
-          const active = view === "admin";
+          const active = !settingsMode && view === "admin";
           return (
-            <button ref={el => { navBtnRefs.current["admin"] = el; }} onClick={() => switchView("admin")}
+            <button ref={el => { navBtnRefs.current["admin"] = el; }} onClick={() => settingsMode ? requestExitSettings("admin") : switchView("admin")}
               aria-label="Admin" data-nav-active={active ? "1" : "0"} style={navBtn(active)}
               onMouseEnter={hoverIn("Admin")} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
               <span style={navIcon}>
@@ -26336,49 +26204,14 @@ ${jobsCtx || "No jobs found."}`;
           );
         })()}
         {/* Settings — enters the full-page Settings view (available to everyone) */}
-        <button onClick={enterSettings} aria-label="Settings" style={navBtn(false)}
-          onMouseEnter={hoverIn("Settings")} onMouseLeave={hoverOut()} onMouseDown={railTipOff}>
+        <button ref={el => { navBtnRefs.current["settings"] = el; }} onClick={() => { if (!settingsMode) enterSettings(); }}
+          aria-label="Settings" data-nav-active={settingsMode ? "1" : "0"} style={navBtn(settingsMode)}
+          onMouseEnter={hoverIn("Settings")} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
           <span style={navIcon}>
             <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
         </button>
-        </div>}
-        {/* ─── Settings navigation — Back / General / Organization / Customization / FAST TRAQS ───
-            Organization's own pages are tabs inside the Settings page now
-            (renderSettingsPage), so the rail has one button for all of them. */}
-        {settingsMode && (() => {
-          const navItem = (key, label, icon, active, onClick) => (
-            <button key={key} ref={el => { navBtnRefs.current["settings:" + key] = el; }} onClick={onClick}
-              aria-label={label} data-nav-active={active ? "1" : "0"} style={navBtn(active)}
-              onMouseEnter={hoverIn(label)} onMouseLeave={hoverOut()} onMouseDown={pressNav}>
-              <span style={navIcon}>{icon}</span>
-            </button>
-          );
-          const orgActive = settingsSection.startsWith("org-");
-          return (
-            <div style={{ ...settingsNavLayer(true), alignItems: "center", gap: 4 }}>
-              {/* Back — exits the full-page settings (guards unsaved changes) */}
-              <button onClick={requestExitSettings} aria-label="Back" style={navBtn(false)}
-                onMouseEnter={hoverIn("Back")} onMouseLeave={hoverOut()} onMouseDown={railTipOff}>
-                <span style={navIcon}>{backIcon}</span>
-              </button>
-              {divider()}
-              {navItem("general", "General", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>, settingsSection === "general", () => navigateSection("general"))}
-              {can("orgSettings") && SETTINGS_ORG_FIRST && navItem("org-parent", "Organization", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, orgActive, () => { if (!orgActive) navigateSection(SETTINGS_ORG_FIRST); })}
-              {navItem("customization", "Customization", <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>, settingsSection === "customization", () => navigateSection("customization"))}
-              {/* Divider — sets FAST TRAQS apart from the settings sections */}
-              {can("editJobs") && divider("8px 0 4px")}
-              {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
-                aria-label="FAST TRAQS"
-                onMouseEnter={hoverIn("FAST TRAQS", T.accent + "22")}
-                onMouseLeave={hoverOut(T.accent + "12")}
-                onMouseDown={railTipOff}
-                style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44` })}>
-                <span style={navIcon}><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
-              </button>}
-            </div>
-          );
-        })()}
+        </div>
       </nav>
       {upgradeOpen && (() => {
         const row = (label, inBasic) => (
@@ -27113,7 +26946,7 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ width: 8, height: 8, borderRadius: 8, flexShrink: 0, background: isOn ? T.accent : T.border }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: "block", fontSize: 13, fontWeight: isOn ? 700 : 500, color: isOn ? T.accent : T.text }}>{p.label}</span>
-                        {p.at && <span style={{ display: "block", fontSize: 10.5, color: T.textDim }}>Confirmed {new Date(p.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{p.by ? ` by ${p.by}` : ""}</span>}
+                        {p.at && <span style={{ display: "block", fontSize: 10.5, color: T.textDim }}>Confirmed {new Date(p.at).toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })}{p.by ? ` by ${p.by}` : ""}</span>}
                       </span>
                     </div>;
                   })}
@@ -28266,7 +28099,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {orgSettings.holidays.map(h => {
                 const dt = new Date(h + "T12:00:00");
-                const label = dt.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" });
+                const label = dt.toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "long", day: "numeric", year: "numeric" });
                 return <div key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
                   <span style={{ fontSize: 13, color: T.text, flex: 1 }}>{label}</span>
                   <button onClick={() => setOrgSettings(s => ({ ...s, holidays: s.holidays.filter(x => x !== h) }))} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>✕</button>
@@ -29371,7 +29204,7 @@ ${jobsCtx || "No jobs found."}`;
               const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
               const prev = tMsgs[i - 1];
               const showName = !isMe && (!prev || prev.authorId !== m.authorId);
-              const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+              const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" });
               return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 7, padding: "3px 12px", alignItems: "flex-end" }}>
                 {!isMe && (showName
                   ? <PersonAvatar person={people.find(pp => String(pp.id) === String(m.authorId)) || { name: m.authorName, color: m.authorColor }} size={26} />
@@ -30217,7 +30050,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "12px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 22, textAlign: "center" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{jc.jobTitle || "Active job"}</div>
             {ctx && <div style={{ fontSize: 12.5, color: T.textSec, marginTop: 3 }}>{ctx}</div>}
-            {started && <div style={{ fontSize: 12, color: T.textDim, marginTop: 6 }}>Since {started.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · {elapsed} so far</div>}
+            {started && <div style={{ fontSize: 12, color: T.textDim, marginTop: 6 }}>Since {started.toLocaleTimeString("en-US", { timeZone: USER_TZ, hour: "numeric", minute: "2-digit" })} · {elapsed} so far</div>}
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             <button onClick={() => setConfirmEndJob(null)} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.6 : 1 }}>Cancel</button>
