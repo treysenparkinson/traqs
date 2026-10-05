@@ -288,7 +288,34 @@ if (!existsSync(FILE)) {
   console.error("schedule-parity: fixtures/schedule-parity.json is missing — run with --write");
   process.exit(2);
 }
-const committed = readFileSync(FILE, "utf8");
+// NEWLINES NORMALISED, and it is not cosmetic (#376). git checks this repo out
+// with core.autocrlf=true: the index holds LF, the working copy holds CRLF, and
+// `text` above is built in memory and is therefore LF. The gate below is a
+// WHOLE-FILE string compare, so on any Windows checkout it differed by one \r
+// per line — 49,474 of them — and reported that the web rules had drifted when
+// nothing had changed at all.
+//
+// The tell was in the suite's own output: the section-by-section diff printed
+// directly below parses both sides and names what differs, and it named
+// NOTHING. A gate that fails while its own explanation finds no difference is
+// comparing the wrong thing.
+//
+// The FIXTURE IS LEFT ALONE. Regenerating it with --write would have committed
+// CRLF into the blob, broken it for every other machine, and — per this file's
+// own message — put iOS out of parity until ScheduleParityTests was re-run. The
+// source is not the problem; what is compared is normalised.
+const committed = readFileSync(FILE, "utf8").replace(/\r\n/g, "\n");
+
+// EOL canary. If the normalisation above is ever removed, this gate goes back to
+// failing on every Windows checkout for a reason that has nothing to do with the
+// schedule rules — and the next person spends a day on it, as happened here. A
+// surviving \r means the normalisation is gone; say so plainly rather than
+// letting it surface as a phantom rule change.
+if (/\r/.test(committed)) {
+  console.error("schedule-parity: a CR survived normalisation — the EOL canary is broken (#376)");
+  process.exit(2);
+}
+
 if (committed !== text) {
   const was = JSON.parse(committed);
   const changed = Object.keys(now).filter((k) => JSON.stringify(was[k]) !== JSON.stringify(now[k]));

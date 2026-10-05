@@ -1002,6 +1002,31 @@ Everything else was read at the cited line. Nothing was run against live data.
    on without the one artifact that showed WHICH elements were dim. The screenshot named the rows;
    every wrong turn above came from guessing it was the container.
 
+10. A GATE THAT FAILS WHILE ITS OWN EXPLANATION FINDS NO DIFFERENCE IS COMPARING THE WRONG THING.
+    Treysen's rule, from #376, and it is a diagnostic rule rather than a fact about that bug.
+
+    `schedule-parity-test` gated on a whole-file string compare and failed. The line directly
+    below the gate parsed both sides and printed what differed, section by section:
+
+        schedule-parity: FAIL — the web rules no longer produce the committed fixture.
+          sections that changed:
+
+    Empty. Every time, across two separate `git pull` sessions, on a build that stayed red for
+    days. The suite was simultaneously asserting "these documents differ" and "no part of these
+    documents differs", and both were true: they differed as BYTES (49,474 \r) and were identical
+    as DATA. The empty list was the answer and it was read as the message being unhelpful.
+
+    The check: when a failure reports a difference, make the failure NAME it. If the detail comes
+    back empty, null, zero-length or "unknown", do not treat that as a gap in the diagnostics —
+    treat it as evidence that the comparison and the explanation are looking at different things,
+    and go find which one is wrong. Usually the gate is coarser than the explanation: bytes vs
+    parsed values, reference vs structural equality, a whole file vs its fields.
+
+    The same shape in the other direction is already LESSONS #1 and #7: an assertion that cannot
+    fail, and a guard that guards nothing. This is the third face of it — an assertion that fails
+    for a reason it cannot articulate. All three are found by asking the same question, which is
+    not "is it green?" but "what exactly did it compare?"
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1446,3 +1471,17 @@ Everything else was read at the cited line. Nothing was run against live data.
     NO MULTIPLIER WOULD HAVE WORKED, and this is the part worth keeping. `T.textDim` measures 2.78 against this ground at FULL opacity — it already fails AA before any dimming. So every candidate multiplier starts below the line and only falls: 0.75 gives primary 7.99 and secondary 3.07 but leaves dim text at 2.09. Tuning the number was never going to produce a readable row, which is why the fix is structural rather than a better constant.
 
     GROUP OPACITY IS THE SCHEDULE'S TOOL, NOT A FORM'S. It dims an entire subtree — borders, focus rings and all — which is correct for a bar you are not looking at and wrong for a department picker, an hours field and a date range you are about to click. The ground now carries the state (`T.bg` selected, `T.card` not), content stays at opacity 1, and the contrast does not move: primary 16.26, secondary 4.54, both AA. The card fill is deliberately quiet — 1.09 against the page — because the unchecked checkbox is the primary signal and this is the supporting one. The suite asserts the measurement, not the colour, so a future theme cannot quietly drop it below AA.
+
+376. FIXED 2026-10-05. `npm run build` had been RED since the redesign landed, and the failure was not in the code. `schedule-parity-test` gates on `committed !== text` — a WHOLE-FILE string compare between the fixture on disk and the text it generates in memory. git checks this repo out with `core.autocrlf=true`: the index holds LF, the working copy holds CRLF, and the generated text is LF. The two differed by one `\r` per line — 49,474 of them — and the suite reported that the web schedule rules had drifted from the iOS ports when nothing had changed at all. 2,098 cases now match; they always did.
+
+    THE TELL WAS IN ITS OWN OUTPUT. The line directly below the gate parses both sides and prints `sections that changed:` — and it printed NOTHING, every time. A gate that fails while its own explanation finds no difference is comparing the wrong thing. That empty list was read as unhelpful rather than as the answer, across two separate `git pull` sessions.
+
+    WHY THIS MATTERS MORE THAN ONE SUITE: a permanently red build is the same as no build. Nobody reads the 64th line of output to work out whether today's failure is yesterday's failure, so every real regression after this one would have landed behind a red that everyone had learned to ignore. The cost was already being paid — #374 and #375 shipped with the build red, and `npm run build` could not have told anyone.
+
+    FIXED THE WAY #314 FIXED IT, which is the precedent this repo already set in `web-gates-test` (2609224): NORMALISE WHAT THE TEST READS, LEAVE THE SOURCE ALONE, AND ADD A CANARY. The fixture is untouched — regenerating it with `--write` would have committed CRLF into the blob, broken it for every other machine, and, per the suite's own message, put iOS out of parity until `ScheduleParityTests` was re-run. It would also have destroyed the evidence that nothing had drifted. The canary exits 2 with a named reason if a `\r` ever survives normalisation again.
+
+    THE SWEEP, and it is a SUITE rather than a one-off because this is the second occurrence: `eol-safety-test.mjs` scans every suite for the pattern — a variable read from a file without normalisation, then matched against something that spans a newline, or compared whole. Wired into the build.
+
+    WHAT THE SWEEP TAUGHT, which is why the first draft of it was useless: NOT EVERY `\n` IS A HAZARD. A CRLF document CONTAINS `\n` — the sequence is `\r` then `\n` — so a pattern anchored on the newline alone still matches. `"\n    if (x)"` matches `"\r\n    if (x)"`; `/\s*\n\s*const/` matches, because `\s*` absorbs the `\r`; `/[^\n]*\n/` matches, because `[^\n]` absorbs it. The hazard is a LITERAL CHARACTER sitting immediately before the newline, which then has to touch `\n` with a `\r` in the way — `"=> {\n"` against `"=> {\r\n"`, which is exactly #314's bug. A first pass that flagged any `\n` returned 27 suites, 26 of them fine; a list that size is ignored for the same reason a red build is. Re-scoped to the real hazard it returns exactly one: schedule-parity.
+
+    MUTATION-PROVED, three mutants, each checked for the RIGHT failure rather than just a non-zero exit: removing the normalisation fires the canary by name (not a phantom rule change); removing the canary is caught by the sweep; removing the normalisation is independently caught by the sweep. The second of those exposed a hole in this suite's own first draft — it asserted the canary's MESSAGE, so replacing the guard with `if (false)` left the wording in place and passed. It now requires the condition to be real and to inspect what was read. A guard that guards nothing is the family this whole suite exists to catch, and it was in the catcher.

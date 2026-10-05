@@ -1,0 +1,16 @@
+# Cross-language fixtures are compared BYTE FOR BYTE by two languages, so their
+# line endings are part of the contract, not a local preference.
+#
+# fixtures/schedule-parity.json is generated LF by scripts/schedule-parity-test.mjs
+# and read back by that suite AND by ScheduleParityTests (Swift). This repo is
+# cloned on Windows with core.autocrlf=true, which converts it to CRLF on
+# checkout — so the suite's whole-file compare saw 49,474 phantom differences and
+# reported that the web schedule rules had drifted from the iOS ports when
+# nothing had changed. That cost a red build for days, twice (#376).
+#
+# The suite also normalises what it reads, and that stays: this pins the file at
+# source so a fresh clone never produces the problem in the first place, and the
+# test-side fix covers a working copy that somehow still has CRLF. Belt and
+# braces, because the failure is silent in one direction and misleading in the
+# other.
+fixtures/*.json text eol=lf
