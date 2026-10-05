@@ -10,7 +10,7 @@ struct RootView: View {
     /// when AuthManager is created, so there's no signed-out first frame.
     @State private var introDone = false
     /// Plus / Pro Max and larger (≥430pt on the short side): the whole app reads
-    /// a size up. Measured off the root's own size, so it is right in either
+    /// two sizes up; every smaller phone reads one size up. Measured off the root's own size, so it is right in either
     /// orientation and on whichever screen the scene is on.
     @State private var largeScreen = false
 
@@ -87,8 +87,9 @@ struct RootView: View {
         .onGeometryChange(for: Bool.self) { min($0.size.width, $0.size.height) >= 430 } action: {
             largeScreen = $0
         }
+        // Smaller phones read one step up too (xLarge), large ones two (xxLarge).
         .dynamicTypeSize(largeScreen ? DynamicTypeSize.xxLarge ... .accessibility5
-                                     : DynamicTypeSize.xSmall ... .accessibility5)
+                                     : DynamicTypeSize.xLarge ... .accessibility5)
         // The splash is an OVERLAY, not a ZStack sibling. As a sibling it drove
         // the ZStack's width (its 440pt-wide glow made the whole stack wider
         // than the screen), so the app content laid out too wide — title
