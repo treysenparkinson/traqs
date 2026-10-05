@@ -971,6 +971,37 @@ Everything else was read at the cited line. Nothing was run against live data.
    each fixed bug QUOTES the buggy code, so "the bug is gone" matched the explanation of the bug.
    Slice function bodies from the code, not from the comment above it.
 
+9. GREP THE RENDERED VALUE BEFORE THE MECHANISM, AND WHEN A HYPOTHESIS DIES, RE-SEARCH FROM THE
+   SYMPTOM RATHER THAN EXTENDING THE CORPSE. Treysen reported the Edit Job wizard rendering
+   dimmed and named a likely cause: the schedule's hover-dim, moved in root cause 8 from React
+   state to a swapped rule in `<style id="tq-hover-dim">`. That was a reasonable hypothesis and
+   it was wrong, and the whole investigation went into it.
+
+   The hypothesis WAS disproved correctly: `renderModal` spans ~3,400 lines and contains zero
+   `data-bar-dim` / `data-row-pids`, and the rule is attribute-scoped, so it cannot match the
+   modal or anything inside it. The failure was what came next. Having killed the idea that an
+   ANCESTOR dims the modal, the search kept walking UP the tree — `.anim-modal-box`, then
+   `.traqs-glass .anim-modal-overlay > div`, then the `--tq-frost-bg` fallback — because
+   "something above it is dimming it" had been accepted as the frame even after the specific
+   mechanism was ruled out. Three more candidates were raised and killed. The modal was declared
+   un-diagnosed.
+
+   The answer was `opacity: 0.4` written inline on the rows themselves, inside the range already
+   scoped and searched. Grepping `opacity:[^,}]*0\.[0-5]` over those same lines returns it as the
+   SECOND hit. The symptom was a rendered value; the search was for a mechanism.
+
+   Two checks, and the second is the one that costs most when skipped:
+     - When a symptom IS a value on screen — an opacity, a colour, a width, a zero — grep that
+       value first. It is a literal in the source far more often than it is computed.
+     - When a hypothesis dies, go back to the symptom and search again from there. Do not
+       generalise the dead hypothesis into a family and work through its relatives; that is how
+       four candidates get raised and killed while the answer sits in lines already read.
+
+   A third thing, cheaper than all of it: the report said "screenshot attached" and no image
+   arrived. It should have been said immediately and the investigation held, instead of reasoning
+   on without the one artifact that showed WHICH elements were dim. The screenshot named the rows;
+   every wrong turn above came from guessing it was the container.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1386,3 +1417,32 @@ Everything else was read at the cited line. Nothing was run against live data.
 370. FIXED (iOS chunk D, 8d170c0, 2026-10-05). LIVE AT MATRIX. The Basic Home "Today" card (`BasicShiftsCard`, HomeView.swift) took today from `AppState.ymd(Date())` — the UTC day — so at 18:00 Denver (17:00 under MST) it rolled over and showed tomorrow's shifts as today's all evening. It is the shop's day now (`ShopTime(org:).day`), per chunk D ruling 1. Held by LiveDateBugsTests, both sides of DST.
 371. [ruled in iOS chunk D, not fixed] Punch times are VIEWER time (ruling 2, matching the web) but the day they are grouped under is the SHOP's, so a late-evening punch can sit under the wrong-looking heading: a New York viewer of a Denver shop sees a 23:30 Denver punch printed as 01:30 under the previous day's heading (iOS Stats › Past Jobs, MoreView `jobSessionGroups` heading vs `EntryRow.timeRange`). The web has the same quirk. Logged by ruling, not to be fixed in chunk D.
 372. [found in iOS chunk D, not fixed] iOS `PayPeriod.window` keeps legacy weekly / biweekly / semimonthly branches the web no longer has (the web's only pay-period function is getPayPeriodFromDates, root cause 9 chunk 2). They run only when `payMode` is not "setdate" AND `payDates` is explicitly empty — a missing payDates decodes to [5, 20] — so they are probably unreachable, and if reached they disagree with the web, which would use [5, 20]. Moved to shop time with everything else; not deleted.
+
+
+373. OPEN, logged not fixed 2026-10-05, reported by Treysen from the console. `PersonAvatar` sets the `background` SHORTHAND alongside `backgroundImage`, `backgroundSize` and `backgroundPosition` on one inline style object — `src/TRAQS.jsx:3155-3157`:
+
+        background: img ? T.surface : fill,
+        backgroundImage: img ? `url(${img})` : undefined,
+        backgroundSize: "cover", backgroundPosition: "center",
+
+    React warns on every render that mixes the two, and the warning is not pedantry about style: `background` is a shorthand that RESETS `background-image`, `background-size` and `background-position` to their initial values. React diffs inline styles key by key, so on a render where `background` changes but `backgroundImage` does not — a theme switch, an accent change, or the person's colour being edited — React writes `background` and does not rewrite `backgroundImage`, and the avatar's photo is wiped to a plain surface fill until something unrelated re-renders it. The object's key ORDER is what hides this most of the time, which is exactly why it is intermittent rather than constant.
+
+    REACHABILITY, measured against live Matrix data: 2 of 24 people carry an `avatar`/`image`, so only those two render with both properties set and can lose the photo. The other 22 take the `fill` branch where `backgroundImage` is `undefined` and no collision exists. Low blast radius, but the console warning fires for every avatar on every render regardless, which is noise over a real signal — the same cost as an unreadable log.
+
+    The fix is to drop the shorthand and write `backgroundColor` instead, which collides with nothing. Not done: logged on Treysen's instruction.
+
+374. FIXED 2026-10-05. RESCHEDULE HAD BEEN DOING NOTHING AT ALL SINCE db3a87e, and the dimmed rows (#375 below) were its only visible symptom. `rescheduleSelection` is declared "OP ids selected to be re-planned". The context-menu entry that opens Reschedule seeded it with `(job.subs || []).map(p => p.id)` — PANEL ids. Every reader wants op ids: `panelSelState` (which compares against `selectableOpIdsOf`), `computeReplanPreflight`, the per-op checkboxes, `excludeOpIds` at both oracle sites, the scheduling filter, and the commit merge. No op id was ever in the list.
+
+    WHAT THAT DID, in order: every panel read "none", so every row dimmed and every checkbox showed unchecked; the preview computed over an empty op set; `excludeOpIds` excluded panel ids, so the ops being re-planned stayed in their OWN obstacle set and blocked themselves; the scheduling filter matched no panel, so `expandedOps` was empty and the run placed nothing; and the commit merge matched no op, so it wrote nothing back. A full, apparently-working modal that could not change a single date.
+
+    WHY NOBODY REPORTED IT: a modal that silently does nothing looks like a modal that worked. There is no error, no refusal, no empty state — the wizard runs to the end and closes. It took Treysen noticing that the rows looked *dim* to find a bug that had nothing to do with dimming.
+
+    MINE, AND SIGNED OFF. db3a87e is the commit that moved selection from panel ids to op ids on Treysen's ruling ("selection as op ids with tri-state panel checkboxes"). Every READER was converted; the single WRITER was not. That is LESSONS #7 — grep the write as well as the read — failed inside the commit that was applying it elsewhere.
+
+    THE GUARD IS ON THE CLASS, NOT THE INSTANCE: `replan-selection-test` asserts that EVERY `setRescheduleSelection` call either derives its ids from `selectableOpIdsOf` — the same helper `panelSelState` and the checkboxes read — or transforms `prev`, which cannot introduce a new kind of id. Mutation-proved against the original panel-id seed AND against a different wrong source (`opIdsOf`, which would have re-admitted clocked ops), because a guard that only catches the exact bug it was written for is a guard against history.
+
+375. FIXED 2026-10-05, the symptom of #374 and a real defect in its own right. Unselected panel rows in the re-plan wizard dimmed with GROUP OPACITY at 0.4. Measured against the panel ground the way root cause 8 settled — composite, then compare — primary text at 0.4 is 2.59, BELOW the 3:1 non-text floor, let alone AA's 4.5. Every control on the row read as disabled when it was not; Treysen's words were "I thought the modal was broken", and it was, though not for that reason.
+
+    NO MULTIPLIER WOULD HAVE WORKED, and this is the part worth keeping. `T.textDim` measures 2.78 against this ground at FULL opacity — it already fails AA before any dimming. So every candidate multiplier starts below the line and only falls: 0.75 gives primary 7.99 and secondary 3.07 but leaves dim text at 2.09. Tuning the number was never going to produce a readable row, which is why the fix is structural rather than a better constant.
+
+    GROUP OPACITY IS THE SCHEDULE'S TOOL, NOT A FORM'S. It dims an entire subtree — borders, focus rings and all — which is correct for a bar you are not looking at and wrong for a department picker, an hours field and a date range you are about to click. The ground now carries the state (`T.bg` selected, `T.card` not), content stays at opacity 1, and the contrast does not move: primary 16.26, secondary 4.54, both AA. The card fill is deliberately quiet — 1.09 against the page — because the unchecked checkbox is the primary signal and this is the supporting one. The suite asserts the measurement, not the colour, so a future theme cannot quietly drop it below AA.
