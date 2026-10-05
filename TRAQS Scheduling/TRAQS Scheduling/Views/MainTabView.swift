@@ -452,7 +452,7 @@ struct TRAQSTabBar: View {
     // shrinking one alone just changes its proportions. ~13% off the previous
     // 65 / 83 / 62 / 76.
     private let keyW: CGFloat = 57
-    private let keySpacing: CGFloat = 2
+    private let keySpacing: CGFloat = 10   // was 2 — widens the bar 32pt (5 keys, 4 gaps)
     private let hPad: CGFloat = 15
     private var tabCount: Int { tabBarOrder.count }
     private var barWidth: CGFloat { hPad * 2 + CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }

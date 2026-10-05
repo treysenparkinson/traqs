@@ -13,6 +13,8 @@ struct JobsHubView: View {
     @Environment(AppNav.self) private var appNav
 
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
+    /// The gantt's Day / Week, held here because the title row draws its switch.
+    @State private var ganttSegment: GanttView.ScheduleSegment = .day
     @State private var path: [Job] = []
     /// The job whose read-only detail popup is open. Tapping a card no longer
     /// PUSHES — a job's details are something you check and dismiss, and pushing
@@ -72,9 +74,28 @@ struct JobsHubView: View {
                     // to refract (§8 — glass over a static background renders flat).
                     Color.clear.frame(height: GlassHeader.height)
 
-                    // (The "Jobs" title now scrolls inside the list content —
-                    // see TasksView — so the header is just the buttons and
-                    // there's no fixed-vs-scrolling seam line under it.)
+                    // ── The ONE "Jobs" title, fixed, for both views ──
+                    // List and gantt each drew their own title inside their own
+                    // scroll content, at slightly different heights; crossfading
+                    // the two (and the list's scrolling with it) made the title
+                    // jump on every switch. Now there is one, outside both, and the
+                    // gantt's Day/Week switch shares its row — always laid out,
+                    // faded in list mode — so the row is identical in either view.
+                    HStack(alignment: .center, spacing: 0) {
+                        JobsHeaderBar()
+                        GlassSegmented(
+                            options: GanttView.ScheduleSegment.allCases,
+                            labels: Dictionary(uniqueKeysWithValues:
+                                GanttView.ScheduleSegment.allCases.map { ($0, $0.label) }),
+                            selection: $ganttSegment)
+                            .frame(width: 168)
+                            .padding(.trailing, Rv.side)
+                            .opacity(appNav.jobsMode == .gantt ? 1 : 0)
+                            .allowsHitTesting(appNav.jobsMode == .gantt)
+                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
 
                     // Search field — slides in under the header, list mode only.
                     if appNav.jobsMode == .list && showSearch {
@@ -108,7 +129,7 @@ struct JobsHubView: View {
                         TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { openDetail($0) })
                             .opacity(appNav.jobsMode == .list ? 1 : 0)
                             .allowsHitTesting(appNav.jobsMode == .list)
-                        GanttView()
+                        GanttView(segment: $ganttSegment)
                             .opacity(appNav.jobsMode == .gantt ? 1 : 0)
                             .allowsHitTesting(appNav.jobsMode == .gantt)
                     }

@@ -14,7 +14,8 @@ struct GanttView: View {
     // otherwise hold the DEVICE's midnight — still yesterday in a shop west of the phone. Every
     // reader normalises it through the shop's calendar.
     @State private var selectedDate: Date = Date()
-    @State private var segment: ScheduleSegment = .day
+    /// Day / Week — owned by JobsHubView, whose title row draws the switch.
+    @Binding var segment: ScheduleSegment
     @State private var now: Date = Date()
     /// Tapping a timeline block sets this, which presents the job-detail popup.
     @State private var selectedBlock: ScheduleBlock?
@@ -35,31 +36,9 @@ struct GanttView: View {
         ScrollView {
             VStack(spacing: 0) {
 
-            // Scrolls with the timeline, and through the SAME view the list mode
-            // uses — the two modes must not grow separate titles.
-            // Title and Day/Week share ONE row. The toggle had a row of its
-            // own, which spent a whole band of page on a control that fits
-            // beside the title — and pushed the timeline, the thing you came
-            // here to read, that much further down.
-            //
-            // `JobsHeaderBar` is untouched and still carries its own 16pt
-            // gutters: it is the SAME view the jobs list draws, so the two
-            // modes cannot grow different titles. Only the composition around
-            // it differs here.
-            HStack(alignment: .center, spacing: 0) {
-                JobsHeaderBar()
-                GlassSegmented(
-                    options: ScheduleSegment.allCases,
-                    labels: Dictionary(uniqueKeysWithValues: ScheduleSegment.allCases.map { ($0, $0.label) }),
-                    selection: $segment)
-                    // Fixed, and narrow enough to leave the 56pt title its
-                    // width on a small phone — the title has no shrink-to-fit,
-                    // so whatever this takes, it takes for good.
-                    .frame(width: 168)
-                    .padding(.trailing, 16)
-            }
-            .padding(.top, pageTitleTopInset)
-            .padding(.bottom, 8)
+            // No title here: "Jobs" and the Day/Week switch live in JobsHubView's
+            // fixed title row, shared with the list, so switching views can't move
+            // them. `segment` is that row's.
 
             Group {
                 if segment == .day {

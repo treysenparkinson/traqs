@@ -33,12 +33,13 @@ struct HomeView: View {
                         // midnight, so they ride the once-a-minute clock.
                         LiveClock(every: 60, tab: .home) { now in
                             VStack(alignment: .leading, spacing: 0) {
-                                RvTitle(title: greeting,
-                                        meta: ShopTime.current.formatter("EEE, MMM d").string(from: now))
+                                // The greeting reads larger than other pages' titles; the
+                                // day and date head the week strip instead of a meta.
+                                RvTitle(title: greeting, size: 46)
 
                                 VStack(alignment: .leading, spacing: 0) {
-                                    RvSection("THIS WEEK", action: "Full schedule", top: 0,
-                                              perform: jumpToJobs)
+                                    RvSection(ShopTime.current.formatter("EEEE, MMM d").string(from: now),
+                                              action: "Full schedule", top: 0, perform: jumpToJobs)
                                     HomeWeekStrip(now: now)
                                 }
                                 .padding(.horizontal, Rv.side)
@@ -257,8 +258,9 @@ private struct ShiftTile: View {
 
     var body: some View {
         RvTile(eyebrow: "SHIFT",
-               value: status == .offline ? "––:––" : elapsed,
-               sub: statusText,
+               // Offline says so in the big slot; the sub line would only repeat it.
+               value: status == .offline ? "Offline" : elapsed,
+               sub: status == .offline ? nil : statusText,
                tint: .lavender,
                action: onOpen) {
             if status.dot {

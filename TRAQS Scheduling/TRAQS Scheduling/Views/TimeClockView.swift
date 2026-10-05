@@ -28,6 +28,8 @@ struct TimeClockView: View {
     /// `endBreak` (presence-only), NOT the pay clock, so it has its own flag
     /// rather than riding on `appState.isPayClocking`.
     @State private var breakBusy = false
+    /// The pay period's entries, opened from the tile's "View timesheet".
+    @State private var showTimesheet = false
     /// Bumped on every data rehydrate so this view re-renders when `peoplKe`
     /// changes live (e.g. an admin flips this person's mobile clock-in
     /// permission) — see .onReceive below.
@@ -149,29 +151,25 @@ struct TimeClockView: View {
                                     .padding(.horizontal, Rv.side)
                             }
 
-                            // ── HOURS: pay period (and today) as key/value lines ──
+                            // ── PAY PERIOD tile, then RECENT ENTRIES ──
                             VStack(spacing: 0) {
-                                RvSection(title: "Hours") {
-                                    Text(periodRange)
-                                        .font(.custom(TFontName.medium.rawValue, size: 12))
-                                        .foregroundStyle(Color(hex: T.muted))
-                                        .lineLimit(1)
-                                }
-                                // No "Today" line — the big timer above already shows today's time.
-                                HoursLine(label: "Pay period", hours: payPeriodHours, target: periodTarget, divider: false)
+                                PayPeriodTile(range: periodRange, hours: payPeriodHours,
+                                              target: periodTarget) { showTimesheet = true }
+                                    .padding(.top, 26)
 
-                                // ── THIS WEEK: pay-clock hours, last 8 days ──
-                                RvSection(title: "This week", hairline: false) {
-                                    Text("Last 8 days")
-                                        .font(.custom(TFontName.medium.rawValue, size: 12))
+                                RvSection("Recent entries", action: "Last 8 days")
+                                let recent = recentEntries
+                                if recent.isEmpty {
+                                    Text("No shifts in the last 8 days")
+                                        .font(.custom(TFontName.regular.rawValue, size: 13))
                                         .foregroundStyle(Color(hex: T.muted))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 14)
+                                } else {
+                                    ForEach(recent.indices, id: \.self) { i in
+                                        EntryLine(entry: recent[i], divider: i < recent.count - 1)
+                                    }
                                 }
-                                let bars = dailyBars
-                                RvBars(values: bars.map(\.hours),
-                                       labels: bars.map(\.dow),
-                                       highlight: bars.lastIndex(where: { $0.isToday }),
-                                       valueLabels: bars.map { String(format: "%.2f", $0.hours) })
-                                    .padding(.top, 6)
                             }
                             .padding(.horizontal, Rv.side)
                             .padding(.top, 10)
@@ -184,6 +182,11 @@ struct TimeClockView: View {
                     }
                 }
                 .onReceive(ticker) { if appNav.selected == .hours { now = $0 } }   // only tick while visible
+                .sheet(isPresented: $showTimesheet) {
+                    TimesheetSheet(range: periodRange,
+                                   entries: payEntriesInPeriod.sorted { ($0.clockIn ?? "") > ($1.clockIn ?? "") },
+                                   total: payPeriodHours, target: periodTarget)
+                }
                 // Force a re-render when live sync rehydrates data (e.g. an admin just
                 // enabled this person's mobile clock-in permission) so the pay-clock
                 // CTA appears without needing an app reopen.
@@ -357,27 +360,14 @@ struct TimeClockView: View {
         return cap > 0 ? cap : 80
     }
 
-    /// Pay-clock hours per day for the last 8 days (the bar chart).
-    private var dailyBars: [DailyBar] {
+    /// Completed shifts from the last 8 shop days (today and the seven before),
+    /// newest first — the RECENT ENTRIES list.
+    private var recentEntries: [TimeclockEntry] {
         let cal = ShopTime.current.calendar
-        let today = cal.startOfDay(for: now)
-        // Bucket hours by start-of-day in ONE pass (was: re-filter all entries
-        // 8× and re-parse each date 8× inside the loop).
-        let entries = myCompletedEntries
-        var byDay: [Date: Double] = [:]
-        for e in entries {
-            guard let ed = isoDay(e.clockIn) else { continue }
-            byDay[cal.startOfDay(for: ed), default: 0] += (e.hours ?? 0)
-        }
-        var out: [DailyBar] = []
-        for i in stride(from: 7, through: 0, by: -1) {
-            let d = cal.date(byAdding: .day, value: -i, to: today) ?? today
-            let dow = ["S","M","T","W","T","F","S"][cal.component(.weekday, from: d) - 1]
-            var h = byDay[cal.startOfDay(for: d)] ?? 0
-            if i == 0 { h += liveShiftHours }
-            out.append(DailyBar(date: d, dow: dow, hours: h, isToday: i == 0))
-        }
-        return out
+        let from = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: now)) ?? now
+        return myCompletedEntries
+            .filter { e in (isoDay(e.clockIn) ?? parseISO(e.date ?? "")).map { $0 >= from } ?? false }
+            .sorted { ($0.clockIn ?? "") > ($1.clockIn ?? "") }
     }
 
     // MARK: - Pay-period window — from the org's time-clock settings
@@ -398,7 +388,7 @@ struct TimeClockView: View {
         ShopTime.current.date(ofDay: s) ?? Self.isoFull.date(from: s)
     }
 
-    /// The pay period's dates ("Oct 5 – Oct 19") — the HOURS section's trailing text.
+    /// The pay period's dates ("Oct 5 – Oct 19") — the pay-period tile's range.
     private var periodRange: String {
         let w = periodWindow
         let f = ShopTime.current.formatter("MMM d")
@@ -456,41 +446,139 @@ private struct ClockTimerBlock: View {
 
 // MARK: - Hours key/value line
 
-// "Pay period   41.5 / 80 h   ━━━━──" — label, big value, muted target, and a
-// 96pt progress track on the right. Cardless, on the canvas.
-private struct HoursLine: View {
+// MARK: - Pay period tile
+
+/// One full-width pastel tile: PAY PERIOD and its dates, the hours over the
+/// target with "View timesheet", and the progress track.
+private struct PayPeriodTile: View {
     @Environment(ThemeSettings.self) private var theme
-    let label: String
+    let range: String
     let hours: Double
     let target: Double
-    var divider: Bool = true
-    @ScaledMetric(relativeTo: .body) private var labelWidth: CGFloat = 110   // scales with the type on large phones
-    @ScaledMetric(relativeTo: .body) private var trackWidth: CGFloat = 96
+    let onTimesheet: () -> Void
+    @ScaledMetric(relativeTo: .body) private var k: CGFloat = 1
 
     var body: some View {
-        let _ = theme.bgPresetId
-        RvRow(divider: divider) {
-            Text(label)
-                .font(.custom(TFontName.semibold.rawValue, size: 14))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(width: labelWidth, alignment: .leading)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+        let _ = theme.bgPresetId; let _ = theme.accent
+        VStack(alignment: .leading, spacing: 10 * k) {
+            HStack(alignment: .firstTextBaseline) {
+                RvEyebrow("Pay period", color: Color(hex: T.ink).opacity(0.55))
+                Spacer(minLength: 8)
+                Text(range)
+                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(String(format: "%.1f", hours))
-                    .font(.custom(TFontName.bold.rawValue, size: 22))
-                    .tracking(-0.5)
+                    .font(.custom(TFontName.bold.rawValue, size: 28))
+                    .tracking(-1)
                     .foregroundStyle(Color(hex: T.ink))
                     .monospacedDigit()
                 Text(String(format: "/ %.0f h", target))
-                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .font(.custom(TFontName.regular.rawValue, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .monospacedDigit()
+                Spacer(minLength: 8)
+                Button(action: onTimesheet) {
+                    Text("View timesheet")
+                        .font(.custom(TFontName.semibold.rawValue, size: 12))
+                        .foregroundStyle(Color(hex: T.accent))
+                }
+                .buttonStyle(.plain)
             }
             .lineLimit(1)
-            Spacer(minLength: 8)
             RvTrack(fraction: target > 0 ? hours / target : 0)
-                .frame(width: trackWidth)
+        }
+        .padding(16 * k)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 20 * k, style: .continuous).fill(Rv.Tint.lavender.fill))
+    }
+}
+
+// MARK: - Entry row
+
+/// One completed shift: the day over its clock-in – clock-out, hours on the right.
+/// The DAY is the shop's (the day the server books it to); the TIMES are the
+/// viewer's, as punch times are everywhere (chunk D ruling 2 — see #371).
+private struct EntryLine: View {
+    let entry: TimeclockEntry
+    var divider: Bool = true
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "h:mm a"; return f
+    }()
+
+    private var day: String {
+        guard let d = entry.clockIn.flatMap(Date.fromFlexibleISO8601) else { return entry.date ?? "" }
+        return ShopTime.current.formatter("EEE, MMM d").string(from: d)
+    }
+
+    private var span: String {
+        let s = entry.clockIn.flatMap(Date.fromFlexibleISO8601).map(Self.time.string(from:)) ?? "—"
+        let e = entry.clockOut.flatMap(Date.fromFlexibleISO8601).map(Self.time.string(from:)) ?? "—"
+        return "\(s) – \(e)"
+    }
+
+    var body: some View {
+        RvRow(divider: divider) {
+            RvRowText(title: day, subtitle: span)
+            Text(String(format: "%.2f h", entry.hours ?? 0))
+                .font(.custom(TFontName.semibold.rawValue, size: 14))
+                .foregroundStyle(Color(hex: T.ink))
+                .monospacedDigit()
+        }
+    }
+}
+
+// MARK: - Timesheet
+
+/// "View timesheet": every completed shift in the current pay period, read-only.
+private struct TimesheetSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(ThemeSettings.self) private var theme
+    let range: String
+    let entries: [TimeclockEntry]
+    let total: Double
+    let target: Double
+
+    var body: some View {
+        let _ = theme.bgPresetId
+        NavigationStack {
+            ZStack {
+                PageBackground()
+                ScrollView {
+                    VStack(spacing: 0) {
+                        RvTitle(title: "Timesheet", meta: range)
+                        VStack(spacing: 0) {
+                            RvSection(title: "Shifts", top: 0) {
+                                Text(String(format: "%.1f / %.0f h", total, target))
+                                    .font(.custom(TFontName.semibold.rawValue, size: 12))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .monospacedDigit()
+                            }
+                            if entries.isEmpty {
+                                Text("No completed shifts this pay period")
+                                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 14)
+                            } else {
+                                ForEach(entries.indices, id: \.self) { i in
+                                    EntryLine(entry: entries[i], divider: i < entries.count - 1)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Rv.side)
+                    }
+                    .padding(.bottom, 24)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }
@@ -679,16 +767,6 @@ private struct PayClockControls: View {
         .padding(.vertical, 14)
         .glassControl(in: Capsule(), tint: tint)
     }
-}
-
-// MARK: - This week bars — pay-clock hours per day (drawn by RvBars)
-
-struct DailyBar: Identifiable {
-    var id: Date { date }
-    let date: Date
-    let dow: String
-    let hours: Double
-    let isToday: Bool
 }
 
 // MARK: - Clock PIN overlay (task 2)

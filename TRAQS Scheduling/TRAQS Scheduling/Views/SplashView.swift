@@ -8,7 +8,7 @@ import SwiftUI
 // one above, while the wordmark slides left so the finished lockup lands centred.
 // "Loading your day…" sits near the bottom. The finished scene fades into the app.
 //
-// Timing: wordmark 0–0.8s, bars from 0.3s after it settles, 0.38s each with a 0.08s stagger
+// Timing: wordmark 0–0.5s, bars from 0.45s (overlapping its settle), 0.38s each with a 0.08s stagger
 // (the slide runs the bars' whole span on the same curve), hold, then fade.
 
 struct SplashView: View {
@@ -17,8 +17,10 @@ struct SplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ThemeSettings.self) private var theme
 
-    /// Wordmark height — the design's 56pt wordmark, set as the lockup's height.
-    private let logoSize: CGFloat = 78
+    /// Wordmark height. Well past the design's 56pt by request; the finished
+    /// lockup is ~255pt wide, inside the smallest phone. The centring offsets
+    /// below all derive from this.
+    private let logoSize: CGFloat = 120
 
     @State private var markIn = false
     @State private var drawn: [CGFloat] = [0, 0, 0, 0]
@@ -26,9 +28,10 @@ struct SplashView: View {
     @State private var overallOpacity: Double = 1
     @State private var started = false
 
-    private let markDur = 0.80
-    private let barsAt = 1.10, barDur = 0.38, barStagger = 0.08
-    private let fadeAt = 2.30, fadeDur = 0.40
+    private let markDur = 0.50
+    /// The lines start a beat BEFORE the wordmark settles, so the two read as one move.
+    private let barsAt = 0.45, barDur = 0.38, barStagger = 0.08
+    private let fadeAt = 1.65, fadeDur = 0.40
 
     /// `cubic-bezier(.2,.8,.2,1)` and `(.65,0,.35,1)` — the design's two curves.
     private var markCurve: Animation { .timingCurve(0.2, 0.8, 0.2, 1, duration: markDur) }

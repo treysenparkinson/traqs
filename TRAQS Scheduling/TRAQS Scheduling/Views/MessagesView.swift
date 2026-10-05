@@ -375,10 +375,10 @@ struct MessagesView: View {
         appNav.pendingDeepLink = nil
     }
 
-    /// The title's meta: the existing unread total, or "All read" at zero.
-    private var unreadMeta: String {
+    /// The title's meta: the existing unread total; nothing at zero.
+    private var unreadMeta: String? {
         let n = appState.totalUnreadMessages
-        return n > 0 ? "\(n) unread" : "All read"
+        return n > 0 ? "\(n) unread" : nil
     }
 
     /// Room after the last thread. The list now runs under the floating tab

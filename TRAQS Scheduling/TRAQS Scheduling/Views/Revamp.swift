@@ -24,16 +24,50 @@ import SwiftUI
 enum Rv {
     /// Page side margin.
     static let side: CGFloat = 24
-    /// Gap between a section's eyebrow row and the previous block.
-    static let sectionTop: CGFloat = 24
+    /// Page title size — the design's 34, taken up a step by request. Shared with
+    /// the gantt's Jobs title so both Jobs views match every other page.
+    static let titleSize: CGFloat = 38
+    /// Gap between a section's eyebrow row and the previous block — opened up
+    /// from the design's 24 by request.
+    static let sectionTop: CGFloat = 36
     /// The hairline: ink at 9%, so it reads on light and dark alike.
     static var line: Color { Color(hex: T.ink).opacity(0.09) }
 
-    /// The design's five pastel tile fills, each with a dark-theme pair.
+    /// The five tile fills — SHADES OF THE ACCENT, so the tiles follow whatever
+    /// colour the user picks rather than the design's fixed lavender/mint/peach/
+    /// sky/butter. The case names are kept as slot names; each is the accent mixed
+    /// into a ground at its own strength. On light the ground is white (pastels);
+    /// on dark it is the surface, so the tiles sink into the canvas as tints.
+    ///
+    /// Strengths are spread so tiles that sit side by side read as different
+    /// shades: Home pairs lavender/mint, Analytics sky/lavender over peach/butter.
     enum Tint: CaseIterable {
         case lavender, mint, peach, sky, butter
 
-        private var light: String {
+        private var strength: Double {
+            switch self {
+            case .sky:      return 0.10
+            case .mint:     return 0.12
+            case .lavender: return 0.18
+            case .peach:    return 0.25
+            case .butter:   return 0.32
+            }
+        }
+
+        var fill: Color {
+            let dark = T.isDarkTheme
+            // On the SHIPPED accent the tiles keep the design's own multi-colour
+            // pastels; any other accent turns them into shades of that colour.
+            if LogoPalette.isDefaultAccent(T.accent) {
+                return Color(hex: dark ? designDark : designLight)
+            }
+            // A dark ground takes more accent to show the same step.
+            return Rv.mix(T.accent, into: dark ? T.surface : "#FFFFFF",
+                          dark ? strength * 1.25 : strength)
+        }
+
+        /// The Wireframes v2 pastels, with a dark-theme pair each.
+        private var designLight: String {
             switch self {
             case .lavender: return "#E9E6FB"
             case .mint:     return "#DFF5EC"
@@ -42,9 +76,7 @@ enum Rv {
             case .butter:   return "#FDF1D6"
             }
         }
-        /// The same hues sunk into a dark canvas — tinted, not grey, so the tiles
-        /// keep telling each other apart.
-        private var dark: String {
+        private var designDark: String {
             switch self {
             case .lavender: return "#2C2843"
             case .mint:     return "#1E3A30"
@@ -53,7 +85,17 @@ enum Rv {
             case .butter:   return "#40361F"
             }
         }
-        var fill: Color { Color(hex: T.isDarkTheme ? dark : light) }
+    }
+
+    /// `t` of `hex` laid over `ground`, both "#RRGGBB".
+    static func mix(_ hex: String, into ground: String, _ t: Double) -> Color {
+        func rgb(_ h: String) -> (Double, Double, Double) {
+            let s = h.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            guard s.count >= 6, let v = UInt32(s.prefix(6), radix: 16) else { return (0.5, 0.5, 0.5) }
+            return (Double((v >> 16) & 0xFF) / 255, Double((v >> 8) & 0xFF) / 255, Double(v & 0xFF) / 255)
+        }
+        let a = rgb(hex), g = rgb(ground), k = min(1, max(0, t))
+        return Color(red: g.0 + (a.0 - g.0) * k, green: g.1 + (a.1 - g.1) * k, blue: g.2 + (a.2 - g.2) * k)
     }
 }
 
@@ -65,13 +107,15 @@ struct RvTitle: View {
     @Environment(ThemeSettings.self) private var theme
     let title: String
     var meta: String? = nil
+    /// Every page's title size; Home's greeting passes its own, larger.
+    var size: CGFloat = Rv.titleSize
 
     var body: some View {
         let _ = theme.bgPresetId
         HStack(alignment: .lastTextBaseline, spacing: 12) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: 34))
-                .tracking(-1.5)
+                .font(.custom(TFontName.bold.rawValue, size: size))
+                .tracking(-size * 0.044)
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -246,7 +290,7 @@ struct RvTile<Accessory: View>: View {
     @ScaledMetric(relativeTo: .body) private var k: CGFloat = 1
 
     var body: some View {
-        let _ = theme.bgPresetId
+        let _ = theme.bgPresetId; let _ = theme.accent   // the fill is a shade of the accent
         let tile = VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 RvEyebrow(eyebrow, color: Color(hex: T.ink).opacity(0.55))
@@ -308,6 +352,8 @@ struct RvTabs<Value: Hashable>: View {
     @Environment(ThemeSettings.self) private var theme
     let options: [(value: Value, label: String)]
     @Binding var selection: Value
+    /// Muted text at the right end of the row — the Jobs page's job count.
+    var trailing: String? = nil
     @Namespace private var underline
 
     var body: some View {
@@ -337,6 +383,14 @@ struct RvTabs<Value: Hashable>: View {
                     .buttonStyle(.plain)
                 }
                 Spacer(minLength: 0)
+                if let trailing {
+                    Text(trailing)
+                        .font(.custom(TFontName.medium.rawValue, size: 13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                        .padding(.bottom, 10)
+                        .contentTransition(.numericText())
+                }
             }
         }
         .sensoryFeedback(.selection, trigger: selection)

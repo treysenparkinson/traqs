@@ -67,17 +67,14 @@ struct TasksView: View {
         // is a belt-and-suspenders re-render trigger for the same reason.
         let _ = liveRefresh
         let _ = appState.jobs.count
-        let _ = theme.bgPresetId
+        let _ = theme.bgPresetId; let _ = theme.accent   // task blocks are accent shades
         return ScrollView {
             VStack(spacing: 0) {
-                // The "Jobs" title scrolls WITH the list — same placement Home and
-                // Analytics use for theirs. It used to be pinned by JobsHubView.
-                // RvTitle (iOS Wireframes v2). `JobsHeaderBar` is left as it was
-                // because the gantt still draws it.
-                RvTitle(title: "Jobs")
-
-                RvTabs(options: filterOptions, selection: $filter)
+                // No title here — "Jobs" is JobsHubView's fixed title row, shared
+                // with the gantt so switching views leaves it exactly where it is.
+                RvTabs(options: filterOptions, selection: $filter, trailing: jobCountLabel)
                     .padding(.horizontal, Rv.side)
+                    .padding(.top, 8)
                     .padding(.bottom, 22)
 
                 // TODAY — the specific tasks SCHEDULED for you today (per the web
@@ -473,7 +470,14 @@ struct TasksView: View {
                 sectionBody(upcoming, jobUpcoming)
             }
             if !others.isEmpty {
-                sectionHeader("All Jobs", count: others.count, top: othersTop)
+                // No "All Jobs" heading — the tab names the view and the count
+                // rides beside the tabs. Under other sections the list takes the
+                // section gap and a hairline; first under the tabs, theirs serves.
+                if othersTop > 0 {
+                    Rv.line.frame(height: 1)
+                        .padding(.horizontal, Rv.side)
+                        .padding(.top, othersTop)
+                }
                 // Lazy: only on-screen job rows build. "All Jobs" can be the
                 // whole org's job list.
                 LazyVStack(spacing: 0) {
@@ -515,6 +519,37 @@ struct TasksView: View {
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
+    /// The count beside the tabs: how many distinct jobs the selected tab shows.
+    private var jobCountLabel: String {
+        let n = jobCount
+        return n == 1 ? "1 job" : "\(n) jobs"
+    }
+
+    private var jobCount: Int {
+        switch filter {
+        case .all:
+            return appState.jobs.filter { $0.status != .finished && matchesSearch($0) }.count
+        case .mine:
+            var ids = Set(myTasks.filter { $0.status != .finished }.map { $0.job.id })
+            ids.formUnion(myJobLevelJobs.map(\.id))
+            ids.formUnion(workingTasks.map { $0.job.id })
+            return ids.count
+        case .active:
+            var ids = Set(workingTasks.map { $0.job.id })
+            ids.formUnion(inProgressTasks.map { $0.job.id })
+            ids.formUnion(inProgressJobs.map(\.id))
+            ids.formUnion(allJobsList.filter { $0.status == .inProgress }.map(\.id))
+            return ids.count
+        case .done:
+            return appState.jobs.filter { $0.status == .finished && matchesSearch($0) }.count
+        }
+    }
+
+    private func matchesSearch(_ job: Job) -> Bool {
+        let q = searchText.lowercased()
+        return q.isEmpty || (job.title + " " + (job.jobNumber ?? "")).lowercased().contains(q)
+    }
+
     /// The tabs that include your own scheduled work (Today, Overdue, the window,
     /// Upcoming).
     private var showsMyWork: Bool { filter == .all || filter == .mine }
@@ -532,7 +567,12 @@ struct TasksView: View {
                     .padding(.horizontal, Rv.side).padding(.top, 8)
             }
             if !jobs.isEmpty {
-                sectionHeader("All Jobs", count: jobs.count, top: hasMine ? Rv.sectionTop : 0)
+                // Untitled, like All's list; a hairline and gap under In Progress.
+                if hasMine {
+                    Rv.line.frame(height: 1)
+                        .padding(.horizontal, Rv.side)
+                        .padding(.top, Rv.sectionTop)
+                }
                 LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
@@ -559,7 +599,6 @@ struct TasksView: View {
                 NoJobsPlaceholder(text: "No finished jobs")
                     .padding(.horizontal, Rv.side).padding(.top, 8)
             } else {
-                sectionHeader("Finished", count: jobs.count, top: 0)
                 LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
@@ -1298,11 +1337,21 @@ private struct NoJobsPlaceholder: View {
 // right (list mode only). Tapping the button slides the four range options out
 // horizontally from the right edge, one-by-one, lined up under the title.
 
+/// The gantt's "Jobs" title — the same type as `RvTitle` (every page's title,
+/// and the list view's "Jobs"), without RvTitle's vertical padding: the gantt
+/// sets this in a row beside its Day/Week switch and spaces that row itself.
 struct JobsHeaderBar: View {
+    @Environment(ThemeSettings.self) private var theme
+
     var body: some View {
-        // Use the shared PageTitle so the Jobs wordmark matches every other
-        // page (left, solid ink, tight tracking, same size).
-        PageTitle(title: "Jobs")
+        let _ = theme.bgPresetId
+        Text("Jobs")
+            .font(.custom(TFontName.bold.rawValue, size: Rv.titleSize))
+            .tracking(-Rv.titleSize * 0.044)
+            .foregroundStyle(Color(hex: T.ink))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, Rv.side)
     }
 }
 
