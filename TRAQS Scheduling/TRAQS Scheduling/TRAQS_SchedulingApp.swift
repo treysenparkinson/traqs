@@ -54,12 +54,8 @@ struct TRAQS_SchedulingApp: App {
                 .environment(appState)
                 .environment(themeSettings)
                 .environment(appNav)
-                // App-wide tight letter spacing for a modern look. Kept small
-                // because tracking is absolute (not size-relative): a large value
-                // that suits the 56pt titles would overlap body text. Any Text
-                // that sets its own .tracking (uppercase eyebrow labels, the
-                // PageTitle wordmarks) overrides this — innermost wins.
-                .tracking(-0.5)
+                // No app-wide tracking: the Wireframes v2 type sets body copy at
+                // Sora's own spacing. Titles and eyebrows set theirs locally.
                 // Light at the sign-in gate whatever the saved theme says —
                 // see RootView.showsSignIn.
                 .preferredColorScheme(

@@ -22,6 +22,11 @@
 		<string>DMSans-SemiBold.ttf</string>
 		<string>DMSans-Bold.ttf</string>
 		<string>DMSans-ExtraBold.ttf</string>
+		<string>Sora-Regular.ttf</string>
+		<string>Sora-Medium.ttf</string>
+		<string>Sora-SemiBold.ttf</string>
+		<string>Sora-Bold.ttf</string>
+		<string>Sora-ExtraBold.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

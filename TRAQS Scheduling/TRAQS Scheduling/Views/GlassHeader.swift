@@ -126,25 +126,10 @@ struct GlassHeader: View {
     /// opaque background renders flat and grey).
     static let height: CGFloat = 94
 
-    private let logoSize: CGFloat = 60
-    /// The wordmark asset carries transparent margin on its left — MEASURED from
-    /// the PNG's alpha bounding box, which starts at x=331 of 2348, i.e. 14.1% of
-    /// the width. At the rendered size that is ~16.5pt of nothing before the "t".
-    ///
-    /// Cancelling it puts the visible glyph exactly on the 16pt gutter every
-    /// `PageTitle` uses, so the header and the page title beneath it share one
-    /// left edge. The old hand-tuned `-13` was this figure guessed at, and it
-    /// left the lockup a few points shy.
-    ///
-    /// `logoOpticalNudge` then eases it back a touch: a big title glyph carries
-    /// its own side bearing, so a lockup set to the exact same gutter reads as
-    /// very slightly too far left.
-    private var logoLeftBearing: CGFloat {
-        logoSize * TRAQSWordmark.aspect * 0.141 - logoOpticalNudge
-    }
-    /// Optical correction, in points. THE dial for nudging the lockup relative to
-    /// the page titles — positive moves it right.
-    private let logoOpticalNudge: CGFloat = 2
+    /// The lines mark alone — the Wireframes v2 header drops the wordmark. Its
+    /// left edge sits on the pages' 24pt margin (`Rv.side`), which is 8pt in
+    /// from the header's own 16pt padding.
+    private let barsSize: CGFloat = 30
     private let topPad: CGFloat = 22
     private let bottomPad: CGFloat = 12
 
@@ -157,12 +142,12 @@ struct GlassHeader: View {
                 // (§4.2). A glass shape spanning the full header width never
                 // changes shape, so the morph would degrade to a crossfade.
                 HStack(spacing: 5) {
-                    TRAQSHeaderLogo(size: logoSize)
+                    TRAQSBarsMark(size: barsSize)
                     // Connection state, as a mark on the lockup rather than a
                     // notice of its own. Nothing at all when healthy.
                     SyncStatusMark()
                 }
-                .offset(x: -logoLeftBearing)
+                .padding(.leading, Rv.side - 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(config.showsLogo ? 1 : 0)
                 // Matches the thread header's own 0.24s exit fade

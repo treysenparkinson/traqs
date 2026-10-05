@@ -1020,78 +1020,16 @@ struct GlowBlob: View {
 
 // ── PageBackground: the canvas behind every page ────────────────────────────
 //
-// The single branch point for the app's two canvases, so the 22 call sites don't
-// each have to choose: the drifting liquid wash when the user has it on (the
-// default), the static ambient canvas when off. Flipping
-// ThemeSettings.liquidBackground re-skins the whole app at once.
-//
-// Named for the job rather than the look, because the look is now conditional —
-// this used to be `AmbientBackground`, which described only one of the two.
+// The Wireframes v2 canvas: one flat colour, the preset's `T.bg` (#EEF0F6 on
+// light). The liquid wash and the gradient-plus-glow canvas it replaced were
+// retired with the background toggles; every page still calls this, so the
+// canvas has one place to change.
 struct PageBackground: View {
     @Environment(ThemeSettings.self) private var themeSettings
 
-    // Look lives in LiquidTuning, shared with the splash so the load-up resolves
-    // into the same background it was loading rather than a different one.
-
     var body: some View {
-        if themeSettings.liquidBackground {
-            // The underlying paths are 13–29s with no shared factors, so however
-            // fast they're driven the field keeps re-mixing rather than visibly
-            // looping.
-            //
-            // On the SHIPPED accent the hues are the app icon's four colours.
-            // On any other accent they come from theme.accent, with companion
-            // and tertiary tones derived inside LiquidBackground — those stay
-            // in the accent's own warm/cool family, so the wash can't clash
-            // with a colour the user chose. Same rule as the bars mark.
-            LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
-                             opacity: LiquidTuning.pageOpacity,
-                             thickness: LiquidTuning.thickness,
-                             energy: LiquidTuning.pageEnergy,
-                             blobScale: LiquidTuning.blobScale,
-                             saturation: LiquidTuning.saturation,
-                             primaryWeighted: LiquidTuning.primaryWeighted)
-                .ignoresSafeArea()
-        } else {
-            AmbientCanvas()
-        }
-    }
-}
-
-// ── AmbientCanvas: tinted vertical canvas + faint glow blob ─────────────────
-// The non-liquid branch of PageBackground, unchanged from when it was the only
-// page paint. Glows show only on light bg presets (they'd muddy a dark canvas),
-// gated by ThemeSettings.isLightTheme.
-private struct AmbientCanvas: View {
-    @Environment(ThemeSettings.self) private var themeSettings
-
-    /// The ground both canvases sit on: the light presets' vertical gradient, or
-    /// a dark preset's flat paint. Shared with PageBackground so the liquid wash
-    /// is laid over exactly the ground the static canvas would have painted,
-    /// and switching the toggle doesn't change what's underneath.
-    static func ground(light: Bool) -> AnyShapeStyle {
-        light
-            ? AnyShapeStyle(LinearGradient(colors: [Color(hex: T.bgGradTop),
-                                                    Color(hex: T.bgGradBottom)],
-                                           startPoint: .top, endPoint: .bottom))
-            : AnyShapeStyle(Color(hex: T.bg))
-    }
-
-    var body: some View {
-        // Read accent too so a live Customize accent change (which only
-        // shifts the glow tint, not isLightTheme) still re-renders here.
-        let _ = themeSettings.accent
-        let light = themeSettings.isLightTheme
-        ZStack {
-            Rectangle().fill(AmbientCanvas.ground(light: light))
-            if light {
-                // Upper-right glow only. The lower glow pooled a soft color
-                // band at the bottom of pages with empty space (e.g. Home),
-                // which read as a "footer" — removed so the bottom stays clean.
-                GlowBlob().offset(x: 130, y: -210)
-            }
-        }
-        .ignoresSafeArea()
+        let _ = themeSettings.bgPresetId   // re-render on a live Light/Dark change
+        Color(hex: T.bg).ignoresSafeArea()
     }
 }
 

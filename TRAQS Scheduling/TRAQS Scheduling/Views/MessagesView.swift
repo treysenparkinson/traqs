@@ -33,10 +33,6 @@ struct MessagesView: View {
     /// hoisted button only flips `showSearch` and this page reacts.
     @FocusState private var searchFocused: Bool
 
-    /// How far the thread list has scrolled from ITS OWN top, in points. Drives
-    /// the title collapse below — nothing else reads it.
-    @State private var listScrollY: CGFloat = 0
-
     // Bulk-select / delete state. When `selectMode` is on, rows render
     // a checkbox indicator instead of navigating on tap, and the top
     // bar swaps its icons for [Done, Delete].
@@ -206,15 +202,17 @@ struct MessagesView: View {
                     // to refract (§8 — glass over a static background renders flat).
                     Color.clear.frame(height: GlassHeader.height)
 
-                    PageTitle(title: "Messages",
-                              size: titleSize,
-                              tracking: titleTracking)
-                        .padding(.bottom, 6)
-                        // No animation modifier, deliberately. The size is a pure
-                        // function of the live scroll offset, so it already tracks
-                        // the finger — animating it would make the title lag
-                        // behind the list it is supposed to be moving with.
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    RvTitle(title: "Messages", meta: unreadMeta)
+
+                    // The inbox's own filter switch — the SAME `appNav.chatFilter`
+                    // the header's filter menu writes, so the two always agree.
+                    // DMs / Mentions stay reachable from that menu; while one of
+                    // them is on, no tab is underlined.
+                    RvTabs(options: [(value: ChatFilter.all, label: ChatFilter.all.label),
+                                     (value: ChatFilter.unread, label: ChatFilter.unread.label),
+                                     (value: ChatFilter.groups, label: ChatFilter.groups.label)],
+                           selection: Bindable(appNav).chatFilter)
+                        .padding(.horizontal, Rv.side)
 
                     if showSearch {
                         SearchBar(text: Bindable(appNav).chatSearchText,
@@ -226,12 +224,11 @@ struct MessagesView: View {
                                           searchText = ""
                                       }
                                   })
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
+                            .padding(.horizontal, Rv.side)
+                            .padding(.top, 10)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Inbox (the filter FAB now lives beside the title above).
                     ScrollView {
                         // Evaluate the thread pipeline ONCE per render (it groups,
                         // authorizes, and sorts all messages — previously run twice:
@@ -242,71 +239,29 @@ struct MessagesView: View {
                                 ChatEmptyState(filter: filter)
                                     .padding(.top, 80)
                             } else {
-                                // Straight to the threads: no section title (you're
-                                // on the Messages tab looking at a list of threads,
-                                // so "Inbox" only restated it) and no MARK ALL READ
-                                // row. The sheet's rounded lip is the list's header
-                                // now.
+                                // Cardless rows straight on the canvas, a hairline
+                                // between each (none under the last). Order is the
+                                // existing newest-first sort.
                                 //
                                 // Lazy: only on-screen rows build (each row pays
                                 // an avatar decode).
-                                //
-                                // Flat rows on ONE sheet, not a stack of frosted
-                                // pills. Every row carrying its own shape and
-                                // shadow made the inbox read as a pile of cards
-                                // to look AT; threads are a list you scan down,
-                                // so they share a surface and are separated by a
-                                // hairline. Full-bleed too — the row's own
-                                // padding is the margin now.
                                 LazyVStack(spacing: 0) {
                                     ForEach(threads) { t in
-                                        // Between rows only: no line above the
-                                        // first (it would sit just under the
-                                        // sheet's rounded lip) or below the last.
-                                        if t.id != threads.first?.id { threadDivider }
-                                        threadRow(t)
+                                        threadRow(t, divider: t.id != threads.last?.id)
                                     }
                                 }
+                                .padding(.horizontal, Rv.side)
+                                .padding(.top, 4)
                                 .padding(.bottom, listBottomClearance)
                             }
                         }
                         .animation(.easeInOut(duration: 0.18), value: filter)
                     }
                     .scrollIndicators(.visible)
-                    // The one input to the collapse: distance scrolled from the
-                    // top of the threads. `contentInsets.top` is added back so a
-                    // list sitting at rest reads as exactly 0 whether or not the
-                    // search bar is showing above it.
-                    .onScrollGeometryChange(for: CGFloat.self) { geo in
-                        geo.contentOffset.y + geo.contentInsets.top
-                    } action: { _, y in
-                        listScrollY = y
-                    }
                     .topFadeMask()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // The list is a sheet anchored to the bottom of the page:
-                    // rounded lip at the top, running clean off the bottom edge.
-                    //
-                    // `cornerHero`, not the modifier's default `cornerLg` (42 vs
-                    // 28). This lip is the biggest single arc on the page and it
-                    // sits right under the title, so it sets how soft the whole
-                    // screen reads. The rim's solid and fade bands are sized off
-                    // the radius inside FrostedSheetTop, so the lit lip still
-                    // covers the whole curve at the wider arc.
-                    .frostedSheetTop(radius: T.cornerHero)
-                    // Dropped clear of the title rather than tucked under it —
-                    // AFTER the frost, so the sheet itself moves down and takes
-                    // its lip with it. Inside the frost this would only have
-                    // indented the rows and left the lip where it was.
-                    .padding(.top, threadSheetTopInset)
-                    // …which it can only do if the scroll area itself reaches
-                    // that edge. This page used to reserve room for the floating
-                    // tab pill with a safeAreaInset, which stopped the sheet
-                    // short and left a band of bare page showing between it and
-                    // the pill. The pill floats OVER the list now (as the design
-                    // has it), the home indicator's inset is ignored too so the
-                    // frost bleeds to the physical edge, and the clearance both
-                    // used to buy is `listBottomClearance` on the content.
+                    // The list runs under the floating tab pill and the home
+                    // indicator; `listBottomClearance` keeps the last row reachable.
                     .ignoresSafeArea(.container, edges: .bottom)
                 }
             }
@@ -420,39 +375,10 @@ struct MessagesView: View {
         appNav.pendingDeepLink = nil
     }
 
-    // MARK: Collapsing title
-    //
-    // The title gives up its height to the list as you scroll INTO the threads,
-    // and takes it back as you return to the top. Nothing else drives it: not a
-    // page offset, not the header — only how far the list has scrolled from its
-    // own first row, which is why the sheet's lip and the title move as one.
-
-    /// Full size, at rest. `PageTitle`'s own default.
-    private let titleSizeFull: CGFloat = 56
-    /// Collapsed size. Still clearly the page's title, just well out of the way —
-    /// this is the dial for how much of the list the collapse buys back (~34pt
-    /// of line height, plus the leading that comes off with it).
-    private let titleSizeSmall: CGFloat = 22
-    /// Scroll distance the whole transition happens over. Short on purpose: the
-    /// title should be out of the way almost as soon as you commit to scrolling,
-    /// and back at full size only when you're genuinely near the top again.
-    private let titleCollapseDistance: CGFloat = 64
-
-    /// 0 = list at its top, title full size · 1 = fully collapsed.
-    private var titleCollapse: CGFloat {
-        min(1, max(0, listScrollY / titleCollapseDistance))
-    }
-
-    private var titleSize: CGFloat {
-        titleSizeFull + (titleSizeSmall - titleSizeFull) * titleCollapse
-    }
-
-    /// Tracking is absolute in points, so the -4 that reads as tight at 56pt is
-    /// nearly twice as tight at 30. Scaling it with the size keeps the collapsed
-    /// title looking like the same typeface rather than a condensed one — the
-    /// same correction `ThreadTopBar` makes for its own title.
-    private var titleTracking: CGFloat {
-        -4 * (titleSize / titleSizeFull)
+    /// The title's meta: the existing unread total, or "All read" at zero.
+    private var unreadMeta: String {
+        let n = appState.totalUnreadMessages
+        return n > 0 ? "\(n) unread" : "All read"
     }
 
     /// Room after the last thread. The list now runs under the floating tab
@@ -466,25 +392,11 @@ struct MessagesView: View {
         (appNav.hideTabBar ? 40 : tabPillBottomInset) + 24
     }
 
-    /// Air between the "Messages" title and the sheet's lip. THE dial for how
-    /// far down the inbox sits — the sheet used to start right under the title,
-    /// which left the two reading as one block rather than a page heading above
-    /// a surface.
-    private let threadSheetTopInset: CGFloat = 16
-
-    /// The hairline between two threads. Full-bleed, matching the sheet — an
-    /// inset divider would imply the avatar column is a separate gutter.
-    private var threadDivider: some View {
-        Rectangle()
-            .fill(Color(hex: T.hair).opacity(0.55))
-            .frame(height: 1)
-    }
-
     /// Renders a single inbox row, switching between navigation mode and
     /// select-mode tap-to-toggle. Extracted so the ForEach above stays
     /// readable and the row's two modes share the same ChannelRow.
     @ViewBuilder
-    private func threadRow(_ t: MessageThread) -> some View {
+    private func threadRow(_ t: MessageThread, divider: Bool) -> some View {
         let isSelected = selectedKeys.contains(t.key)
         if selectMode {
             Button {
@@ -493,14 +405,16 @@ struct MessagesView: View {
             } label: {
                 ChannelRow(thread: t, people: appState.people,
                            groups: appState.groups,
-                           selectMode: true, isSelected: isSelected)
+                           selectMode: true, isSelected: isSelected,
+                           divider: divider)
             }
             .buttonStyle(.plain)
         } else {
             NavigationLink(value: t.key) {
                 ChannelRow(thread: t, people: appState.people,
                            groups: appState.groups,
-                           selectMode: false, isSelected: false)
+                           selectMode: false, isSelected: false,
+                           divider: divider)
             }
             .buttonStyle(.plain)
             .simultaneousGesture(TapGesture().onEnded {
@@ -558,20 +472,20 @@ private struct ChannelRow: View {
     let groups: [ChatGroup]
     var selectMode: Bool = false
     var isSelected: Bool = false
+    /// Hairline under the row — off for the last thread.
+    var divider: Bool = true
+    @Environment(ThemeSettings.self) private var theme
 
     /// The row's identity mark. One constant because a DM avatar, a group's
     /// stack and the unknown-thread fallback all have to line up in the same
     /// column — they drifted apart when this was written out four times.
-    private let avatarSize: CGFloat = 52
+    @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 44   // grows on large phones with the type
     /// Each face in a group's cluster. Smaller than a DM's single avatar because
     /// three of them overlap into a mark of roughly the same weight.
-    private let stackAvatarSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .body) private var stackAvatarSize: CGFloat = 26
 
     private var subtitle: String {
         thread.lastMessage.map { $0.text } ?? ""
-    }
-    private var avatarColor: Color {
-        Color(hex: thread.lastMessage?.authorColor ?? T.muted)
     }
     private var initials: String { Initials.from(thread.displayTitle) }
 
@@ -607,8 +521,11 @@ private struct ChannelRow: View {
         thread.lastMessage?.timestamp.threadDateStamp ?? ""
     }
 
+    private var isUnread: Bool { thread.unreadCount > 0 }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        let _ = theme.accent; let _ = theme.bgPresetId
+        RvRow(divider: divider) {
             if selectMode {
                 // The checkmark fades + slides in from the leading edge
                 // when the user enters select mode, and the rest of the
@@ -634,60 +551,44 @@ private struct ChannelRow: View {
                 ParticipantStack(people: participants,
                                  avatarSize: stackAvatarSize,
                                  maxShown: 3)
-                    // minWidth, NOT width: three overlapping avatars are wider
-                    // than one, and a fixed frame doesn't clip — the cluster simply
-                    // spilled out of it and sat on top of the thread title. A
-                    // minimum keeps group rows aligned with the DM avatar's column
-                    // while letting a "+N" cluster take the room it needs.
-                    .frame(minWidth: avatarSize, alignment: .leading)
+                    // minWidth, NOT width: a "+N" cluster is wider than one
+                    // avatar and a fixed frame doesn't clip. The minimum keeps
+                    // group rows aligned with the DM avatar's column.
+                    .frame(minWidth: avatarSize, minHeight: avatarSize, alignment: .leading)
             } else {
-                // Fallback for a thread with no decodable participants
-                // (e.g. server returned messages whose authorIds don't
-                // match any person we know about — shouldn't normally
-                // happen, but keeps the row from rendering blank).
+                // Fallback for a thread with no decodable participants — keeps
+                // the row from rendering blank.
                 Avatar(initials: "#", size: avatarSize, gradient: true)
             }
-            VStack(alignment: .leading, spacing: 4) {
+
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(thread.displayTitle)
-                        .font(TTypo.smBold(15))
+                        .font(.custom(TFontName.semibold.rawValue, size: 15))
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if !timeLabel.isEmpty {
                         Text(timeLabel)
-                            .font(TTypo.xs(11))
+                            .font(.custom(TFontName.medium.rawValue, size: 12))
                             .foregroundStyle(Color(hex: T.muted))
                             .lineLimit(1)
                     }
                 }
-                HStack(spacing: 6) {
-                    Text(subtitle)
-                        .font(TTypo.xs(13))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    if thread.unreadCount > 0 {
-                        Text("\(thread.unreadCount)")
-                            .font(TTypo.xsBold(11))
-                            .foregroundStyle(T.onGradient)
-                            .tnum()
-                            .padding(.horizontal, 7)
-                            .frame(minWidth: 20, minHeight: 20)
-                            .background(Capsule().fill(T.brandGradient()))
-                    }
-                }
+                Text(subtitle)
+                    .font(.custom(isUnread ? TFontName.medium.rawValue : TFontName.regular.rawValue,
+                                  size: 12.5))
+                    .foregroundStyle(Color(hex: isUnread ? T.ink : T.muted))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isUnread {
+                RvDot(color: Color(hex: T.accent))
+                    .accessibilityLabel("\(thread.unreadCount) unread")
             }
         }
-        .padding(.horizontal, 18)
-        // The row's height, and the main dial for how substantial the list feels.
-        // Went 18 → 14 when the pills became flat rows (that padding had been
-        // buying each pill its body), which read as too thin once the hairlines
-        // were doing the separating — so back up past where it started.
-        .padding(.vertical, 20)
-        // Rectangle, not Capsule: the row is square now, and a capsule hit area
-        // would leave its corners dead.
-        .contentShape(Rectangle())
     }
 }
 

@@ -87,7 +87,7 @@ struct JobsHubView: View {
                                           searchText = ""
                                       }
                                   })
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, Rv.side)
                             .padding(.bottom, 8)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }

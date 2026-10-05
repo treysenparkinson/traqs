@@ -1,17 +1,28 @@
 import SwiftUI
 
 // MARK: - TRAQS Typography
-// DM Sans across the entire app — five static weights bundled in /Fonts.
+// iOS: Sora, the Wireframes v2 face — five static weights in /Fonts, instanced
+// from Google Fonts' Sora[wght] (OFL, Fonts/Sora-OFL.txt).
+// macOS: DM Sans, unchanged — the Mac app matches the web and asserts its five
+// faces are registered at launch, so the shared enum branches per platform.
 // All numerics use tabular figures (the `mono` helpers do this explicitly;
 // the heading helpers inherit the same monospaced-digit treatment so totals
 // and durations always column-align in cards and lists).
 
 enum TFontName: String, CaseIterable {
+    #if os(iOS)
+    case regular   = "Sora-Regular"
+    case medium    = "Sora-Medium"
+    case semibold  = "Sora-SemiBold"
+    case bold      = "Sora-Bold"
+    case extrabold = "Sora-ExtraBold"
+    #else
     case regular   = "DMSans-Regular"
     case medium    = "DMSans-Medium"
     case semibold  = "DMSans-SemiBold"
     case bold      = "DMSans-Bold"
     case extrabold = "DMSans-ExtraBold"
+    #endif
 }
 
 extension TFontName {

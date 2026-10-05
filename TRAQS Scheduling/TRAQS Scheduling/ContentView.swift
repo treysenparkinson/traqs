@@ -9,6 +9,10 @@ struct RootView: View {
     /// Welcome. Signed-in launches never see it: auth is restored synchronously
     /// when AuthManager is created, so there's no signed-out first frame.
     @State private var introDone = false
+    /// Plus / Pro Max and larger (≥430pt on the short side): the whole app reads
+    /// a size up. Measured off the root's own size, so it is right in either
+    /// orientation and on whichever screen the scene is on.
+    @State private var largeScreen = false
 
     // Email-based org auto-link state. We try once per login session.
     // `attempted` gates the lookup so a re-render doesn't re-fire it.
@@ -76,6 +80,15 @@ struct RootView: View {
             ErrorBanner()
                 .zIndex(2)
         }
+        // Big phones get bigger type and the kit's elements with it: every face is
+        // a custom font that scales with Dynamic Type, and the Revamp kit sizes its
+        // tiles, discs, bars and dots with @ScaledMetric. A FLOOR, not a fixed
+        // size — anyone who already reads larger keeps their own setting.
+        .onGeometryChange(for: Bool.self) { min($0.size.width, $0.size.height) >= 430 } action: {
+            largeScreen = $0
+        }
+        .dynamicTypeSize(largeScreen ? DynamicTypeSize.xxLarge ... .accessibility5
+                                     : DynamicTypeSize.xSmall ... .accessibility5)
         // The splash is an OVERLAY, not a ZStack sibling. As a sibling it drove
         // the ZStack's width (its 440pt-wide glow made the whole stack wider
         // than the screen), so the app content laid out too wide — title

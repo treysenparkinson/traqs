@@ -38,31 +38,32 @@ struct EmployeesView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        PageTitle(title: "Employees")
-                            .padding(.top, pageTitleTopInset)
-                            .padding(.bottom, 12)
+                        RvTitle(title: "Employees")
 
                         searchField
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 14)
+                            .padding(.horizontal, Rv.side)
 
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: 0) {
+                            RvSection(title: "Everyone") {
+                                Text("\(people.count)")
+                                    .font(.custom(TFontName.semibold.rawValue, size: 12))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .tnum()
+                            }
                             ForEach(people) { p in
                                 EmployeeCard(person: p, isMe: p.id == appState.currentPersonId)
                             }
                             if people.isEmpty {
                                 Text(search.isEmpty ? "No employees yet." : "No one matches “\(search)”.")
-                                    .font(TTypo.sm(13))
+                                    .font(.custom(TFontName.regular.rawValue, size: 13))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 22)
-                                    .frostedCard(radius: T.cornerMd)
+                                    .padding(.vertical, 28)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, Rv.side)
                         .padding(.bottom, 28)
                     }
-                    .padding(.top, 4)
                 }
                 .scrollIndicators(.visible)
                 .scrollDismissesKeyboard(.interactively)
@@ -113,30 +114,30 @@ private struct EmployeeCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Avatar(initials: Initials.from(person), size: 46,
+        RvRow {
+            Avatar(initials: Initials.from(person), size: 42,
                    fill: .personFill(person.color), imageData: person.image)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(person.name)
-                        .font(TTypo.smBold(15))
+                        .font(.custom(TFontName.semibold.rawValue, size: 15))
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     if isMe {
                         Text("You")
-                            .font(TTypo.xsBold(10))
+                            .font(.custom(TFontName.semibold.rawValue, size: 11))
                             .foregroundStyle(Color(hex: T.muted))
                     }
                 }
                 if !person.role.isEmpty {
                     Text(person.role)
-                        .font(TTypo.xs(12))
+                        .font(.custom(TFontName.regular.rawValue, size: 12.5))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                 }
                 Text(phone.map(PhoneNumber.display) ?? "No phone number")
-                    .font(TTypo.sm(13))
+                    .font(.custom(TFontName.regular.rawValue, size: 13))
                     .foregroundStyle(Color(hex: phone == nil ? T.muted : T.ink))
                     .tnum()
                     .lineLimit(1)
@@ -159,9 +160,6 @@ private struct EmployeeCard: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frostedCard(radius: T.cornerMd)
     }
 
     private func contactButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {

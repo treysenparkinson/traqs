@@ -1,22 +1,15 @@
 import SwiftUI
 
-// MARK: - Splash · "Aurora" load-up
+// MARK: - Splash · load-up (iOS Wireframes v2, screen 00)
 //
-// Port of the Claude Design "TRAQS Aurora Load-up" spec (splash/splash-aurora.jsx).
-// Colour fields bloom and drift; the wordmark resolves out of the light — it
-// fades up from a soft blur (`spInkOn`) with a pool of accent light gathering
-// behind it. The splash then fades into the app.
+// The flat canvas, the real lockup — the wordmark asset and the native bars mark,
+// never redrawn — and two moves: the wordmark fades and settles in from 0.8×,
+// centred on its own; then the four bars draw left to right, each a beat after the
+// one above, while the wordmark slides left so the finished lockup lands centred.
+// "Loading your day…" sits near the bottom. The finished scene fades into the app.
 //
-// Two departures from the design file, both requested:
-//   • The four hardcoded aurora blobs are replaced by the app's own LIQUID
-//     background — the same wash the web offers under background customization.
-//     It ran on the user's accent at first, a single hue in a two-blob pair.
-//     Since the icon became a four-colour mark it runs on LogoPalette instead,
-//     one blob per colour: four again, as the design had them, but the brand's
-//     own four rather than hardcoded ones.
-//   • No printhead dot and no pulse rings. The previous splash printed the mark
-//     with a travelling dot that popped and pulsed away; the aurora resolve
-//     replaces that entirely.
+// Timing: wordmark 0–0.8s, bars from 0.3s after it settles, 0.38s each with a 0.08s stagger
+// (the slide runs the bars' whole span on the same curve), hold, then fade.
 
 struct SplashView: View {
     @Binding var isShowing: Bool
@@ -24,82 +17,61 @@ struct SplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ThemeSettings.self) private var theme
 
-    private let logoSize: CGFloat = 96          // very large wordmark — splash hero
+    /// Wordmark height — the design's 56pt wordmark, set as the lockup's height.
+    private let logoSize: CGFloat = 78
 
-    // Animated state.
+    @State private var markIn = false
+    @State private var drawn: [CGFloat] = [0, 0, 0, 0]
+    @State private var slid = false
     @State private var overallOpacity: Double = 1
-    @State private var inkIn = false            // wordmark resolve (opacity + blur)
-    @State private var poolIn = false           // light pooling behind the mark
     @State private var started = false
 
-    // Timing, from the design (ms → s). Scene ends at ~2.2s.
-    private let poolDelay = 0.50, poolDur = 0.90
-    private let inkDelay  = 0.60, inkDur  = 1.00
-    private let fadeAt    = 2.00, fadeDur = 0.40
+    private let markDur = 0.80
+    private let barsAt = 1.10, barDur = 0.38, barStagger = 0.08
+    private let fadeAt = 2.30, fadeDur = 0.40
 
-    /// `cubic-bezier(.22,.61,.36,1)` — the design's resolve curve.
-    private let resolve = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 1.00)
+    /// `cubic-bezier(.2,.8,.2,1)` and `(.65,0,.35,1)` — the design's two curves.
+    private var markCurve: Animation { .timingCurve(0.2, 0.8, 0.2, 1, duration: markDur) }
+    private func barCurve(_ i: Int) -> Animation {
+        .timingCurve(0.65, 0, 0.35, 1, duration: barDur).delay(barsAt + Double(i) * barStagger)
+    }
+
+    // ── Centring the INK, not the frame ──
+    // TRAQSHeaderLogo is the wordmark PNG plus the bars, pulled left by
+    // 15/64 of the size to clear the PNG's built-in right margin. The PNG also
+    // carries 14.1% of its width as empty margin on the LEFT (see GlassHeader's
+    // `logoLeftBearing` note). So the visible ink of the wordmark alone runs from
+    // 14.1% of its width to its width minus that right margin, and the finished
+    // lockup's ink from the same left edge to the end of the bars. Each offset
+    // below moves that ink's centre onto the frame's centre.
+    private var wordW: CGFloat { (logoSize * TRAQSWordmark.aspect).rounded() }
+    private var pull: CGFloat { logoSize * (15.0 / 64.0) }
+    private var barsW: CGFloat { logoSize * (21.0 / 64.0) * (184.0 / 150.0) }
+    private var lockupW: CGFloat { wordW - pull + barsW }
+    private var inkLeft: CGFloat { wordW * 0.141 }
+    /// Wordmark alone, centred.
+    private var startOffset: CGFloat { lockupW / 2 - (inkLeft + wordW - pull) / 2 }
+    /// Wordmark + lines, centred.
+    private var endOffset: CGFloat { lockupW / 2 - (inkLeft + lockupW) / 2 }
 
     var body: some View {
+        let _ = theme.bgPresetId
         ZStack {
-            // ── Ground ──
-            // Radial base per the design, in the theme's own values so the
-            // splash matches whichever background preset is active.
-            RadialGradient(
-                colors: theme.isLightTheme
-                    ? [Color(hex: "#FFFFFF"), Color(hex: "#F3F5FB")]
-                    : [Color(hex: "#0C1020"), Color(hex: "#05070C")],
-                center: UnitPoint(x: 0.5, y: 0.44),
-                startRadius: 0,
-                endRadius: 620
-            )
-            .ignoresSafeArea()
+            Color(hex: T.bg).ignoresSafeArea()
 
-            // ── The liquid wash (replaces the design's four static blobs) ──
-            // Thicker and much faster than the ambient page setting: the web's
-            // 17–25s paths move almost imperceptibly over a 2.4s splash, so the
-            // load-up drives them at ~3.4× with correspondingly bigger travel.
-            //
-            // Deliberately NOT the page canvas's LiquidTuning values. Matching
-            // them was tried and the splash lost its punch — a full-bleed, heavier
-            // wash is what reads in 2.4s, where the page needs to stay quiet
-            // behind content all day.
-            LiquidBackground(palette: LogoPalette.ordered,
-                             thickness: 1.6, energy: 3.4, saturation: 0.45)
-                .ignoresSafeArea()
-                .opacity(poolIn ? 1 : 0)
+            TRAQSHeaderLogo(size: logoSize, barsDrawn: drawn)
+                .offset(x: slid ? endOffset : startOffset)
+                .opacity(markIn ? 1 : 0)
+                .scaleEffect(markIn ? 1 : 0.8)
 
-            // ── Soft pool behind the mark as it resolves ──
-            //
-            // Its JOB CHANGED when the mark went white in both themes. On the
-            // dark ground it is still light GATHERING — an accent-tinted glow
-            // lifting the mark off near-black. On the light ground a pale pool
-            // behind a white mark does nothing at all; what the mark needs there
-            // is something to sit AGAINST, so this is a soft ink scrim instead.
-            //
-            // Deliberately weak and heavily blurred: enough to hold the
-            // letterforms over a pastel wash, not enough to read as a dark patch
-            // on a load-up that is supposed to be white.
-            Ellipse()
-                .fill(Color(hex: theme.isLightTheme ? T.ink : T.accentGradientStart)
-                        .opacity(theme.isLightTheme ? 0.18 : 0.22))
-                .frame(width: 300, height: 150)
-                .blur(radius: 46)
-                .opacity(poolIn ? 1 : 0)
-
-            // ── The wordmark, resolving out of the light ──
-            // WHITE in both themes, by request. This was `theme.isLightTheme`
-            // — black on the light ground, white on the dark one — which always
-            // read but made the load-up two different marks. The light-mode wash
-            // was thinned (see `paletteSpecs`) so the white mark has pale colour
-            // to sit on rather than bare white, and the scrim above carries the
-            // letterforms where the wash happens to have drifted away.
-            //
-            // This is the marginal case to eyeball first: white on pale amber
-            // #F4B61E is the thinnest contrast on the screen.
-            TRAQSWordmark(size: logoSize, onLightBackground: false)
-                .opacity(inkIn ? 1 : 0)
-                .blur(radius: inkIn ? 0 : 6)
+            VStack {
+                Spacer()
+                Text("Loading your day…")
+                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .tracking(0.5)
+                    .foregroundStyle(Color(hex: T.muted))
+                    .padding(.bottom, 60)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(overallOpacity)
@@ -110,22 +82,23 @@ struct SplashView: View {
         guard !started else { return }
         started = true
 
-        // Reduce Motion → no bloom, no blur resolve; just show the mark and hand off.
+        // Reduce Motion → the finished lockup, then hand off.
         if reduceMotion {
-            poolIn = true
-            inkIn = true
-            withAnimation(.easeIn(duration: fadeDur).delay(0.90)) { overallOpacity = 0 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.90 + fadeDur) { isShowing = false }
+            markIn = true
+            drawn = [1, 1, 1, 1]
+            slid = true
+            withAnimation(.easeIn(duration: fadeDur).delay(0.9)) { overallOpacity = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9 + fadeDur) { isShowing = false }
             return
         }
 
-        // 1 — the colour fields bloom in.
-        withAnimation(.easeOut(duration: poolDur).delay(poolDelay)) { poolIn = true }
-
-        // 2 — the wordmark resolves out of the light.
-        withAnimation(resolve.delay(inkDelay)) { inkIn = true }
-
-        // 3 — the finished scene fades into the app.
+        withAnimation(markCurve) { markIn = true }
+        for i in drawn.indices {
+            withAnimation(barCurve(i)) { drawn[i] = 1 }
+        }
+        // The slide spans the bars from the first starting to the last finishing.
+        let slideDur = barDur + Double(drawn.count - 1) * barStagger
+        withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: slideDur).delay(barsAt)) { slid = true }
         withAnimation(.easeIn(duration: fadeDur).delay(fadeAt)) { overallOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + fadeAt + fadeDur + 0.05) { isShowing = false }
     }

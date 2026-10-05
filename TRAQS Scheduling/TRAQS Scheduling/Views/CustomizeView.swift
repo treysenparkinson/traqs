@@ -73,20 +73,6 @@ struct CustomizeView: View {
                                 }
                             }
 
-                            // The wash layers OVER whichever preset is picked
-                            // rather than replacing it, so it belongs in this
-                            // card rather than as a third preset row.
-                            SLine().padding(.leading, 70)
-                            ToggleRow(title: "Liquid Motion",
-                                      isOn: theme.liquidBackground) { on in
-                                theme.setLiquidBackground(on)
-                            }
-
-                            SLine().padding(.leading, 70)
-                            ToggleRow(title: "Frosted Glass",
-                                      isOn: theme.frostedGlass) { on in
-                                theme.setFrostedGlass(on)
-                            }
                         }
                         .frostedCard(radius: T.cornerMd)
                         .padding(.horizontal, 16)
@@ -199,40 +185,6 @@ private func captionSlot(_ text: String?) -> some View {
         .opacity(text == nil ? 0 : 1)
 }
 
-
-// A look toggle. Same padding as BgPresetRow so it reads as another row of the
-// same card. Previews live and is committed or reverted by the card's Save /
-// back-out paths, exactly like the presets.
-private struct ToggleRow: View {
-    let title: String
-    /// Optional — most rows are self-explanatory from the title alone.
-    var subtitle: String? = nil
-    let isOn: Bool
-    let onChange: (Bool) -> Void
-
-    var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(TTypo.smBold(15))
-                    .foregroundColor(Color(hex: T.ink))
-                if let subtitle {
-                    Text(subtitle)
-                        .font(TTypo.xs(12))
-                        .foregroundColor(Color(hex: T.muted))
-                }
-            }
-
-            Spacer()
-
-            Toggle("", isOn: Binding(get: { isOn }, set: { onChange($0) }))
-                .labelsHidden()
-                .tint(Color(hex: T.accent))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-}
 
 private struct BgPresetRow: View {
     let preset: BgPreset

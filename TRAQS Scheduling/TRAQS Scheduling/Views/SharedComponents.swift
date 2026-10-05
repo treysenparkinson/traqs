@@ -191,6 +191,9 @@ struct TRAQSBarsMark: View {
     /// read there is just whoever used this device last. TRAQS should introduce
     /// itself in its own colours every time.
     var fixedBrand: Bool = false
+    /// How far each bar has drawn in, 0…1, top → bottom — the load-up draws them
+    /// left to right one after another. Nil (everywhere else) is fully drawn.
+    var drawn: [CGFloat]? = nil
 
     // Bar widths as a fraction of the mark's full width, top → bottom, measured
     // from the original artwork. The 3rd (full-width) bar is the accent bar.
@@ -216,6 +219,8 @@ struct TRAQSBarsMark: View {
                     // accent instead — see `LogoPalette.bars(for:)`.
                     .fill(Color(hex: bars[i]))
                     .frame(width: fullWidth * widths[i], height: barH)
+                    .scaleEffect(x: drawn.map { $0.indices.contains(i) ? $0[i] : 1 } ?? 1,
+                                 y: 1, anchor: .leading)
             }
         }
         .frame(width: fullWidth, height: size, alignment: .leading)
@@ -235,6 +240,8 @@ struct TRAQSHeaderLogo: View {
     /// the dark wordmark, because the ground there is paper whatever theme the
     /// last person left behind. See TRAQSBarsMark.fixedBrand.
     var fixedBrand: Bool = false
+    /// Passed to the bars — see `TRAQSBarsMark.drawn`.
+    var barsDrawn: [CGFloat]? = nil
 
     var body: some View {
         // The bars mark as a trailing "=" — scaled from the tuned size-64 lockup:
@@ -253,7 +260,7 @@ struct TRAQSHeaderLogo: View {
         // exactly as wide as it looks.
         HStack(spacing: -size * (15.0 / 64.0)) {
             TRAQSWordmark(size: size, onLightBackground: fixedBrand ? true : nil)
-            TRAQSBarsMark(size: size * (21.0 / 64.0), fixedBrand: fixedBrand)
+            TRAQSBarsMark(size: size * (21.0 / 64.0), fixedBrand: fixedBrand, drawn: barsDrawn)
                 .offset(y: -size * (1.0 / 64.0))
         }
     }
@@ -279,8 +286,9 @@ struct TRAQSNavHeader<Trailing: View>: View {
         // drops the whole header (and page title) down from the status bar for
         // more breathing room.
         HStack(alignment: .center, spacing: 10) {
-            TRAQSHeaderLogo(size: Self.logoHeight)
-                .offset(x: -13)   // nudge the lockup toward the leading edge
+            // The lines mark alone (Wireframes v2), on the pages' 24pt margin.
+            TRAQSBarsMark(size: 30)
+                .padding(.leading, Rv.side - 16)
             Spacer()
             HStack(spacing: 6) {
                 trailing()

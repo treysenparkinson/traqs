@@ -53,9 +53,12 @@ final class ThemeSettings {
     // Background presets — neutrals only. Accent is what users customize
     // for color; the background stays out of the way as a neutral canvas.
     static let bgPresets: [BgPreset] = [
+        // The iOS Wireframes v2 palette: a cool grey canvas, white surfaces,
+        // ink #0C0C14, muted #7C8197, and the hairline as ink at 9% over the
+        // canvas. Tracks are white — bars and progress sit as white wells on it.
         BgPreset(id: 100, name: "White",
-                 bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E6E8EE",
-                 text: "#0B0B0C", muted: "#6E6E73", track: "#F7F9FD", isLight: true),
+                 bg: "#EEF0F6", surface: "#FFFFFF", card: "#FFFFFF", border: "#DADBE2",
+                 text: "#0C0C14", muted: "#7C8197", track: "#FFFFFF", isLight: true),
         BgPreset(id: 11,  name: "Charcoal",
                  bg: "#1F1F1F", surface: "#2A2A2A", card: "#333333", border: "#3F3F3F",
                  text: "#E8E8E8", muted: "#9CA3AF", track: "#202023", isLight: false),
@@ -65,72 +68,31 @@ final class ThemeSettings {
     /// Referenced from `LogoPalette`, not retyped, so the app's default accent
     /// and the icon's sky bar cannot drift apart.
     static let defaultAccent: String = LogoPalette.sky
-    /// On by default — the liquid wash IS the intended look of the app; the
-    /// static canvas is the opt-out.
-    static let defaultLiquidBackground: Bool = true
-    /// Likewise for glass: on is the intended look, solid is the opt-out.
-    static let defaultFrostedGlass: Bool = true
-
     var accent: String = ThemeSettings.defaultAccent
 
 
 
 
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
-    /// Whether pages render the drifting liquid wash (`PageBackground`) instead
-    /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
-    /// token — views read it directly — so it has no `applyToT` counterpart.
-    var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
-    /// Whether the app's own SURFACES are frosted glass or flat 2D.
+    /// The liquid wash and frosted glass were customizations; the Wireframes v2
+    /// redesign retired both (customization is now Light/Dark + accent). Pages
+    /// paint the flat canvas and TRAQS's own surfaces are solid. BUTTONS are
+    /// untouched — they were never governed by this (native Liquid Glass: header
+    /// pills, CTAs, the nav pill).
     ///
-    /// Off flattens what TRAQS draws: job cards, page boxes, message bubbles,
-    /// list rows, the wells inside popups, the sync pill — all to opaque
-    /// `T.surface` — and collapses the specular rim on them to a flat hairline.
-    /// (`glassFill`, `GlassSurface`, `specularRim`.)
-    ///
-    /// It ALSO flattens the app's modals — every prompting popup (`GlassPanel`:
-    /// the PIN pad, the break/lunch banner, the end-job photo prompt, the
-    /// start-job, availability and time-off confirms). Off means flat,
-    /// everywhere TRAQS paints.
-    ///
-    /// It does NOT reach three things, each for its own reason:
-    ///
-    ///  • BUTTONS. Header pills, menu buttons, the keypad keys and every glass
-    ///    CTA are Apple's material, not ours. A flat app with native glass
-    ///    controls is a coherent look; one whose buttons went flat too just
-    ///    looks unfinished. (`GlassControl`, `GlassCircleButton`, `GlassCTA`.)
-    ///
-    ///  • THE NAV PILL (`NavPillMaterial`). It used to flatten, back when it was
-    ///    a hand-rolled `.ultraThinMaterial` — TRAQS painting its own glass on
-    ///    chrome, which the switch rightly governed. It is native
-    ///    `.glassEffect` now, the same material as the buttons above and as the
-    ///    highlighter riding on it, so it keeps it on the same terms.
-    ///
-    ///  • THE TWO MASKED PLATES — the Messages thread header
-    ///    (`OverlayWindowController`) and the composer bar under it. Both are a
-    ///    blur MASKED to fade out along one edge, and an opaque fill under that
-    ///    mask is a solid slab dissolving into nothing, which reads as a
-    ///    rendering fault rather than as a design.
-    ///
-    /// It governed page CONTENT only at first, which left the rim on everything —
-    /// a lit bevel being the most obviously glassy thing left once the blur is
-    /// gone. Then it briefly reached the native controls too, which looked
-    /// unfinished. This is the line that landed: everything TRAQS draws, nothing
-    /// Apple draws.
-    ///
-    /// Mirrored into T.glassEnabled because the glass helpers include a Shape
-    /// extension, which has no view context and so can't read @Environment.
-    var frostedGlass: Bool = ThemeSettings.defaultFrostedGlass
+    /// Kept as constants rather than deleted because views still READ them to
+    /// observe re-renders; a constant read costs nothing and keeps those sites
+    /// compiling unchanged.
+    var liquidBackground: Bool { false }
+    var frostedGlass: Bool { false }
     var version: Int = 0
 
     // Last *saved* theme, captured when the customizer opens (`beginPreview`).
-    // Live edits change `accent`/`bgPresetId`/`liquidBackground` for an immediate
+    // Live edits change `accent`/`bgPresetId` for an immediate
     // preview without persisting; Save commits them, backing out reverts to
     // these snapshots.
     private var savedAccent: String = ThemeSettings.defaultAccent
     private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
-    private var savedLiquidBackground: Bool = ThemeSettings.defaultLiquidBackground
-    private var savedFrostedGlass: Bool = ThemeSettings.defaultFrostedGlass
 
     var currentBgPreset: BgPreset {
         ThemeSettings.bgPresets.first(where: { $0.id == bgPresetId }) ?? ThemeSettings.bgPresets[0]
@@ -150,17 +112,8 @@ final class ThemeSettings {
         } else {
             bgPresetId = ThemeSettings.defaultBgPresetId
         }
-        // `object(forKey:) as? Bool`, NOT `bool(forKey:)` — the latter returns
-        // false for a key that was never written, which would silently ship the
-        // liquid wash OFF for every existing user.
-        liquidBackground = (UserDefaults.standard.object(forKey: "themeLiquidBackground") as? Bool)
-            ?? ThemeSettings.defaultLiquidBackground
-        frostedGlass = (UserDefaults.standard.object(forKey: "themeFrostedGlass") as? Bool)
-            ?? ThemeSettings.defaultFrostedGlass
         savedAccent = accent
         savedBgPresetId = bgPresetId
-        savedLiquidBackground = liquidBackground
-        savedFrostedGlass = frostedGlass
         applyToT()
     }
 
@@ -180,23 +133,9 @@ final class ThemeSettings {
         applyBgToT(currentBgPreset)
     }
 
-    /// Live preview only (see `setAccent`). Persists on `commitChanges()`. No
-    /// `applyToT` call — this flag isn't part of the token table.
-    func setLiquidBackground(_ on: Bool) {
-        liquidBackground = on
-    }
-
-    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
-    func setFrostedGlass(_ on: Bool) {
-        frostedGlass = on
-        applyGlassToT()
-    }
-
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
         setBgPreset(ThemeSettings.defaultBgPresetId)
-        setLiquidBackground(ThemeSettings.defaultLiquidBackground)
-        setFrostedGlass(ThemeSettings.defaultFrostedGlass)
         commitChanges()
     }
 
@@ -205,8 +144,6 @@ final class ThemeSettings {
     func beginPreview() {
         savedAccent = accent
         savedBgPresetId = bgPresetId
-        savedLiquidBackground = liquidBackground
-        savedFrostedGlass = frostedGlass
     }
 
     /// Revert a live preview back to the last saved theme (customizer closed
@@ -214,8 +151,6 @@ final class ThemeSettings {
     func cancelPreview() {
         accent = savedAccent
         bgPresetId = savedBgPresetId
-        liquidBackground = savedLiquidBackground
-        frostedGlass = savedFrostedGlass
         applyToT()
     }
 
@@ -224,23 +159,15 @@ final class ThemeSettings {
     func commitChanges() {
         UserDefaults.standard.set(accent, forKey: "themeAccent")
         UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
-        UserDefaults.standard.set(liquidBackground, forKey: "themeLiquidBackground")
-        UserDefaults.standard.set(frostedGlass, forKey: "themeFrostedGlass")
         savedAccent = accent
         savedBgPresetId = bgPresetId
-        savedLiquidBackground = liquidBackground
-        savedFrostedGlass = frostedGlass
         version += 1
     }
 
     private func applyToT() {
         applyAccentToT()
         applyBgToT(currentBgPreset)
-        applyGlassToT()
-    }
-
-    private func applyGlassToT() {
-        T.glassEnabled = frostedGlass
+        T.glassEnabled = false
     }
 
     /// Set `T.accent` AND the derived signature-gradient stops + glow tints so the

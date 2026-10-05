@@ -169,7 +169,7 @@ enum T {
     // control (header pills, keypad keys, glass CTAs) stays native Liquid Glass,
     // because a flat app with native glass buttons is a coherent look and a flat
     // app whose buttons went flat too just looks unfinished.
-    static var glassEnabled: Bool = true
+    static var glassEnabled: Bool = false   // retired with the frosted-glass toggle (Wireframes v2)
 
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and

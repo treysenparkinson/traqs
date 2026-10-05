@@ -62,10 +62,10 @@ struct MoreView: View {
                     VStack(spacing: 0) {
                         if appState.isAdmin && selectedWorkerId == nil {
                             statsTitle
-                                .padding(.top, pageTitleTopInset)
-                                .padding(.bottom, 12)
                             rangeToggle
-                                .padding(.bottom, 16)
+
+                            RvSection("Metrics")
+                                .padding(.horizontal, Rv.side)
 
                             // Ticks every 5s so the stat grid (Idle) + Efficiency
                             // graph grow live while anyone is clocked in.
@@ -82,21 +82,21 @@ struct MoreView: View {
                                 // ONE walk of the week, shared by Idle and
                                 // Efficiency — this used to run three times.
                                 let days = efficiencyDays(for: nil, now: date)
-                                VStack(spacing: 16) {
+                                VStack(spacing: 0) {
                                     statGrid(utilization: utilization,
                                              switching: switching,
                                              idle: idleHours(from: days))
-                                        .padding(.horizontal, 16)
-                                    EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
-                                                   days: days,
-                                                   info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
-                                        .padding(.horizontal, 16)
+                                    EfficiencySection(percent: "\(efficiencyPercent(from: days))%",
+                                                      days: days,
+                                                      now: date,
+                                                      info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
                                 }
+                                .padding(.horizontal, Rv.side)
                             }
 
-                            // Over-hours tab pinned at the bottom; tapping it
-                            // drops its list down beneath it at the page's end.
-                            VStack(spacing: 12) {
+                            // Over-hours section header; tapping it drops its
+                            // list down beneath it.
+                            VStack(spacing: 0) {
                                 OverHoursTab(value: "\(overHoursItems.count)", expanded: overHoursExpanded) {
                                     withAnimation(.easeInOut(duration: 0.22)) { overHoursExpanded.toggle() }
                                 }
@@ -105,38 +105,36 @@ struct MoreView: View {
                                         .transition(.opacity.combined(with: .move(edge: .top)))
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 24)
+                            .padding(.horizontal, Rv.side)
                         } else if let pid = statsPersonId {
                             // Personal stats — your own (non-admin) or a worker an
                             // admin picked from the person button.
                             statsTitle
-                                .padding(.top, pageTitleTopInset)
-                                .padding(.bottom, 12)
                             rangeToggle
-                                .padding(.bottom, 16)
-                            personalStatGrid(for: pid)
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 8)
+                            VStack(spacing: 0) {
+                                RvSection("Metrics")
+                                personalStatGrid(for: pid)
+                            }
+                            .padding(.horizontal, Rv.side)
 
                             // This person's own efficiency for the selected week —
                             // ticks every 5s so it grows live while they're clocked in.
                             PausableTimeline(tab: .stats, interval: 5) { date in
                                 let days = efficiencyDays(for: pid, now: date)   // once, not twice
-                                EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
-                                               days: days,
-                                               info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 16)
+                                EfficiencySection(percent: "\(efficiencyPercent(from: days))%",
+                                                  days: days,
+                                                  now: date,
+                                                  info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
+                                    .padding(.horizontal, Rv.side)
                             }
                         }
 
                         // ── Past Jobs (this user's own job-clock history) ──
                         // Shown to everyone: their completed job sessions for
-                        // the current pay period, plus a live card if a job
+                        // the current pay period, plus a live row if a job
                         // clock is running. Scoped to the current person.
-                        TSectionTitle(title: "Past Jobs")
+                        RvSection("Past Jobs")
+                            .padding(.horizontal, Rv.side)
 
                         if let active = activeJobClock, isViewingSelf {
                             // Own ticker so the per-second elapsed re-renders ONLY
@@ -155,8 +153,7 @@ struct MoreView: View {
                                                      }
                                                  })
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 4)
+                            .padding(.horizontal, Rv.side)
                         }
 
                         // Evaluate the session pipeline ONCE (each of these
@@ -165,7 +162,7 @@ struct MoreView: View {
                         let sessions = jobSessionsInPeriod
                         let groups = jobSessionGroups
                         // Lazy: only on-screen day-group cards build.
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: 0) {
                             JobHoursSummaryRow(periodHours: jobPeriodHours,
                                                sessions: sessions.count)
                             ForEach(groups) { group in
@@ -175,7 +172,7 @@ struct MoreView: View {
                                 HoursEmptyState()
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, Rv.side)
                         .padding(.bottom, 24)
                     }
                 }
@@ -202,67 +199,36 @@ struct MoreView: View {
 
     // MARK: Title (Analytics + selected week in accent)
 
-    /// Week / Pay Period, centred under the title. Everything time-scoped on the
-    /// page follows it — see `statsInterval`.
+    /// Week / Pay Period underline tabs. Everything time-scoped on the page
+    /// follows it — see `statsInterval`. Same AppNav binding the header's
+    /// calendar menu reads.
     private var rangeToggle: some View {
-        HStack {
-            Spacer()
-            GlassSegmented(
-                options: StatsRange.allCases,
-                labels: Dictionary(uniqueKeysWithValues: StatsRange.allCases.map { ($0, $0.label) }),
-                selection: Bindable(appNav).statsRange)
-                .frame(width: 260)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
+        RvTabs(options: StatsRange.allCases.map { (value: $0, label: $0.label) },
+               selection: Bindable(appNav).statsRange)
+            .padding(.horizontal, Rv.side)
     }
 
     private var statsTitle: some View {
-        // ONE leading-aligned column, and that is what puts the subtitle's first
-        // letter under the title's "A": both rows are laid out from the same
-        // edge, and the 16pt gutter is paid once by the VStack rather than by
-        // each row. Don't pad the rows individually — that's how the two drift.
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("Analytics")
-                    .font(.custom(TFontName.extrabold.rawValue, size: 56))
-                    .tracking(-4)
-                    .foregroundStyle(Color(hex: T.ink))
-                    // "Analytics" is nearly twice the width of the old "Stats" and
-                    // shares this row with the week range, so it shrinks to fit on
-                    // narrower phones rather than truncating or pushing the week off.
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Spacer(minLength: 8)
-                // FIXED width, and that is the whole point. "Analytics" shrinks
-                // to fit (`minimumScaleFactor`), so it resolves to whatever
-                // space is left after this label — and a pay period's range
-                // ("Aug 31 – Sep 13") is wider than a week's ("Sep 1–5"). The
-                // title therefore changed SIZE when the toggle flipped. Holding
-                // this column constant means the title is handed identical
-                // space in both modes and cannot move.
-                Text(rangeLabel)
-                    .font(TTypo.smBold(15))
-                    .foregroundStyle(Color(hex: T.accent))
-                    .tnum()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(width: 116, alignment: .trailing)
-            }
+        // At 34pt "Analytics" leaves ample room for the range meta in both modes,
+        // so the title no longer needs the fixed-width meta column it had at 56pt.
+        VStack(alignment: .leading, spacing: 0) {
+            RvTitle(title: "Analytics", meta: rangeLabel)
 
             // Whose numbers these are — only when an admin has picked someone
             // other than "Everyone". Muted and small: it qualifies the title, it
-            // isn't a second title. Down here it has the full page width, where
-            // on the header row it was clipped by the buttons.
+            // isn't a second title. Pulled up into RvTitle's bottom margin so it
+            // reads as the title's subtitle.
             if let name = selectedWorkerName {
                 Text("\(name)'s Analytics")
-                    .font(TTypo.smBold(13))
+                    .font(.custom(TFontName.medium.rawValue, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .padding(.horizontal, Rv.side)
+                    .padding(.top, -14)
+                    .padding(.bottom, 18)
             }
         }
-        .padding(.horizontal, 16)
     }
 
     /// The selected week's date range, e.g. "Jun 30 – Jul 6" (or "Jul 1–7"
@@ -406,16 +372,19 @@ struct MoreView: View {
     /// don't depend on `now` at all. The caller now evaluates them once per body
     /// evaluation (i.e. on real data changes) and the tick only refreshes Idle.
     private func statGrid(utilization: Int, switching: Int, idle: Double) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatBox(label: "Utilization", value: "\(utilization)%",
-                    info: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (productive hours per day × its work days), capped at 100%, then averaged across the team.")
-            StatBox(label: "Task Switching", value: "\(switching)",
-                    info: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
-            StatBox(label: "Reworks", value: "—",
-                    info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
-            StatBox(label: "Idle Time", value: fmtIdle(idle),
-                    info: "Paid clocked-in time not logged onto any job \(rangeNoun) — pay hours minus job hours.")
+        RvTileGrid {
+            RvTile(eyebrow: "Utilization", value: "\(utilization)%", tint: .sky) {
+                InfoButton(text: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (productive hours per day × its work days), capped at 100%, then averaged across the team.")
+            }
+            RvTile(eyebrow: "Task Switching", value: "\(switching)", tint: .lavender) {
+                InfoButton(text: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
+            }
+            RvTile(eyebrow: "Reworks", value: "—", tint: .peach) {
+                InfoButton(text: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
+            }
+            RvTile(eyebrow: "Idle Time", value: fmtIdle(idle), tint: .butter) {
+                InfoButton(text: "Paid clocked-in time not logged onto any job \(rangeNoun) — pay hours minus job hours.")
+            }
         }
     }
 
@@ -454,16 +423,19 @@ struct MoreView: View {
     @ViewBuilder
     private func personalStatGrid(for personId: String) -> some View {
         let pOps = ops(for: personId)
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                            GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatBox(label: "Utilization", value: "\(utilizationPercent(for: personId))%",
-                    info: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (productive hours per day × its work days), capped at 100%.")
-            StatBox(label: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)",
-                    info: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
-            StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
-                    info: "Operations they're assigned to that are currently in progress. A snapshot of right now — not scoped to the selected week or pay period.")
-            StatBox(label: "Hours", value: String(format: "%.1fh", jobHours(for: personId, in: statsInterval)),
-                    info: "Job hours logged \(rangeNoun).")
+        RvTileGrid {
+            RvTile(eyebrow: "Utilization", value: "\(utilizationPercent(for: personId))%", tint: .sky) {
+                InfoButton(text: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (productive hours per day × its work days), capped at 100%.")
+            }
+            RvTile(eyebrow: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)", tint: .lavender) {
+                InfoButton(text: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
+            }
+            RvTile(eyebrow: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)", tint: .peach) {
+                InfoButton(text: "Operations they're assigned to that are currently in progress. A snapshot of right now — not scoped to the selected week or pay period.")
+            }
+            RvTile(eyebrow: "Hours", value: String(format: "%.1fh", jobHours(for: personId, in: statsInterval)), tint: .butter) {
+                InfoButton(text: "Job hours logged \(rangeNoun).")
+            }
         }
     }
 
@@ -811,49 +783,6 @@ private extension MoreView {
     }
 }
 
-// MARK: - Small stat box (compact frosted: label + big number + optional caption)
-
-private struct StatBox: View {
-    let label: String
-    let value: String
-    var caption: String? = nil
-    var info: String = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 4) {
-                Text(label.uppercased())
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.0)
-                Spacer(minLength: 2)
-                if !info.isEmpty { InfoButton(text: info) }
-            }
-            // One line, always. A pay period's values are longer than a week's
-            // ("3h 12m" → "27h 45m"), and at 30pt in a half-width card the
-            // longer one wrapped to two lines — which grew the card, because
-            // its height was a MINIMUM. Both are pinned now: the text stays on
-            // its line (shrinking only if it truly cannot fit) and the card is
-            // a fixed height, so flipping the toggle moves nothing.
-            Text(value)
-                .font(.custom(TFontName.bold.rawValue, size: 30))
-                .foregroundStyle(Color(hex: T.ink))
-                .tnum()
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
-            if let caption {
-                Text(caption)
-                    .font(TTypo.xs(10))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .lineLimit(1)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96, alignment: .leading)
-        .frostedCard(radius: T.cornerMd)
-    }
-}
-
 /// Small "i" that pops down a stat's description (what it is + how it's recorded).
 private struct InfoButton: View {
     let text: String
@@ -878,7 +807,7 @@ private struct InfoButton: View {
     }
 }
 
-// MARK: - Over-hours tab (full-width bar → drops its list down beneath it)
+// MARK: - Over-hours section header (tapping it drops its list down beneath it)
 
 private struct OverHoursTab: View {
     let value: String
@@ -887,25 +816,17 @@ private struct OverHoursTab: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Text("OVER-HOURS")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
-                Text(value)
-                    .font(TTypo.smBold(15))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .rotationEffect(.degrees(expanded ? 180 : 0))
+            RvSection(title: "Over-hours") {
+                HStack(spacing: 10) {
+                    Text(value)
+                        .font(.custom(TFontName.semibold.rawValue, size: 15))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .tnum()
+                    RvChevron(direction: .down)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
-            .frame(maxWidth: .infinity)
-            .frostedCard(radius: T.cornerMd)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -932,29 +853,26 @@ private struct OverHoursList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text("JOB").tLabel(tracking: 1.0)
+                RvEyebrow("Job")
                 Spacer()
-                Text("EST").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
-                Text("ACT").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
-                Text("OVER").tLabel(tracking: 1.0).frame(width: 52, alignment: .trailing)
+                RvEyebrow("Est").frame(width: 46, alignment: .trailing)
+                RvEyebrow("Act").frame(width: 46, alignment: .trailing)
+                RvEyebrow("Over").frame(width: 52, alignment: .trailing)
             }
-            .font(TTypo.xsBold(10))
-            .foregroundStyle(Color(hex: T.muted))
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .padding(.vertical, 10)
 
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+            Rv.line.frame(height: 1)
 
             if jobs.isEmpty {
                 Text("No jobs over their estimate.")
-                    .font(TTypo.xs(12))
+                    .font(.custom(TFontName.regular.rawValue, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
+                    .padding(.vertical, 14)
             } else {
                 ForEach(jobs) { OverHoursRow(job: $0) }
             }
         }
-        .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
     }
 }
 
@@ -962,33 +880,34 @@ private struct OverHoursRow: View {
     let job: OverHoursJob
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(job.title)
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-            Spacer()
-            Text(fmtHours(job.est))
-                .font(TTypo.sm(13))
-                .foregroundStyle(Color(hex: T.muted))
-                .tnum()
-                .frame(width: 46, alignment: .trailing)
-            Text(fmtHours(job.actual))
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.ink))
-                .tnum()
-                .frame(width: 46, alignment: .trailing)
-            Text("+" + fmtHours(job.over))
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.amber))
-                .tnum()
-                .frame(width: 52, alignment: .trailing)
+        RvRow {
+            HStack(spacing: 8) {
+                Text(job.title)
+                    .font(.custom(TFontName.semibold.rawValue, size: 14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                Spacer()
+                Text(fmtHours(job.est))
+                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tnum()
+                    .frame(width: 46, alignment: .trailing)
+                Text(fmtHours(job.actual))
+                    .font(.custom(TFontName.semibold.rawValue, size: 13))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+                    .frame(width: 46, alignment: .trailing)
+                Text("+" + fmtHours(job.over))
+                    .font(.custom(TFontName.semibold.rawValue, size: 13))
+                    .foregroundStyle(Color(hex: T.amber))
+                    .tnum()
+                    .frame(width: 52, alignment: .trailing)
+            }
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
     }
 }
 
-// MARK: - Efficiency (parent % + weekly pay-vs-job bars)
+// MARK: - Efficiency (parent % + per-day pay-vs-job bars)
 
 struct EffDay: Identifiable {
     /// Keyed by DATE, not by `label`. A pay period contains two Mondays, and a
@@ -1021,134 +940,161 @@ struct EffDay: Identifiable {
     var dayNumber: String { "\(ShopTime.current.calendar.component(.day, from: date))" }
 }
 
-private struct EfficiencyCard: View {
+/// The EFFICIENCY section: eyebrow with the period's percent on the right, the
+/// per-day pay-vs-job bars, and a legend. Pay hours are the bar, job hours the
+/// series drawn inside it; the number above each day is job hours against
+/// working time (the signed daily difference).
+private struct EfficiencySection: View {
+    @Environment(ThemeSettings.self) private var theme
     let percent: String
     let days: [EffDay]
+    /// The timeline's tick — used only to find today's bar to highlight.
+    let now: Date
     var info: String = ""
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                Text("EFFICIENCY")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
-                Spacer()
-                if !info.isEmpty { InfoButton(text: info) }
-            }
-            Text(percent)
-                .font(.custom(TFontName.bold.rawValue, size: 40))
-                .foregroundStyle(Color(hex: T.ink))
-                .tnum()
-
-            WeeklyBars(days: days)
-
-            HStack(spacing: 16) {
-                legend(color: Color(hex: T.accentGradientStart), text: "Pay hours")
-                legend(color: Color(hex: T.accentGradientEnd), text: "Job hours")
-                Spacer()
-            }
-        }
-        .padding(T.insetHero)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCard(radius: T.cornerHero)
-    }
-
-    private func legend(color: Color, text: String) -> some View {
-        HStack(spacing: 6) {
-            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 12, height: 12)
-            Text(text).font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
-        }
-    }
-}
-
-private struct WeeklyBars: View {
-    let days: [EffDay]
-    private let barsHeight: CGFloat = 96
-
     /// Above this many days the chart wraps onto a second row. A pay period is
-    /// 14 days (15–16 semi-monthly), and squeezing that into one row leaves each
-    /// column too narrow to carry a pair of bars, a signed difference and a
-    /// label. Split, each bar keeps roughly the width it has in week view.
+    /// 14 days (15–16 semi-monthly), and one row that long leaves each column
+    /// too narrow to carry a bar, a signed difference and a label.
     private static let maxPerRow = 7
 
-    /// One row per week, first row taking the larger half on an odd count.
-    private var rows: [[EffDay]] { StatsMath.chartRows(days, maxPerRow: Self.maxPerRow) }
-
     var body: some View {
-        // Scale to the tallest bar in THIS dataset. A fixed per-person ceiling
-        // (this was 9h, "a full workday ≈ a full bar") pegged every bar on the
-        // org dashboard, where each bar sums the whole shop — 15 workers put
-        // ~120h/day against a 9h ceiling, so all fourteen bars drew full height
-        // and the chart carried no information. Computed once here rather than
-        // per bar: the view sits inside a 5s timeline.
-        //
-        // Computed across EVERY row, never per row: two rows scaled to their own
-        // maxima would draw a quiet week exactly as tall as a busy one, which is
-        // the one comparison a two-week chart exists to make.
-        let maxValue = StatsMath.barMax(days.flatMap { [$0.pay, $0.job] })
-        let split = rows
-        VStack(spacing: 18) {
-            ForEach(Array(split.enumerated()), id: \.offset) { _, row in
-                HStack(alignment: .bottom, spacing: 8) {
-                    ForEach(row) { d in
-                        dayColumn(d, max: maxValue, showDate: split.count > 1)
-                    }
-                    // Pad a short final row so its bars keep the same width as
-                    // the row above instead of stretching to fill.
-                    if row.count < (split.first?.count ?? row.count) {
-                        ForEach(row.count..<(split.first?.count ?? row.count), id: \.self) { _ in
-                            Color.clear.frame(maxWidth: .infinity)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func dayColumn(_ d: EffDay, max maxValue: Double, showDate: Bool) -> some View {
-        VStack(spacing: 6) {
-            Text(String(format: "%+.2f", d.diff))
-                .font(TTypo.mono(9))
-                .foregroundStyle(d.diff < 0 ? Color(hex: T.red) : Color(hex: T.green))
-                .tnum()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HStack(alignment: .bottom, spacing: 3) {
-                bar(value: d.pay, max: maxValue, base: Color(hex: T.accentGradientStart))
-                bar(value: d.job, max: maxValue, base: Color(hex: T.accentGradientEnd))
-            }
-            .frame(height: barsHeight)
-            VStack(spacing: 1) {
-                Text(d.label)
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                // Only on the wrapped chart: across a pay period "Mon" appears
-                // twice, and the date is the only thing separating them.
-                if showDate {
-                    Text(d.dayNumber)
-                        .font(TTypo.xsBold(11))
+        let _ = theme.accent; let _ = theme.bgPresetId
+        let rows = StatsMath.chartRows(days, maxPerRow: Self.maxPerRow)
+        let todayId = days.first { ShopTime.current.calendar.isDate($0.date, inSameDayAs: now) }?.date
+        VStack(alignment: .leading, spacing: 0) {
+            RvSection(title: "Efficiency") {
+                HStack(spacing: 8) {
+                    if !info.isEmpty { InfoButton(text: info) }
+                    Text(percent)
+                        .font(.custom(TFontName.bold.rawValue, size: 18))
                         .foregroundStyle(Color(hex: T.ink))
                         .tnum()
                 }
             }
+
+            if rows.count <= 1 {
+                RvBars(values: days.map(\.pay),
+                       labels: days.map(\.label),
+                       highlight: days.firstIndex { $0.date == todayId },
+                       valueLabels: days.map(Self.diffLabel),
+                       barWidth: 34,
+                       inner: days.map(\.job))
+                    .padding(.top, 18)
+            } else {
+                // Wrapped (pay period). Scaled across EVERY row, never per row:
+                // two rows scaled to their own maxima would draw a quiet week as
+                // tall as a busy one — the one comparison a two-week chart
+                // exists to make. RvBars scales to its own values, hence this.
+                let top = StatsMath.barMax(days.flatMap { [$0.pay, $0.job] })
+                VStack(spacing: 18) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        EffBarsRow(days: row,
+                                   slots: rows.first?.count ?? row.count,
+                                   top: top,
+                                   highlightId: todayId)
+                    }
+                }
+                .padding(.top, 18)
+            }
+
+            HStack(spacing: 16) {
+                legend(Color(hex: T.accent), "Pay hours")
+                legend(Color(hex: ThemeSettings.derivedEnd(from: T.accent)), "Job hours")
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 14)
         }
-        .frame(maxWidth: .infinity)
     }
 
-    /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
-    /// fill grown from the bottom, with a short muted stub when there's no data.
-    private func bar(value: Double, max maxValue: Double, base: Color) -> some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(value > 0
-                      ? AnyShapeStyle(LinearGradient(colors: [base, base.opacity(0.6)],
-                                                     startPoint: .bottom, endPoint: .top))
-                      : AnyShapeStyle(Color(hex: T.progressTrack)))
-                .frame(height: max(6, min(1, value / maxValue) * barsHeight))
+    static func diffLabel(_ d: EffDay) -> String { String(format: "%+.2f", d.diff) }
+
+    private func legend(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(color)
+                .frame(width: 10, height: 10)
+            Text(text)
+                .font(.custom(TFontName.regular.rawValue, size: 12))
+                .foregroundStyle(Color(hex: T.muted))
         }
-        .frame(height: barsHeight)
+    }
+}
+
+/// One row of the wrapped (multi-week) efficiency chart. Draws exactly as
+/// `RvBars` does — track bars, the highlighted one in accent, job hours inside
+/// in the derived end colour — but against a SHARED `top`, and with the day
+/// number under each weekday ("Mon" appears twice in a pay period).
+private struct EffBarsRow: View {
+    @Environment(ThemeSettings.self) private var theme
+    let days: [EffDay]
+    /// Column count of the first row, so a short final row keeps its widths.
+    let slots: Int
+    let top: Double
+    let highlightId: Date?
+
+    // Scaled like RvBars, so both efficiency layouts grow together on large phones.
+    @ScaledMetric(relativeTo: .body) private var height: CGFloat = 84
+    @ScaledMetric(relativeTo: .body) private var barWidth: CGFloat = 34
+    @ScaledMetric(relativeTo: .body) private var minBar: CGFloat = 8
+
+    var body: some View {
+        let _ = theme.accent; let _ = theme.bgPresetId
+        let pad = max(0, slots - days.count)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(days) { d in
+                    cell(EfficiencySection.diffLabel(d), on: d.date == highlightId)
+                }
+                ForEach(0..<pad, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+            }
+            .padding(.bottom, 8)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                ForEach(days) { d in
+                    let on = d.date == highlightId
+                    let h = d.pay > 0 ? max(minBar, height * CGFloat(min(1, d.pay / top))) : minBar
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(on ? Color(hex: T.accent) : Color(hex: T.progressTrack))
+                            .frame(width: barWidth, height: h)
+                        if d.job > 0 {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(hex: ThemeSettings.derivedEnd(from: T.accent)))
+                                .frame(width: barWidth,
+                                       height: min(h, max(minBar, height * CGFloat(min(1, d.job / top)))))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                ForEach(0..<pad, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+            }
+            .frame(height: height, alignment: .bottom)
+
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(days) { d in
+                    let on = d.date == highlightId
+                    VStack(spacing: 1) {
+                        cell(d.label, on: on)
+                        Text(d.dayNumber)
+                            .font(.custom(TFontName.semibold.rawValue, size: 11))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .tnum()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                ForEach(0..<pad, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func cell(_ text: String, on: Bool) -> some View {
+        Text(text)
+            .font(.custom(on ? TFontName.semibold.rawValue : TFontName.regular.rawValue, size: 11))
+            .foregroundStyle(Color(hex: on ? T.ink : T.muted))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -1179,28 +1125,23 @@ private struct JobHoursSummaryRow: View {
     let sessions: Int
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("THIS PAY PERIOD")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
+        RvRow {
+            VStack(alignment: .leading, spacing: 4) {
+                RvEyebrow("This pay period")
                 Text(String(format: "%.2f h on jobs", periodHours))
                     .font(.custom(TFontName.bold.rawValue, size: 17))
                     .foregroundStyle(Color(hex: T.ink))
                     .tnum()
             }
-            Spacer()
+            Spacer(minLength: 8)
             Text("\(sessions) session\(sessions == 1 ? "" : "s")")
-                .font(TTypo.xs(11))
+                .font(.custom(TFontName.regular.rawValue, size: 12))
                 .foregroundStyle(Color(hex: T.muted))
         }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
     }
 }
 
-// MARK: - Running entry card (frosted, gradient STOP)
+// MARK: - Running entry row (cardless, gradient STOP)
 
 private struct RunningEntryCard: View {
     let jobClock: ActiveJobClock
@@ -1219,15 +1160,17 @@ private struct RunningEntryCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours, color: Color(hex: T.accentGradientStart))
-            VStack(alignment: .leading, spacing: 4) {
+        RvRow {
+            RvDot(color: Color(hex: T.accent))
+            VStack(alignment: .leading, spacing: 5) {
                 Text(jobClock.jobTitle ?? "Job")
-                    .font(TTypo.smBold(14))
+                    .font(.custom(TFontName.semibold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 HStack(spacing: 8) {
-                    TagPill(label: "RUNNING", kind: .indigo, dot: true)
+                    RvTag(text: "RUNNING",
+                          foreground: Color(hex: T.accent),
+                          background: Color(hex: T.accent).opacity(0.14))
                     Text(elapsedLabel)
                         .font(TTypo.monoBold(13))
                         .foregroundStyle(Color(hex: T.ink))
@@ -1249,8 +1192,6 @@ private struct RunningEntryCard: View {
             }
             .fixedSize()
         }
-        .padding(T.insetHero)
-        .frostedCard()
     }
 }
 
@@ -1277,20 +1218,11 @@ private struct EntryGroupCard: View {
     let group: EntryGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(group.label)
-                .font(TTypo.xsBold(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 1.4)
-            VStack(spacing: 0) {
-                ForEach(group.entries.indices, id: \.self) { i in
-                    EntryRow(entry: group.entries[i])
-                    if i < group.entries.count - 1 {
-                        SLine().padding(.leading, 60)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            RvSection(group.label, top: 20)
+            ForEach(group.entries.indices, id: \.self) { i in
+                EntryRow(entry: group.entries[i])
             }
-            .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
         }
     }
 }
@@ -1306,21 +1238,23 @@ private struct EntryRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours, color: entry.deptColor)
-            VStack(alignment: .leading, spacing: 2) {
+        RvRow {
+            RvDot(color: entry.deptColor)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(entry.jobTitle)
-                    .font(TTypo.smBold(14))
+                    .font(.custom(TFontName.semibold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 Text(timeRange)
-                    .font(TTypo.mono(11))
+                    .font(TTypo.mono(12))
                     .foregroundStyle(Color(hex: T.muted))
                     .tnum()
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if entry.running {
-                TagPill(label: "LIVE", kind: .indigo, dot: true)
+                RvTag(text: "LIVE",
+                      foreground: Color(hex: T.accent),
+                      background: Color(hex: T.accent).opacity(0.14))
             } else if let h = entry.hours {
                 Text(String(format: "%.2fh", h))
                     .font(TTypo.monoBold(13))
@@ -1328,7 +1262,6 @@ private struct EntryRow: View {
                     .tnum()
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
     }
 }
 
@@ -1337,14 +1270,13 @@ private struct HoursEmptyState: View {
         VStack(spacing: 8) {
             TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
             Text("No job time this pay period")
-                .font(TTypo.smBold(13))
+                .font(.custom(TFontName.semibold.rawValue, size: 14))
                 .foregroundStyle(Color(hex: T.muted))
             Text("Start a job from the Jobs tab to log time.")
-                .font(TTypo.xs(11))
+                .font(.custom(TFontName.regular.rawValue, size: 12))
                 .foregroundStyle(Color(hex: T.muted))
         }
         .frame(maxWidth: .infinity)
-        .padding(T.insetHero)
-        .frostedCard()
+        .padding(.vertical, 28)
     }
 }

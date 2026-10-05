@@ -2,9 +2,9 @@ import SwiftUI
 import Combine
 
 // MARK: - Home (the default landing tab)
-// A "good morning" page: a big greeting, today's clocked-in hours, live shift
-// status, and a suggested job with a "Jump to job" button that switches to the
-// Jobs tab (where the timer lives). Home never starts/logs time itself.
+// Wireframes v2 screen 01: title · this week · status tiles · today list. Every
+// row and "Full schedule" switch to the Jobs tab (where the timer lives). Home
+// never starts/logs time itself.
 
 struct HomeView: View {
     @Environment(AppState.self) private var appState
@@ -29,59 +29,53 @@ struct HomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
 
-                        // Page title — personal greeting, same muted
-                        // faded-to-transparent style as every other tab.
-                        PageTitle(title: greeting)
-                            .padding(.top, pageTitleTopInset)
-                            .padding(.bottom, 10)
-
-                        // Today's date + this week (today highlighted). Only has
-                        // to change at midnight, so it ticks once a minute.
+                        // Title + this week. Both only change at the shop's
+                        // midnight, so they ride the once-a-minute clock.
                         LiveClock(every: 60, tab: .home) { now in
-                            TodayDateCard(now: now)
-                        }
-                        .padding(.horizontal, 16)
+                            VStack(alignment: .leading, spacing: 0) {
+                                RvTitle(title: greeting,
+                                        meta: ShopTime.current.formatter("EEE, MMM d").string(from: now))
 
-                        // Live shift status + new messages — two square cards side
-                        // by side. The shift card took over the slot Today's hours
-                        // used to hold; the full-width status bar that used to sit
-                        // under this row is gone, since it said the same thing.
+                                VStack(alignment: .leading, spacing: 0) {
+                                    RvSection("THIS WEEK", action: "Full schedule", top: 0,
+                                              perform: jumpToJobs)
+                                    HomeWeekStrip(now: now)
+                                }
+                                .padding(.horizontal, Rv.side)
+                            }
+                        }
+
+                        // Status — live shift + messages, two pastel tiles.
                         // Today's hours still lives on the Time Clock page.
-                        HStack(spacing: 12) {
-                            LiveClock(every: 1, tab: .home) { now in
-                                ShiftStatusHero(status: appState.myShiftStatus,
-                                                liveHours: appState.liveShiftHours(now: now),
-                                                pauseSeconds: appState.livePauseSeconds(now: now)) {
-                                    withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
+                        VStack(alignment: .leading, spacing: 0) {
+                            RvSection("STATUS")
+                            RvTileGrid {
+                                LiveClock(every: 1, tab: .home) { now in
+                                    ShiftTile(status: appState.myShiftStatus,
+                                              liveHours: appState.liveShiftHours(now: now),
+                                              pauseSeconds: appState.livePauseSeconds(now: now)) {
+                                        withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
+                                    }
+                                }
+                                MessagesTile(senders: unreadBySender) {
+                                    withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
                                 }
                             }
-                            NewMessagesCard(senders: unreadBySender) {
-                                withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
+                        }
+                        .padding(.horizontal, Rv.side)
+
+                        // Today's work.
+                        Group {
+                            if !appState.isBusinessTier {
+                                // Basic: a schedule, not a job clock — today's shift
+                                // and the next one, and a way to the full list.
+                                BasicShiftsCard(onJump: jumpToJobs)
+                            } else {
+                                businessToday
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 14)
-
-                        // Today's job. The section header above this is gone — the
-                        // card titles itself, matching the two square cards above.
-                        if !appState.isBusinessTier {
-                            // Basic: a schedule, not a job clock — today's shift
-                            // and the next one, and a way to the full list.
-                            BasicShiftsCard(onJump: jumpToJobs)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
-                                .padding(.bottom, 28)
-                        } else if let s = suggested {
-                            SuggestedJobCard(task: s, isActive: isActive(s), onJump: jumpToJobs)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
-                                .padding(.bottom, 28)
-                        } else {
-                            HomeEmpty(text: "Nothing scheduled for today.")
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
-                                .padding(.bottom, 28)
-                        }
+                        .padding(.horizontal, Rv.side)
+                        .padding(.bottom, 28)
                     }
                     .padding(.top, 4)
                 }
@@ -95,6 +89,44 @@ struct HomeView: View {
                 appState.foregroundSync()   // pull the latest jobs/people on open
                 await appState.refreshTimeclock(personId: appState.currentPersonId)
                 await appState.refreshOrgSettings()
+            }
+        }
+    }
+
+    // MARK: - Business: today's list
+
+    /// The active job (if clocked in) first, then today's tasks in their
+    /// existing order. Every row jumps to the Jobs list, where the timer lives.
+    @ViewBuilder
+    private var businessToday: some View {
+        let rows = todayRows
+        VStack(alignment: .leading, spacing: 0) {
+            RvSection(title: "TODAY") {
+                RvSectionAction(label: rows.count == 1 ? "1 item" : "\(rows.count) items")
+            }
+            if rows.isEmpty {
+                Text("Nothing scheduled for today.")
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
+            } else {
+                ForEach(rows, id: \.id) { task in
+                    Button(action: jumpToJobs) {
+                        RvRow {
+                            RvDot(color: task.job.color.isEmpty ? Color(hex: T.accent) : Color(hex: task.job.color))
+                            RvRowText(title: task.job.title.isEmpty ? task.title : task.job.title,
+                                      subtitle: subtitle(for: task))
+                            if isActive(task) {
+                                RvTag(text: "ON JOB",
+                                      foreground: Color(hex: T.accent),
+                                      background: Color(hex: T.accent).opacity(0.14))
+                            }
+                            RvChevron()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -126,11 +158,21 @@ struct HomeView: View {
     /// instead of riding a per-second ticker that invalidated the whole body.
     private var today: [TaskAssignment] { appState.todayTasks(now: Date()) }
 
-    /// Active job if clocked in, else the next "up next" task today, else the first.
-    private var suggested: TaskAssignment? {
-        appState.activeTaskAssignment
-            ?? today.first(where: { $0.status == .notStarted })
-            ?? today.first
+    /// Today's list: the active job (if clocked in) first, then today's tasks
+    /// in their existing order, without repeating the active one.
+    private var todayRows: [TaskAssignment] {
+        let tasks = today
+        guard let active = appState.activeTaskAssignment else { return tasks }
+        return [active] + tasks.filter { $0.id != active.id }
+    }
+
+    /// "Panel/task · Oct 5" — the task's own name under the job title, and its
+    /// scheduled dates.
+    private func subtitle(for task: TaskAssignment) -> String {
+        let start = task.op?.start ?? task.panel.start
+        let end = task.op?.end ?? task.panel.end
+        let dates = start.isEmpty ? "" : JobShifts.dateLabel(start: start, end: end.isEmpty ? start : end)
+        return [task.title, dates].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func isActive(_ task: TaskAssignment) -> Bool {
@@ -153,9 +195,11 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Today's date + week strip
+// MARK: - This week strip
 
-private struct TodayDateCard: View {
+/// The Sunday-to-Saturday week around `now`, today on the accent disc. Week and
+/// "today" are both the SHOP's, not the device's.
+private struct HomeWeekStrip: View {
     let now: Date
 
     private var weekDays: [Date] {
@@ -166,11 +210,6 @@ private struct TodayDateCard: View {
         return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: start) }
     }
 
-    private var dateLine: String {
-        let f = ShopTime.current.formatter("MMMM d, yyyy")
-        return f.string(from: now).uppercased()
-    }
-
     private func dow(_ d: Date) -> String {
         ["S", "M", "T", "W", "T", "F", "S"][ShopTime.current.calendar.component(.weekday, from: d) - 1]
     }
@@ -179,69 +218,35 @@ private struct TodayDateCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            // No "TODAY'S DATE" label above this — the date and the week strip
-            // under it say what the card is. Leading-aligned like every other
-            // card's heading, set by an explicit frame rather than the VStack's
-            // alignment so the week strip below is unaffected either way.
-            Text(dateLine)
-                .font(.custom(TFontName.bold.rawValue, size: 22))
-                .foregroundStyle(Color(hex: T.ink))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 6) {
-                ForEach(weekDays, id: \.self) { d in
-                    let isToday = ShopTime.current.calendar.isDate(d, inSameDayAs: now)
-                    VStack(spacing: 5) {
-                        Text(dow(d))
-                            .font(TTypo.xsBold(10))
-                            .tLabel(tracking: 0.5)
-                            .foregroundStyle(isToday ? T.onGradient : Color(hex: T.muted))
-                        Text(dayNum(d))
-                            .font(TTypo.smBold(14))
-                            .foregroundStyle(isToday ? T.onGradient : Color(hex: T.ink))
-                            .tnum()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background {
-                        if isToday {
-                            RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
-                                .fill(T.brandGradient(start: .top, end: .bottom))
-                                .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.35),
-                                        radius: 8, x: 0, y: 3)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(T.insetHero)
-        .frostedCard()
+        let cal = ShopTime.current.calendar
+        RvWeekStrip(days: weekDays.map { d in
+            RvWeekStrip.Day(id: String(Int(d.timeIntervalSince1970)),
+                            letter: dow(d),
+                            number: dayNum(d),
+                            isOn: cal.isDate(d, inSameDayAs: now))
+        })
     }
 }
 
-// MARK: - Live shift hero (square, left of Messages)
+// MARK: - Shift tile
 
-// Replaces the old Today's-hours ring in this slot AND the full-width status bar
-// that used to sit below it: same square footprint, but the live elapsed timer
-// is the hero and the status pill sits under it.
-private struct ShiftStatusHero: View {
+/// Live shift status. On lunch or break the clock shows how long the pause has
+/// run — the shift total is paused (lunch) or beside the point (break) until
+/// they're back. Taps jump to the Time Clock tab.
+private struct ShiftTile: View {
     let status: ShiftStatus
     let liveHours: Double
-    /// How long the open lunch or break has run. On lunch or break THAT is the
-    /// clock worth reading — the shift total is paused (lunch) or beside the
-    /// point (break) until they're back.
     let pauseSeconds: Double
-    /// Taps jump to the Time Clock tab, where the shift can actually be acted on.
     let onOpen: () -> Void
 
     private var isPaused: Bool { status == .lunch || status == .onBreak }
 
-    private var title: String {
+    private var statusText: String {
         switch status {
-        case .lunch:   return "On lunch"
-        case .onBreak: return "On break"
-        default:       return "This shift"
+        case .offline:   return "Offline"
+        case .clockedIn: return "Clocked in"
+        case .lunch:     return "On lunch"
+        case .onBreak:   return "On break"
         }
     }
 
@@ -251,152 +256,48 @@ private struct ShiftStatusHero: View {
     }
 
     var body: some View {
-        Button(action: onOpen) {
-            VStack(spacing: 10) {
-                // Title sits at the box's leading edge like every other card's.
-                // The clock and pill below stay centred — that's the VStack's own
-                // alignment, which this frame deliberately overrides only here.
-                Text(title)
-                    .font(.custom(TFontName.bold.rawValue, size: 15))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 0)
-
-                // The running clock — the whole point of the card, so it carries
-                // the space the icon chip used to take. Placeholder dashes when
-                // off the clock keep the card the same height whether or not a
-                // shift is open.
-                Text(status == .offline ? "--:--:--" : elapsed)
-                    .font(TTypo.monoBold(30))
-                    .foregroundStyle(Color(hex: status == .offline ? T.muted : T.ink))
-                    .tnum()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                TagPill(label: status.label, kind: status.kind, dot: status.dot)
-
-                Spacer(minLength: 0)
+        RvTile(eyebrow: "SHIFT",
+               value: status == .offline ? "––:––" : elapsed,
+               sub: statusText,
+               tint: .lavender,
+               action: onOpen) {
+            if status.dot {
+                RvDot(color: Color(hex: isPaused ? T.amber : T.green))
+                    .padding(.top, 3)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(T.insetHero)
-            .frostedCard()
-            .aspectRatio(1, contentMode: .fit)
         }
-        .buttonStyle(.plain)
     }
 }
 
-// MARK: - New messages hero (square, right of Today's hours)
+// MARK: - Messages tile
 
-private struct NewMessagesCard: View {
+private struct MessagesTile: View {
     let senders: [(id: String, name: String, count: Int)]
     let onOpen: () -> Void
 
-    var body: some View {
-        Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Messages")
-                    .font(.custom(TFontName.bold.rawValue, size: 15))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var total: Int { senders.reduce(0) { $0 + $1.count } }
 
-                if senders.isEmpty {
-                    Spacer(minLength: 0)
-                    // Tick and label stay on ONE line, side by side. This card is
-                    // a square roughly 166–174pt wide on most phones, so once the
-                    // content inset went to T.insetHero there was only ~120pt of
-                    // room here — the label wrapped and the row read as stacked.
-                    // The tick is sized down and the label is allowed to shrink
-                    // rather than wrap, which holds the layout on a 375pt screen.
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: T.green))
-                            .layoutPriority(1)
-                        Text("No new messages!")
-                            .font(TTypo.sm(13))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-                    .frame(maxWidth: .infinity)
-                    Spacer(minLength: 0)
-                } else {
-                    // One small tab per person with unread messages: name + count.
-                    VStack(spacing: 6) {
-                        ForEach(senders.prefix(3), id: \.id) { s in
-                            HStack(spacing: 6) {
-                                Text(s.name)
-                                    .font(TTypo.sm(13))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .lineLimit(1)
-                                Spacer(minLength: 4)
-                                Text("\(s.count)")
-                                    .font(.custom(TFontName.bold.rawValue, size: 12))
-                                    .foregroundStyle(T.onGradient)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(T.brandGradient()))
-                            }
-                        }
-                        if senders.count > 3 {
-                            Text("+\(senders.count - 3) more")
-                                .font(TTypo.xs(11))
-                                .foregroundStyle(Color(hex: T.muted))
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(T.insetHero)
-            .frostedCard()
-            .aspectRatio(1, contentMode: .fit)
+    private var subText: String {
+        switch senders.count {
+        case 0:  return "All caught up"
+        case 1:  return "from \(senders[0].name)"
+        default: return "from \(senders.count) people"
         }
-        .buttonStyle(.plain)
     }
-}
-
-// MARK: - Suggested job card
-
-private struct SuggestedJobCard: View {
-    let task: TaskAssignment
-    let isActive: Bool
-    let onJump: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Task pills and job name both start at the leading edge, matching the
-            // other Home cards. The CTA below stays full-width.
-            HStack(spacing: 8) {
-                TagPill(label: task.title.uppercased(), kind: .indigo)
-                TagPill(label: isActive ? "Active" : "Up next",
-                        kind: isActive ? .indigo : .green, dot: isActive)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(task.job.title.isEmpty ? task.title : task.job.title)
-                .font(.custom(TFontName.bold.rawValue, size: 20))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            GradientCTA(glass: true, verticalPadding: 12, action: onJump) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.forward")
-                    Text(isActive ? "Go to your job" : "Jump to job")
-                        .font(TTypo.smBold(14))
-                }
-            }
-        }
-        .padding(T.insetHero)
-        .frostedCard()
+        RvTile(eyebrow: "MESSAGES",
+               value: "\(total)",
+               sub: subText,
+               tint: .mint,
+               action: onOpen)
     }
 }
 
 // MARK: - Basic: today's shift and the next one
 
+/// Basic tier's TODAY section: today's shifts and the next one, as cardless
+/// rows. Every row, and the section action, go to the schedule.
 struct BasicShiftsCard: View {
     @Environment(AppState.self) private var appState
     let onJump: () -> Void
@@ -422,75 +323,37 @@ struct BasicShiftsCard: View {
         let next = mine.filter { $0.start > today }
             .min { ($0.start, $0.startHour) < ($1.start, $1.startHour) }
 
-        return VStack(alignment: .leading, spacing: 14) {
-            // The card's title, in the same style as the other Home cards'.
-            Text("Today")
-                .font(.custom(TFontName.bold.rawValue, size: 15))
-                .foregroundStyle(Color(hex: T.ink))
+        return VStack(alignment: .leading, spacing: 0) {
+            RvSection("TODAY", action: "See my schedule", perform: onJump)
 
             if todays.isEmpty {
                 Text("No shift today")
-                    .font(TTypo.sm(14))
+                    .font(TTypo.sm(13))
                     .foregroundStyle(Color(hex: T.muted))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 16)
             } else {
                 ForEach(todays) { shiftRow($0, showDate: !$0.isOneDay) }
             }
 
             if let next {
-                SLine()
-                section("NEXT SHIFT") { shiftRow(next, showDate: true) }
+                RvSection("NEXT SHIFT")
+                shiftRow(next, showDate: true)
             }
-
-            GradientCTA(glass: true, verticalPadding: 12, action: onJump) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.forward")
-                    Text("See my schedule")
-                        .font(TTypo.smBold(14))
-                }
-            }
-            .padding(.top, 2)
-        }
-        .padding(T.insetHero)
-        .frostedCard()
-    }
-
-    private func section<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(TTypo.xsBold(10))
-                .tLabel(tracking: 1.2)
-                .foregroundStyle(Color(hex: T.muted))
-            content()
         }
     }
 
     private func shiftRow(_ s: JobShifts.Shift, showDate: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(s.jobTitle)
-                .font(.custom(TFontName.bold.rawValue, size: 18))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-            VStack(alignment: .leading, spacing: 3) {
-                if showDate {
-                    Label(JobShifts.dateLabel(start: s.start, end: s.end), systemImage: "calendar")
-                }
-                Label(JobShifts.timeLabel(start: s.startHour, end: s.endHour), systemImage: "clock")
+        let time = JobShifts.timeLabel(start: s.startHour, end: s.endHour)
+        let sub = showDate ? "\(JobShifts.dateLabel(start: s.start, end: s.end)) · \(time)" : time
+        let hex = appState.jobs.first(where: { $0.id == s.jobId })?.color ?? ""
+        return Button(action: onJump) {
+            RvRow {
+                RvDot(color: Color(hex: hex.isEmpty ? T.accent : hex))
+                RvRowText(title: s.jobTitle, subtitle: sub)
+                RvChevron()
             }
-            .font(TTypo.sm(13))
-            .foregroundStyle(Color(hex: T.muted))
-            .labelStyle(BasicCardLabelStyle())
         }
-    }
-}
-
-private struct HomeEmpty: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(TTypo.sm(13))
-            .foregroundStyle(Color(hex: T.muted))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, 22)
-            .frostedCard(radius: T.cornerMd)
+        .buttonStyle(.plain)
     }
 }

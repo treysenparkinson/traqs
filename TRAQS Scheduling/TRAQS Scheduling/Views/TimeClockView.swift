@@ -71,35 +71,18 @@ struct TimeClockView: View {
                       ScrollView {
                         VStack(spacing: 0) {
 
-                            PageTitle(title: "Time Clock")
-                                .padding(.top, pageTitleTopInset)
-                                .padding(.bottom, 10)
+                            RvTitle(title: "Time Clock", meta: todayMeta)
 
-                            // ── Pay-clock hours: two rings side by side ──
-                            // Left: the whole pay period. Right: today only. Both are
-                            // time clocked in for pay, minus lunch. Each is its own
-                            // card so the two numbers read as peers.
-                            HStack(spacing: 12) {
-                                RingStatCard(title: "Pay period",
-                                             hours: payPeriodHours,
-                                             target: periodTarget)
-                                RingStatCard(title: "Today",
-                                             hours: todayHours,
-                                             target: dailyTarget)
-                            }
-                            .padding(.horizontal, 16)
+                            // ── Timer: the live shift elapsed, with the status pill ──
+                            ClockTimerBlock(time: shiftTimer, status: clockStatus)
+                                .padding(.horizontal, Rv.side)
+                                .padding(.top, 4)
+                                .padding(.bottom, 22)
 
-                            WeekBarsCard(days: dailyBars)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
-
-                            // ── Pay clock controls (admin opt-in via iosPayClockEnabled) ──
-                            // Sits below the bar graph so the hero number reads first.
-                            // Clocked out → one Clock In button. Clocked in → Lunch +
-                            // Break side by side, with a full-width Clock Out beneath.
-                            // Open break the Break toggle below can't reach —
-                            // see OpenBreakCard. Shown only when that toggle is
-                            // absent, so the two never double up.
+                            // ── Clock action: Clock In, or Lunch + Break over Clock Out ──
+                            // An open break the Break toggle below can't reach gets
+                            // its own strip first — see OpenBreakCard. Shown only
+                            // when that toggle is absent, so the two never double up.
                             if appState.isOnBreak && !(showPayClock && appState.payClockInActive) {
                                 OpenBreakCard(startedAtISO: appState.myActiveBreak?.startedAt,
                                               inFlight: breakBusy) {
@@ -111,8 +94,8 @@ struct TimeClockView: View {
                                         if ok { showBanner(.breakEnded) }
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.top, 14)
+                                .padding(.horizontal, Rv.side)
+                                .padding(.bottom, 14)
                             }
 
                             if showPayClock {
@@ -163,9 +146,35 @@ struct TimeClockView: View {
                                                          if ok { showBanner(starting ? .breakStarted : .breakEnded) }
                                                      }
                                                  })
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 14)
+                                    .padding(.horizontal, Rv.side)
                             }
+
+                            // ── HOURS: pay period (and today) as key/value lines ──
+                            VStack(spacing: 0) {
+                                RvSection(title: "Hours") {
+                                    Text(periodRange)
+                                        .font(.custom(TFontName.medium.rawValue, size: 12))
+                                        .foregroundStyle(Color(hex: T.muted))
+                                        .lineLimit(1)
+                                }
+                                // No "Today" line — the big timer above already shows today's time.
+                                HoursLine(label: "Pay period", hours: payPeriodHours, target: periodTarget, divider: false)
+
+                                // ── THIS WEEK: pay-clock hours, last 8 days ──
+                                RvSection(title: "This week", hairline: false) {
+                                    Text("Last 8 days")
+                                        .font(.custom(TFontName.medium.rawValue, size: 12))
+                                        .foregroundStyle(Color(hex: T.muted))
+                                }
+                                let bars = dailyBars
+                                RvBars(values: bars.map(\.hours),
+                                       labels: bars.map(\.dow),
+                                       highlight: bars.lastIndex(where: { $0.isToday }),
+                                       valueLabels: bars.map { String(format: "%.2f", $0.hours) })
+                                    .padding(.top, 6)
+                            }
+                            .padding(.horizontal, Rv.side)
+                            .padding(.top, 10)
                         }
                         .padding(.bottom, 24)
                       }
@@ -340,24 +349,6 @@ struct TimeClockView: View {
         appState.liveShiftHours(now: now)
     }
 
-    /// Today's pay-clock hours. Delegates to AppState so this ring shows the
-    /// exact same number as the Home page's "Today's hours" card — they were
-    /// two implementations that disagreed whenever a shift crossed midnight
-    /// (AppState credits the live shift to the day it STARTED; the copy that
-    /// used to live here credited it to today regardless).
-    private var todayHours: Double {
-        appState.hoursToday(now: now)
-    }
-
-    /// Daily target = PAID hours in a standard day: the scheduled shift block
-    /// minus the unpaid lunch, breaks left in (they're paid). Not `hpd` — that's
-    /// a scheduling capacity number that ignores lunch, so a 07:00–16:00 shop
-    /// with a 1h lunch reads 9 there but should target 8 here.
-    private var dailyTarget: Double {
-        let h = appState.orgSettings.paidHoursPerDay
-        return h > 0 ? h : 8
-    }
-
     /// Pay-period target = the soft hours cap configured on the desktop's Time
     /// Clock settings (`orgSettings.payPeriodHourCap`, default 80). Hours past
     /// this read as overtime. Set per-org on the web so every device matches.
@@ -407,54 +398,100 @@ struct TimeClockView: View {
         ShopTime.current.date(ofDay: s) ?? Self.isoFull.date(from: s)
     }
 
-    private var periodLabel: String {
+    /// The pay period's dates ("Oct 5 – Oct 19") — the HOURS section's trailing text.
+    private var periodRange: String {
         let w = periodWindow
         let f = ShopTime.current.formatter("MMM d")
-        return "Pay period · \(f.string(from: w.start)) – \(f.string(from: w.end))"
+        return "\(f.string(from: w.start)) – \(f.string(from: w.end))"
+    }
+
+    /// Title meta — today in shop time ("Mon, Oct 5").
+    private var todayMeta: String {
+        ShopTime.current.formatter("EEE, MMM d").string(from: now)
+    }
+
+    /// The hero timer: the same wall-clock elapsed as `payClockElapsed`
+    /// (`payClockInStart` against the 1s `now` ticker), drawn as HH:MM:SS.
+    /// Clocked out reads 00:00:00.
+    private var shiftTimer: String {
+        guard appState.payClockInActive, let start = appState.payClockInStart else { return "00:00:00" }
+        let secs = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%02d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
+
+    /// The status pill under the timer, from the existing clock state.
+    private var clockStatus: String {
+        if appState.payClockInActive && appState.payOnLunch { return "ON LUNCH" }
+        if appState.isOnBreak { return "ON BREAK" }
+        if appState.payClockInActive { return "CLOCKED IN" }
+        return "OFFLINE"
     }
 }
 
-// MARK: - Hours ring card (one per timeframe)
+// MARK: - Timer block
 
-// A titled gradient progress ring. Used twice, side by side: "Pay period" and
-// "Today". Deliberately just the label and the number — the on-track / hours-
-// left readout that used to sit beside the period ring was dropped so the two
-// cards stay symmetrical and the numbers carry the page.
-private struct RingStatCard: View {
-    let title: String
-    let hours: Double
-    let target: Double
-
-    private var pct: Double { target > 0 ? min(100, hours / target * 100) : 0 }
+// The centred hero: a big tabular HH:MM:SS over a small status pill.
+private struct ClockTimerBlock: View {
+    @Environment(ThemeSettings.self) private var theme
+    let time: String
+    let status: String
 
     var body: some View {
+        let _ = theme.bgPresetId
         VStack(spacing: 12) {
-            Text(title)
-                .font(TTypo.xsBold(11))
-                .tLabel(tracking: 1.4)
-                .foregroundStyle(Color(hex: T.muted))
+            Text(time)
+                .font(.custom(TFontName.bold.rawValue, size: 56))
+                .tracking(-2.5)
+                .monospacedDigit()
+                .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-            ZStack {
-                GradientRing(pct: pct, lineWidth: 11)
-                    .frame(width: 106, height: 106)
-                VStack(spacing: 0) {
-                    Text(String(format: "%.1f", hours))
-                        .font(.custom(TFontName.bold.rawValue, size: 28))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
-                    Text(String(format: "/ %.0f h", target))
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .tnum()
-                }
-            }
+                .minimumScaleFactor(0.6)
+            RvTag(text: status,
+                  foreground: Color(hex: T.muted),
+                  background: Color(hex: T.surface))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
-        .padding(.horizontal, T.insetHero)
-        .frostedCard()
+    }
+}
+
+// MARK: - Hours key/value line
+
+// "Pay period   41.5 / 80 h   ━━━━──" — label, big value, muted target, and a
+// 96pt progress track on the right. Cardless, on the canvas.
+private struct HoursLine: View {
+    @Environment(ThemeSettings.self) private var theme
+    let label: String
+    let hours: Double
+    let target: Double
+    var divider: Bool = true
+    @ScaledMetric(relativeTo: .body) private var labelWidth: CGFloat = 110   // scales with the type on large phones
+    @ScaledMetric(relativeTo: .body) private var trackWidth: CGFloat = 96
+
+    var body: some View {
+        let _ = theme.bgPresetId
+        RvRow(divider: divider) {
+            Text(label)
+                .font(.custom(TFontName.semibold.rawValue, size: 14))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: labelWidth, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(String(format: "%.1f", hours))
+                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                    .tracking(-0.5)
+                    .foregroundStyle(Color(hex: T.ink))
+                    .monospacedDigit()
+                Text(String(format: "/ %.0f h", target))
+                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .monospacedDigit()
+            }
+            .lineLimit(1)
+            Spacer(minLength: 8)
+            RvTrack(fraction: target > 0 ? hours / target : 0)
+                .frame(width: trackWidth)
+        }
     }
 }
 
@@ -468,11 +505,13 @@ private struct RingStatCard: View {
 // worker read "On Break" indefinitely on every status board. This card renders
 // exactly when that toggle can't.
 private struct OpenBreakCard: View {
+    @Environment(ThemeSettings.self) private var theme
     let startedAtISO: String?
     let inFlight: Bool
     let onEnd: () -> Void
 
     var body: some View {
+        let _ = theme.bgPresetId
         HStack(spacing: 12) {
             Image(systemName: "cup.and.saucer.fill")
                 .font(.system(size: 17, weight: .semibold))
@@ -510,7 +549,7 @@ private struct OpenBreakCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(14)
-        .frostedCard(radius: T.cornerMd)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Rv.Tint.butter.fill))
     }
 
     private func headline(now: Date) -> String {
@@ -642,7 +681,7 @@ private struct PayClockControls: View {
     }
 }
 
-// MARK: - This week bars (gradient) — pay-clock hours per day
+// MARK: - This week bars — pay-clock hours per day (drawn by RvBars)
 
 struct DailyBar: Identifiable {
     var id: Date { date }
@@ -650,53 +689,6 @@ struct DailyBar: Identifiable {
     let dow: String
     let hours: Double
     let isToday: Bool
-}
-
-private struct WeekBarsCard: View {
-    let days: [DailyBar]
-    private let maxValue: Double = 9
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("This week")
-                    .font(.custom(TFontName.bold.rawValue, size: 17))
-                    .foregroundStyle(Color(hex: T.ink))
-                Spacer()
-                Text("last 8 days")
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(days) { d in
-                    VStack(spacing: 6) {
-                        // Exact hours logged that day, to the 100th.
-                        Text(String(format: "%.2f", d.hours))
-                            .font(TTypo.mono(9))
-                            .foregroundStyle(d.isToday ? Color(hex: T.ink) : Color(hex: T.muted))
-                            .tnum()
-                        VStack {
-                            Spacer(minLength: 0)
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(d.hours > 0 || d.isToday
-                                      ? AnyShapeStyle(T.brandGradient(start: .bottom, end: .top))
-                                      : AnyShapeStyle(Color(hex: T.progressTrack)))
-                                .frame(height: max(8, min(1, d.hours / maxValue) * 96))
-                                .frame(minHeight: d.hours == 0 && !d.isToday ? 8 : nil)
-                        }
-                        .frame(height: 96)
-                        Text(d.dow)
-                            .font(TTypo.xs(11))
-                            .foregroundStyle(d.isToday ? Color(hex: T.ink) : Color(hex: T.muted))
-                            .fontWeight(d.isToday ? .bold : .medium)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .padding(T.insetHero)
-        .frostedCard()
-    }
 }
 
 // MARK: - Clock PIN overlay (task 2)
