@@ -13,9 +13,8 @@ extension String {
     ///
     /// `en_US_POSIX` is the documented locale for parsing a FIXED format: it
     /// stops a device set to a non-Gregorian calendar from misreading these
-    /// dates. Time zone is deliberately left as the device default so these keep
-    /// resolving to local midnight, matching the `Calendar.current` comparisons
-    /// everywhere else. (AppState already uses en_US_POSIX for this same format.)
+    /// dates. It resolves to the SHOP's midnight (#304), matching the
+    /// `ShopTime.current.calendar` comparisons every schedule view makes.
     var asDate: Date? { ScheduleDateParser.parse(self) }
 }
 
@@ -36,23 +35,29 @@ enum ScheduleDateParser {
 
     /// `en_US_POSIX` is the documented locale for parsing a FIXED format — it
     /// stops a device on a non-Gregorian calendar from misreading these dates.
-    /// Time zone stays the device default so they resolve to local midnight,
-    /// matching the `Calendar.current` comparisons used everywhere else.
-    private static let formatter: DateFormatter = {
+    /// One per zone: a schedule date is the SHOP's midnight (#304), so it is parsed
+    /// in `ShopTime.current`'s zone and compared with `ShopTime.current.calendar`.
+    nonisolated(unsafe) private static var formatters: [String: DateFormatter] = [:]
+    private static func formatter(_ zone: TimeZone) -> DateFormatter {
+        if let hit = formatters[zone.identifier] { return hit }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = zone
         f.dateFormat = "yyyy-MM-dd"
+        formatters[zone.identifier] = f
         return f
-    }()
+    }
 
     static func parse(_ s: String) -> Date? {
         lock.lock()
         defer { lock.unlock() }
-        if let hit = cache[s] { return hit }
-        guard let d = formatter.date(from: s) else { return nil }
+        let zone = ShopTime.current.zone
+        let key = "\(zone.identifier)|\(s)"
+        if let hit = cache[key] { return hit }
+        guard let d = formatter(zone).date(from: s) else { return nil }
         // Schedule dates are bounded in practice; this is a backstop, not a policy.
         if cache.count > 10_000 { cache.removeAll(keepingCapacity: true) }
-        cache[s] = d
+        cache[key] = d
         return d
     }
 }

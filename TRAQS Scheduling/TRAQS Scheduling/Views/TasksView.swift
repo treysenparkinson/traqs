@@ -17,7 +17,10 @@ struct TasksView: View {
     /// Opens a job's detail — owned by JobsHubView (appends to its NavigationStack
     /// path) so the card's 3-dot "Information" action can navigate.
     var onOpenJob: (Job) -> Void = { _ in }
-    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    // The current INSTANT, not a midnight: a view built before the org's settings arrive would
+    // otherwise hold the DEVICE's midnight — still yesterday in a shop west of the phone. Every
+    // reader normalises it through the shop's calendar.
+    @State private var selectedDate: Date = Date()
     /// Bumped on every data rehydrate (via .onReceive below). A @State change
     /// unconditionally re-runs this view's body, which then reads the freshly
     /// synced appState.jobs — the reliable live-refresh path when @Observable
@@ -28,7 +31,7 @@ struct TasksView: View {
         var label: String { rawValue.capitalized }
     }
 
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     // Body is just the scrollable content — the Jobs hub (JobsHubView) supplies
     // the surrounding NavigationStack, header, title + range picker, and sheets.
@@ -156,7 +159,7 @@ struct TasksView: View {
         .animation(.easeInOut(duration: 0.22), value: segment)
         // Recenter the week/month/year picker to today when the range changes.
         .onChange(of: segment) { _, _ in
-            selectedDate = Calendar.current.startOfDay(for: Date())
+            selectedDate = ShopTime.current.calendar.startOfDay(for: Date())
         }
         // Force a body re-run whenever live sync rehydrates data. A @State bump
         // reliably re-renders the on-screen list even when @Observable tracking of
@@ -232,7 +235,7 @@ struct TasksView: View {
     // ── Today: original card stack ─────────────────────────────────────────
 
     private var todayView: some View {
-        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+        let df = ShopTime.current.formatter("EEE · MMM d")
         return VStack(spacing: 0) {
             rangeContent(activeRange, label: df.string(from: Date()))
 
@@ -271,7 +274,7 @@ struct TasksView: View {
 
     private var weekLabel: String {
         let days = weekDates(around: selectedDate).filter(isWorkDay)
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = ShopTime.current.formatter("MMM d")
         guard let first = days.first, let last = days.last else { return "" }
         return "\(f.string(from: first)) – \(f.string(from: last))"
     }
@@ -296,7 +299,7 @@ struct TasksView: View {
     }
 
     private var monthLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMMM yyyy"
+        let f = ShopTime.current.formatter("MMMM yyyy")
         return f.string(from: selectedDate)
     }
 
@@ -318,7 +321,7 @@ struct TasksView: View {
     }
 
     private var yearLabel: String {
-        let f = DateFormatter(); f.dateFormat = "yyyy"
+        let f = ShopTime.current.formatter("yyyy")
         return f.string(from: selectedDate)
     }
 
@@ -824,7 +827,7 @@ private struct DayGroupedTaskList: View {
     /// has NO call sites — it is left over from the day-grouped Week/Month list
     /// and nothing builds it any more.
     var onOpenJob: (Job) -> Void = { _ in }
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     var body: some View {
         let populated = days.filter { (tasksByDay[cal.startOfDay(for: $0)]?.isEmpty == false) }
@@ -858,10 +861,10 @@ private struct DayHeader: View {
     let count: Int
 
     private var label: String {
-        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"
+        let f = ShopTime.current.formatter("EEE · MMM d")
         return f.string(from: day)
     }
-    private var isToday: Bool { Calendar.current.isDateInToday(day) }
+    private var isToday: Bool { ShopTime.current.calendar.isDateInToday(day) }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -894,7 +897,7 @@ private struct WeekStrip: View {
     /// holiday). Non-work days are shown muted and aren't tappable (and never
     /// display dots).
     let isWorkDay: (Date) -> Bool
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -947,7 +950,7 @@ private struct WeekStrip: View {
     }
 
     private func dowChar(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "EEE"
+        let f = ShopTime.current.formatter("EEE")
         return String(f.string(from: d).prefix(1))
     }
 }
@@ -959,7 +962,7 @@ private struct MonthCalendar: View {
     let selected: Date
     let countFor: (Date) -> Int
     let onPick: (Date) -> Void
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -997,7 +1000,7 @@ private struct MonthCalendar: View {
     }
 
     private var monthLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMMM yyyy"
+        let f = ShopTime.current.formatter("MMMM yyyy")
         return f.string(from: month)
     }
 
@@ -1028,7 +1031,7 @@ private struct MonthCalendar: View {
         let selected: Date
         let countFor: (Date) -> Int
         let onPick: (Date) -> Void
-        private let cal = Calendar.current
+        private var cal: Calendar { ShopTime.current.calendar }
 
         var body: some View {
             let inMonth = cal.component(.month, from: day) == cal.component(.month, from: monthAnchor)
@@ -1074,7 +1077,7 @@ private struct MonthCalendar: View {
 private struct YearHeatmap: View {
     let year: Int
     let countFor: (Date) -> Int
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
     private let months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"]
 
     private var palette: [Color] {
@@ -1290,9 +1293,9 @@ struct TaskCardV1: View {
     }
 
     private var dateRange: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = ShopTime.current.formatter("MMM d")
         guard let s = task.startDate else { return "" }
-        guard let e = task.endDate, !Calendar.current.isDate(s, inSameDayAs: e) else {
+        guard let e = task.endDate, !ShopTime.current.calendar.isDate(s, inSameDayAs: e) else {
             return f.string(from: s)
         }
         return "\(f.string(from: s)) – \(f.string(from: e))"
@@ -1980,9 +1983,9 @@ private struct StartJobOverlay: View {
     }
     private var jobPct: Int { appState.jobPct(task.job) }
     private var dateRange: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = ShopTime.current.formatter("MMM d")
         guard let s = task.startDate else { return "" }
-        guard let e = task.endDate, !Calendar.current.isDate(s, inSameDayAs: e) else {
+        guard let e = task.endDate, !ShopTime.current.calendar.isDate(s, inSameDayAs: e) else {
             return f.string(from: s)
         }
         return "\(f.string(from: s)) – \(f.string(from: e))"

@@ -13,8 +13,9 @@ struct AddJobSheet: View {
 
     @State private var title = ""
     @State private var team: [String] = []
-    @State private var startDate = Calendar.current.startOfDay(for: Date())
-    @State private var endDate = Calendar.current.startOfDay(for: Date())
+    // Instants, read in the shop's zone by the pickers and by ymd — see GanttView.selectedDate.
+    @State private var startDate = Date()
+    @State private var endDate = Date()
     /// Only the time-of-day is read from these two.
     @State private var startTime = Date()
     @State private var endTime = Date()
@@ -29,8 +30,8 @@ struct AddJobSheet: View {
 
     private var draft: SimpleJob.Draft {
         SimpleJob.Draft(title: title, team: team,
-                        start: AppState.ymd(startDate),
-                        end: AppState.ymd(isOneDay ? startDate : endDate),
+                        start: AppState.ymd(startDate, in: ShopTime.current.zone),
+                        end: AppState.ymd(isOneDay ? startDate : endDate, in: ShopTime.current.zone),
                         startHour: Self.hour(of: startTime),
                         endHour: Self.hour(of: endTime),
                         fullDays: !oneDay)
@@ -82,6 +83,9 @@ struct AddJobSheet: View {
                     }
                 }
             }
+            // Days and times are the shop's: the pickers show its clock, so 08:00 here is the
+            // 08:00 the schedule draws, wherever the phone is.
+            .environment(\.timeZone, ShopTime.current.zone)
             .navigationTitle("New Job")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -107,7 +111,7 @@ struct AddJobSheet: View {
             .onChange(of: oneDay) { _, on in
                 // Off means a run of days, so offer one: end the day after.
                 if !on, !(endDate > startDate) {
-                    endDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+                    endDate = ShopTime.current.calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
                 }
             }
             .onAppear {
@@ -138,14 +142,14 @@ struct AddJobSheet: View {
 
     /// 1:30pm → 13.5.
     private static func hour(of date: Date) -> Double {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let c = ShopTime.current.calendar.dateComponents([.hour, .minute], from: date)
         return Double(c.hour ?? 0) + Double(c.minute ?? 0) / 60
     }
 
     /// 13.5 → today at 1:30pm.
     private static func time(_ hour: Double) -> Date {
         let minutes = Int((hour * 60).rounded())
-        return Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60,
+        return ShopTime.current.calendar.date(bySettingHour: minutes / 60, minute: minutes % 60,
                                      second: 0, of: Date()) ?? Date()
     }
 }

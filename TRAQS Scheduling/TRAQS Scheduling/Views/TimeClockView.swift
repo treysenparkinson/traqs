@@ -319,7 +319,7 @@ struct TimeClockView: View {
     /// Completed pay-clock spans inside the configured pay period.
     private var payEntriesInPeriod: [TimeclockEntry] {
         let w = periodWindow
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
+        let end = ShopTime.current.calendar.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         return myCompletedEntries.filter { e in
             guard let d = isoDay(e.clockIn) ?? parseISO(e.date ?? "") else { return false }
             return d >= w.start && d < end
@@ -368,7 +368,7 @@ struct TimeClockView: View {
 
     /// Pay-clock hours per day for the last 8 days (the bar chart).
     private var dailyBars: [DailyBar] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let today = cal.startOfDay(for: now)
         // Bucket hours by start-of-day in ONE pass (was: re-filter all entries
         // 8× and re-parse each date 8× inside the loop).
@@ -400,17 +400,16 @@ struct TimeClockView: View {
 
     // Cached formatters — allocating an ISO8601DateFormatter per call was a
     // hot-path cost (parseISO runs per entry during body evaluation).
-    private static let isoDateOnly: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f
-    }()
     private static let isoFull = ISO8601DateFormatter()
+    /// A stored day ("yyyy-MM-dd") is the shop's midnight — read at UTC midnight, as it was,
+    /// a US shop's day landed on the evening before.
     private func parseISO(_ s: String) -> Date? {
-        Self.isoDateOnly.date(from: s) ?? Self.isoFull.date(from: s)
+        ShopTime.current.date(ofDay: s) ?? Self.isoFull.date(from: s)
     }
 
     private var periodLabel: String {
         let w = periodWindow
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = ShopTime.current.formatter("MMM d")
         return "Pay period · \(f.string(from: w.start)) – \(f.string(from: w.end))"
     }
 }

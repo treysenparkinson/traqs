@@ -147,7 +147,7 @@ class AppState {
     var timeOffRequests: [TimeOffRequest] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
-    var orgSettings: OrgSettings = .default { didSet { dataRevision &+= 1 } }
+    var orgSettings: OrgSettings = .default { didSet { ShopTime.set(org: orgSettings); dataRevision &+= 1 } }
 
     /// "basic" | "business", from `GET /billing`. Basic until told otherwise —
     /// the web's default too, and what an org with no billing record IS.
@@ -1645,7 +1645,7 @@ class AppState {
         // culled behind the gantt's visible window. Detect overdue from ALL dates
         // in the tree (job.end alone can be empty/stale) and shift by aligning the
         // earliest date to the next work day from today.
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let todayStart = cal.startOfDay(for: Date())
         var allDates: [Date] = []
         for s in [job.start, job.end] { if let d = s.asDate { allDates.append(d) } }
@@ -1660,6 +1660,7 @@ class AppState {
             // `WorkCalendar.shiftingRange`.
             let workCal = WorkCalendar(org: orgSettings)
             let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+            f.timeZone = cal.timeZone
             let anchor = f.string(from: minStart)
             let target = workCal.nextWorkDay(from: f.string(from: todayStart))
             if target > anchor {
@@ -2036,10 +2037,10 @@ class AppState {
     /// name is no longer guaranteed to exist or to be unique.
     // MARK: Calendar dates
 
-    /// A date picked in the device's calendar, as the "yyyy-MM-dd" day it shows. A DatePicker
-    /// hands back the device's midnight; read in UTC, as this used to, that is the day before
-    /// anywhere east of UTC, so a job picked for Oct 5 saved as Oct 4. Not "today" — the shop's
-    /// day is `ShopTime.day`.
+    /// A picked date as the "yyyy-MM-dd" day it shows, read in the zone the picker showed —
+    /// the device's by default; the shop's for a picker given `\.timeZone` (AddJobSheet). Read
+    /// in UTC, as this used to, a picker's midnight is the day before anywhere east of UTC, so
+    /// a job picked for Oct 5 saved as Oct 4 (#369). Not "today" — that is `ShopTime.day`.
     static func ymd(_ d: Date, in zone: TimeZone = .current) -> String {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = zone
@@ -3293,84 +3294,9 @@ enum EngStep: String, CaseIterable {
 // still keep their own copies for now; these power the Home screen.)
 extension AppState {
 
-    /// Pay-period boundaries from the time-clock settings (weekly / biweekly /
-    /// semimonthly), matching TimeClockView's `periodWindow`.
+    /// Pay-period boundaries from the time-clock settings — `PayPeriod.window`.
     func payPeriodWindow(now: Date) -> (start: Date, end: Date) {
-        let s = orgSettings
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: now)
-        // Orgs configure pay periods via explicit days-of-month (payDates, e.g.
-        // [5, 20]) in "setdate" mode — the semi-monthly model the desktop
-        // payroll table actually uses (getPayPeriodFromDates). Prefer it whenever
-        // payDates is present or payMode is "setdate"; otherwise fall back to the
-        // legacy biweekly/weekly/semimonthly rolling logic below.
-        if s.payMode == "setdate" || !s.payDates.isEmpty {
-            return Self.payPeriodFromDates(s.payDates, now: now)
-        }
-        let anchor = s.payPeriodStart.flatMap(Self.fullISODate) ?? today
-        switch s.payPeriodType {
-        case "weekly":
-            let weekday = cal.component(.weekday, from: today)
-            let toMonday = weekday == 1 ? -6 : -(weekday - 2)
-            let start = cal.date(byAdding: .day, value: toMonday, to: today) ?? today
-            let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-            return (start, end)
-        case "semimonthly":
-            let day = cal.component(.day, from: today)
-            let comps = cal.dateComponents([.year, .month], from: today)
-            let monthStart = cal.date(from: comps) ?? today
-            if day <= 15 {
-                let end = cal.date(byAdding: .day, value: 14, to: monthStart) ?? today
-                return (monthStart, end)
-            } else {
-                let start = cal.date(byAdding: .day, value: 15, to: monthStart) ?? today
-                let nextMonth = cal.date(byAdding: .month, value: 1, to: monthStart) ?? today
-                let end = cal.date(byAdding: .day, value: -1, to: nextMonth) ?? today
-                return (start, end)
-            }
-        default: // biweekly
-            let days = cal.dateComponents([.day], from: anchor, to: today).day ?? 0
-            let cycles = days / 14
-            let start = cal.date(byAdding: .day, value: cycles * 14, to: anchor) ?? today
-            let end = cal.date(byAdding: .day, value: 13, to: start) ?? today
-            return (start, end)
-        }
-    }
-
-    /// Was building TWO `ISO8601DateFormatter`s per call — and this runs inside a
-    /// `reduce` over every timeclock entry, driven by a 1s ticker. Formatter
-    /// construction loads ICU resource bundles, which Time Profiler showed as
-    /// the single largest main-thread cost in the app. Now delegates to cached
-    /// formatters.
-    private static func fullISODate(_ s: String) -> Date? {
-        Date.fromISOFullDate(s)
-    }
-
-    /// Semi-monthly pay period from an explicit day-of-month pair (Swift port of
-    /// the desktop `getPayPeriodFromDates`). e.g. [5, 20] → periods are 5th–19th
-    /// and 20th–4th of each month. Boundaries are computed in local time.
-    static func payPeriodFromDates(_ payDates: [Int], now: Date) -> (start: Date, end: Date) {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: now)
-        let sorted = (payDates.isEmpty ? [5, 20] : payDates).sorted()
-        let d1 = sorted[0]
-        let d2 = sorted.count > 1 ? sorted[1] : sorted[0]
-        let comps = cal.dateComponents([.year, .month, .day], from: today)
-        let y = comps.year ?? 2020, m = comps.month ?? 1, day = comps.day ?? 1  // m is 1-based
-        // Calendar.date(from:) normalizes out-of-range day/month components
-        // (day 0 → last day of previous month, month 13 → next January), matching
-        // JS `new Date(y, m, d)` semantics used by the desktop helper.
-        func make(monthOffset: Int, day: Int) -> Date {
-            var c = DateComponents(); c.year = y; c.month = m + monthOffset; c.day = day
-            return cal.startOfDay(for: cal.date(from: c) ?? today)
-        }
-        if day >= d1 && day < d2 {
-            return (make(monthOffset: 0, day: d1), make(monthOffset: 0, day: d2 - 1))
-        } else if day >= d2 {
-            return (make(monthOffset: 0, day: d2), make(monthOffset: 1, day: d1 - 1))
-        } else {
-            return (make(monthOffset: -1, day: d2), make(monthOffset: 0, day: d1 - 1))
-        }
+        PayPeriod.window(org: orgSettings, now: now)
     }
 
     /// The pay-period hours cap (soft limit) configured in the desktop's Time
@@ -3402,9 +3328,9 @@ extension AppState {
     /// lunch/break) + the live current shift.
     func payPeriodHours(now: Date) -> Double {
         let w = payPeriodWindow(now: now)
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
+        let end = ShopTime.current.calendar.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
-            guard let d = e.clockIn.flatMap(parsedISO) ?? e.date.flatMap(Self.fullISODate)
+            guard let d = e.clockIn.flatMap(parsedISO) ?? e.date.flatMap(ShopTime.current.date(ofDay:))
             else { return acc }
             return (d >= w.start && d < end) ? acc + (e.hours ?? 0) : acc
         }
@@ -3414,7 +3340,7 @@ extension AppState {
     /// Today's clocked-in pay hours: completed spans dated today + the live
     /// shift if it started today.
     func hoursToday(now: Date) -> Double {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
             guard let d = e.clockIn.flatMap(parsedISO) else { return acc }
             return cal.isDate(d, inSameDayAs: now) ? acc + (e.hours ?? 0) : acc
@@ -3500,7 +3426,7 @@ extension AppState {
 
     /// My assignments scheduled for today.
     func todayTasks(now: Date) -> [TaskAssignment] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let start = cal.startOfDay(for: now)
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
         return assignments(in: start..<end)

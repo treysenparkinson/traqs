@@ -159,7 +159,7 @@ private struct TodayDateCard: View {
     let now: Date
 
     private var weekDays: [Date] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let today = cal.startOfDay(for: now)
         let weekday = cal.component(.weekday, from: today)   // 1 = Sun … 7 = Sat
         let start = cal.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
@@ -167,15 +167,15 @@ private struct TodayDateCard: View {
     }
 
     private var dateLine: String {
-        let f = DateFormatter.display("MMMM d, yyyy")
+        let f = ShopTime.current.formatter("MMMM d, yyyy")
         return f.string(from: now).uppercased()
     }
 
     private func dow(_ d: Date) -> String {
-        ["S", "M", "T", "W", "T", "F", "S"][Calendar.current.component(.weekday, from: d) - 1]
+        ["S", "M", "T", "W", "T", "F", "S"][ShopTime.current.calendar.component(.weekday, from: d) - 1]
     }
     private func dayNum(_ d: Date) -> String {
-        String(Calendar.current.component(.day, from: d))
+        String(ShopTime.current.calendar.component(.day, from: d))
     }
 
     var body: some View {
@@ -191,7 +191,7 @@ private struct TodayDateCard: View {
 
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
-                    let isToday = Calendar.current.isDate(d, inSameDayAs: now)
+                    let isToday = ShopTime.current.calendar.isDate(d, inSameDayAs: now)
                     VStack(spacing: 5) {
                         Text(dow(d))
                             .font(TTypo.xsBold(10))

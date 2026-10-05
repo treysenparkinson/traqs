@@ -29,6 +29,7 @@ import { legibleBarColor, doneBarFill, barPaint } from "../src/barPaint.js";
 import { shopDay, shopHour, shopMs, endOfDayFor } from "../src/shopTime.js";
 import { workCalendar, unitDepartments } from "../src/scheduleRules.js";
 import { candidatesFor } from "../src/placement.js";
+import { getPayPeriodFromDates, getPayPeriodAtOffsetFromDates } from "../src/payPeriod.js";
 
 // shopTime takes its viewer-local path whenever a zone equals the machine's own. Pin the
 // machine to UTC so every zone below goes through the zoned path, whoever runs this.
@@ -243,20 +244,37 @@ function compute() {
     }
   }
 
+  // Pay periods by payDates (src/payPeriod.js) — ruled a SHOP concept (iOS chunk D): `today`
+  // is the shop's day and so is the answer. Month ends, a leap February, the year turn, an
+  // unsorted pair, a 31st, and both directions of the offset walk.
+  const payPeriods = [];
+  const PAY_DATES = [[5, 20], [1, 16], [20, 5], [15, 31], [10, 25], [1, 15], [28, 14]];
+  const PAY_DAYS = ["2026-10-04", "2026-10-05", "2026-10-19", "2026-10-20", "2026-10-31", "2026-01-01",
+    "2026-01-04", "2026-12-31", "2026-02-28", "2028-02-29", "2026-03-01", "2026-03-15", "2026-03-16", "2026-11-30"];
+  for (const payDates of PAY_DATES) {
+    for (const today of PAY_DAYS) {
+      for (const offset of [0, -1, -3, 1, 2]) {
+        const p = offset === 0 ? getPayPeriodFromDates(payDates, today) : getPayPeriodAtOffsetFromDates(payDates, today, offset);
+        payPeriods.push({ payDates, today, offset, start: p.start, end: p.end, periodNumber: p.periodNumber });
+      }
+    }
+  }
+
   return { generatedBy: "scripts/schedule-parity-test.mjs", orgs, walks, clockHours, calendar,
-    shares, segments, dayView, assigned, crew, candidates, shop, sessions, grids, paint };
+    shares, segments, dayView, assigned, crew, candidates, shop, sessions, grids, paint, payPeriods };
 }
 
 const now = compute();
 const text = JSON.stringify(now, null, 1) + "\n";
-const total = ["walks", "clockHours", "calendar", "shares", "segments", "dayView", "assigned", "candidates", "shop", "sessions", "grids", "paint"]
+const total = ["walks", "clockHours", "calendar", "shares", "segments", "dayView", "assigned", "candidates", "shop", "sessions", "grids", "paint", "payPeriods"]
   .reduce((n, k) => n + now[k].length, 0);
 // Guard the INPUT: a refactor that empties a section must not read as a pass.
 if (total < 500 || now.dayView.filter((c) => c.blocks.length).length < 250
     || now.segments.filter((c) => c.segments.length > 1).length < 10
     || now.candidates.filter((c) => c.candidates.length === 0).length < 5
     || now.candidates.filter((c) => c.departments.length > 1).length < 5
-    || now.sessions.filter((c) => c.unclosed).length < 4 || now.sessions.filter((c) => c.hours > 0).length < 30) {
+    || now.sessions.filter((c) => c.unclosed).length < 4 || now.sessions.filter((c) => c.hours > 0).length < 30
+    || now.payPeriods.length < 400 || now.payPeriods.some((c) => ![c.start, c.end].every((d) => /^\d{4}-\d\d-\d\d$/.test(d)))) {
   console.error(`schedule-parity: only ${total} cases generated — the generator is broken`);
   process.exit(2);
 }

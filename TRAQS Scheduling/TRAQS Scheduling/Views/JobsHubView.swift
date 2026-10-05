@@ -246,10 +246,10 @@ struct JobsHubView: View {
     }
 
     private var todayMonth: String {
-        let f = DateFormatter(); f.dateFormat = "MMM"; return f.string(from: Date()).uppercased()
+        let f = ShopTime.current.formatter("MMM"); return f.string(from: Date()).uppercased()
     }
     private var todayDay: String {
-        let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: Date())
+        let f = ShopTime.current.formatter("d"); return f.string(from: Date())
     }
 
     /// Open a job's read-only detail popup.

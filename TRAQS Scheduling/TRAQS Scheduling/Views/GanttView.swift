@@ -10,12 +10,15 @@ struct GanttView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
 
-    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    // The current INSTANT, not a midnight: a view built before the org's settings arrive would
+    // otherwise hold the DEVICE's midnight — still yesterday in a shop west of the phone. Every
+    // reader normalises it through the shop's calendar.
+    @State private var selectedDate: Date = Date()
     @State private var segment: ScheduleSegment = .day
     @State private var now: Date = Date()
     /// Tapping a timeline block sets this, which presents the job-detail popup.
     @State private var selectedBlock: ScheduleBlock?
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
     /// `@State`, NOT `let` — a stored publisher is a new object on every rebuild,
     /// which makes SwiftUI re-evaluate this whole body whenever the parent
     /// re-renders. See the same note in TimeClockView.
@@ -212,13 +215,6 @@ struct GanttView: View {
     // own lunch step, written because "our schema doesn't carry time-of-day on panels/ops". It
     // does: `startHour`. A sixth scheduler that the web didn't have is what this replaced.
 
-    private static let dayKey: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .gregorian)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
 
     /// Blocks for every requested day, from one pass over the jobs.
     private func packedBlocks(for days: [Date]) -> [Date: [ScheduleBlock]] {
@@ -230,14 +226,14 @@ struct GanttView: View {
                                           calendar: WorkCalendar(org: org), today: nil)
         let live = Set(appState.people.compactMap { $0.activeJobClock?.opId })
         let entries = GanttLayout.units(for: me, in: appState.jobs, live: live,
-                                        today: Self.dayKey.string(from: now))
+                                        today: ShopTime.current.ymd(now))
         guard !entries.isEmpty else { return [:] }
         let units = entries.map(\.unit)
 
         var out: [Date: [ScheduleBlock]] = [:]
         for d in days {
             let key = cal.startOfDay(for: d)
-            out[key] = GanttLayout.dayBlocks(units, on: Self.dayKey.string(from: key), context: context,
+            out[key] = GanttLayout.dayBlocks(units, on: ShopTime.current.ymd(key), context: context,
                                              business: appState.isBusinessTier)
                 .map { makeBlock(entries[$0.index], $0, on: key, context: context) }
         }
@@ -275,7 +271,7 @@ struct GanttView: View {
         // The worked fill pours front to back over the unit's whole run: this block's share is
         // what is left after the productive hours of the unit's earlier days.
         let dw = context.day
-        let dayString = Self.dayKey.string(from: day)
+        let dayString = ShopTime.current.ymd(day)
         let before = unit.start == unit.end || unit.end.isEmpty ? 0
             : OverlapRule.blocks(of: unit, context: context)
                 .filter { $0.day < dayString }
@@ -344,7 +340,7 @@ struct ScheduleBlock: Identifiable, Equatable {
 
 private struct DateSelector: View {
     @Binding var date: Date
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     private var subTitle: String {
         cal.isDateInToday(date) ? "Today"
@@ -435,7 +431,7 @@ private struct DayTimeline: View {
     let lunchDurationH: Double
     let onSelect: (ScheduleBlock) -> Void
     private let pxPerHour: CGFloat = 56
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     /// The web day view's hour grid (`dayGridHours`): whole hours, from the hour the working
     /// day starts in to the hour it ends in (#257). A 07:30 start is a 7 AM row, labelled 7 AM,
@@ -837,10 +833,10 @@ private struct ScheduleBlockView: View {
 private struct WeekHeaderBar: View {
     let weekDates: [Date]
     @Binding var selected: Date
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     private var rangeLabel: String {
-        let f = DateFormatter.display("MMM d")
+        let f = ShopTime.current.formatter("MMM d")
         guard let first = weekDates.first, let last = weekDates.last else { return "" }
         return "\(f.string(from: first)) – \(f.string(from: last))"
     }
@@ -900,7 +896,7 @@ private struct WeekGrid: View {
     private var startHour: Double { Double(grid.start) }
     private let pxPerHour: CGFloat = 36
     private let gutter:    CGFloat = 24
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     private var endHour: Double { Double(grid.end) }
 
@@ -961,10 +957,10 @@ private struct WeekGrid: View {
 private struct DayHeaderCell: View {
     let day: Date
     let isToday: Bool
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     private var dow: String {
-        let f = DateFormatter.display("EEE")
+        let f = ShopTime.current.formatter("EEE")
         return String(f.string(from: day).prefix(1))
     }
 
@@ -1000,7 +996,7 @@ private struct WeekDayColumn: View {
     let blocks: [ScheduleBlock]
     let spans: [ClockOverlays.Span]
     let onSelect: (ScheduleBlock) -> Void
-    private let cal = Calendar.current
+    private var cal: Calendar { ShopTime.current.calendar }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1175,13 +1171,9 @@ private struct WeekLegendRow: View {
 private extension DateFormatter {
     /// The selector's small line when the day isn't Today/Tomorrow/Yesterday — the weekday,
     /// which the title below it does not repeat (#256).
-    static let dayShort: DateFormatter = {
-        let f = DateFormatter.display("EEEE"); return f
-    }()
+    static var dayShort: DateFormatter { ShopTime.current.formatter("EEEE") }
     /// The selector's title. Short enough for its fixed 108 pt width.
-    static let dayFull: DateFormatter = {
-        let f = DateFormatter.display("MMM d"); return f
-    }()
+    static var dayFull: DateFormatter { ShopTime.current.formatter("MMM d") }
 }
 
 // MARK: - String → Date helper (already used elsewhere in the codebase)

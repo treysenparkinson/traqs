@@ -76,6 +76,8 @@ struct ScheduleParityTests {
         }
         struct Grid: Decodable { let workStartH: Double, workEndH: Double; let start: Int, end: Int }
         struct Paint: Decodable { let color: String, row: String, legible: String, done: String }
+        struct PayPeriodCase: Decodable { let payDates: [Int]; let today: String; let offset: Int; let start: String, end: String; let periodNumber: Int }
+        let payPeriods: [PayPeriodCase]
         let grids: [Grid]
         let paint: [Paint]
         let shop: [Shop]
@@ -240,6 +242,19 @@ struct ScheduleParityTests {
         for p in f.paint {
             #expect(BarPaint.legible(p.color) == p.legible, "legible \(p.color)")
             #expect(BarPaint.doneFill(p.legible, row: p.row) == p.done, "done \(p.legible) on \(p.row)")
+        }
+    }
+
+    // MARK: Pay periods (iOS chunk D)
+
+    /// `getPayPeriodFromDates` / `getPayPeriodAtOffsetFromDates` (src/payPeriod.js).
+    @Test func payPeriodsMatch() {
+        #expect(f.payPeriods.count >= 400)
+        for c in f.payPeriods {
+            let p = c.offset == 0 ? PayPeriod.fromDates(c.payDates, today: c.today)
+                                  : PayPeriod.atOffset(c.payDates, today: c.today, offset: c.offset)
+            #expect([p.start, p.end, String(p.periodNumber)] == [c.start, c.end, String(c.periodNumber)],
+                    "\(c.payDates) \(c.today) \(c.offset)")
         }
     }
 

@@ -1582,7 +1582,7 @@ struct ThreadDetailView: View {
     /// Auto-name for camera/library photos (no source filename). Files keep
     /// their own name. e.g. "photo_2026-07-01_143205.jpg".
     private func attachmentFilename(ext: String) -> String {
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd_HHmmss"
+        let fmt = ShopTime.current.formatter("yyyy-MM-dd_HHmmss")   // a shared file: the shop's clock
         return "photo_\(fmt.string(from: Date())).\(ext)"
     }
 

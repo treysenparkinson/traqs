@@ -55,6 +55,8 @@ struct JobEditView: View {
                     TextField("PO Number", text: $poNumber)
                 }
 
+                // Stored days are the shop's midnights (`asDate`), so the pickers show the shop's
+                // calendar — on the device's, a viewer west of the shop saw and saved the day before.
                 Section("Dates") {
                     DatePicker("Start", selection: $start, displayedComponents: .date)
                         .disabled(!canEditDates)
@@ -71,6 +73,7 @@ struct JobEditView: View {
                         ), displayedComponents: .date)
                     }
                 }
+                .environment(\.timeZone, ShopTime.current.zone)
 
                 Section("Details") {
                     Picker("Status", selection: $status) {
@@ -214,6 +217,7 @@ struct JobEditView: View {
         isSaving = true
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = ShopTime.current.zone
         // Start from the EXISTING job and mutate only the edited fields, so
         // fields this editor doesn't surface — loggedHours, projectManagerId,
         // finishRequest, finishRequests, team, hpd, subs, moveLog, jobType — are

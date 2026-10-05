@@ -415,7 +415,7 @@ enum StatsPayPeriods {
     }
 
     static func recent(_ appState: AppState, count: Int = 8) -> [Period] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         var out: [Period] = []
         var probe = Date()
         for _ in 0..<count {
@@ -432,10 +432,10 @@ enum StatsPayPeriods {
     }
 
     static func label(_ p: Period, _ appState: AppState) -> String {
-        let f = DateFormatter.display("MMM d")
+        let f = ShopTime.current.formatter("MMM d")
         let range = "\(f.string(from: p.start)) – \(f.string(from: p.end))"
         let current = appState.payPeriodWindow(now: Date()).start
-        return Calendar.current.isDate(current, inSameDayAs: p.start)
+        return ShopTime.current.calendar.isDate(current, inSameDayAs: p.start)
             ? "This period · \(range)"
             : range
     }
@@ -443,22 +443,22 @@ enum StatsPayPeriods {
     /// Which row is checked: the anchor is any day inside a period, so resolve
     /// it to that period's start before comparing.
     static func isSelected(_ start: Date, anchor: Date, _ appState: AppState) -> Bool {
-        Calendar.current.isDate(appState.payPeriodWindow(now: anchor).start, inSameDayAs: start)
+        ShopTime.current.calendar.isDate(appState.payPeriodWindow(now: anchor).start, inSameDayAs: start)
     }
 }
 
 enum StatsWeeks {
     /// Start-of-week (Monday) dates for the last 8 weeks, this week first.
     static var recent: [Date] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let thisStart = StatsMath.weekInterval(containing: Date(), calendar: cal).start
         return (0..<8).compactMap { cal.date(byAdding: .day, value: -7 * $0, to: thisStart) }
     }
 
     static func label(_ start: Date) -> String {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-        let f = DateFormatter.display("MMM d")
+        let f = ShopTime.current.formatter("MMM d")
         let range = "\(f.string(from: start)) – \(f.string(from: end))"
         return same(start, Date()) ? "This week · \(range)" : range
     }
@@ -467,7 +467,7 @@ enum StatsWeeks {
     /// Sunday the checkmark and the "This week" label point at the week that is
     /// about to begin rather than the one being shown.
     static func same(_ a: Date, _ b: Date) -> Bool {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         return StatsMath.weekInterval(containing: a, calendar: cal).start
             == StatsMath.weekInterval(containing: b, calendar: cal).start
     }

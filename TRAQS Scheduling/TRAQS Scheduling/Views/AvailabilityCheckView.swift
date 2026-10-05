@@ -46,14 +46,9 @@ struct AvailabilityResult {
 // MARK: Engine
 
 enum AvailabilityEngine {
-    private static let cal = Calendar.current
+    private static var cal: Calendar { ShopTime.current.calendar }
 
-    private static func ymd(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
-    }
+    private static func ymd(_ date: Date) -> String { ShopTime.current.ymd(date) }
 
     /// Free = no time-off and no non-finished scheduled panel/op overlapping `day`.
     /// Collapses the desktop's overlap test to a single day (start == end == day).
@@ -79,7 +74,8 @@ enum AvailabilityEngine {
     }
 
     static func compute(people: [Person], jobs: [Job], org: OrgSettings,
-                        from: Date, to: Date, hours: Double, departments: Set<String> = []) -> AvailabilityResult {
+                        from: Date, to: Date, hours: Double, departments: Set<String> = [],
+                        now: Date = Date()) -> AvailabilityResult {
         let H = max(0, hours)
         let depts = Set(departments.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
         let eligibleAll = people.filter {
@@ -106,7 +102,7 @@ enum AvailabilityEngine {
                                                     productiveHoursPerDay: org.productiveHoursPerDay)
         result.daysNeeded = daysNeeded
 
-        let today = cal.startOfDay(for: Date())
+        let today = cal.startOfDay(for: now)
         let toDayCutoff = ymd(cal.startOfDay(for: to))
         let startFrom = max(cal.startOfDay(for: from), today)   // never look in the past
 
@@ -186,9 +182,7 @@ enum AvailabilityEngine {
 
 private func prettyDate(_ ymd: String) -> String {
     guard let d = ymd.asDate else { return ymd }
-    let f = DateFormatter()
-    f.dateFormat = "EEE, MMM d"
-    return f.string(from: d)
+    return ShopTime.current.formatter("EEE, MMM d").string(from: d)
 }
 
 private func avatarInitials(_ name: String) -> String { Initials.from(name) }
@@ -200,7 +194,7 @@ private func rangeLabel(_ r: AvailabilityResult) -> String {
 
 private func shortDay(_ ymd: String) -> String {
     guard let d = ymd.asDate else { return ymd }
-    let f = DateFormatter(); f.dateFormat = "MMM d"
+    let f = ShopTime.current.formatter("MMM d")
     return f.string(from: d)
 }
 
@@ -295,8 +289,8 @@ struct AvailabilityCheckPopup: View {
     /// Drives the shared modal entrance/exit — see ModalPop.
     @State private var appear = false
 
-    @State private var fromDate = Calendar.current.startOfDay(for: Date())
-    @State private var toDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
+    @State private var fromDate = Date()   // an instant; the engine takes the shop's day of it
+    @State private var toDate = ShopTime.current.calendar.date(byAdding: .day, value: 14, to: Date()) ?? Date()
     @State private var hoursText = ""
     /// The hours field's keyboard is a `.numberPad` — it has no Return key, so
     /// the ways out are the Done on the pad, tapping off the field, or tapping
@@ -337,6 +331,7 @@ struct AvailabilityCheckPopup: View {
             .datePickerStyle(.compact)
             .labelsHidden()
             .tint(Color(hex: T.accent))
+            .environment(\.timeZone, ShopTime.current.zone)   // the shop's days, as the engine reads them
         }
     }
 

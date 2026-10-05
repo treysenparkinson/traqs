@@ -44078,5 +44078,5397 @@
    "legible": "#f59e0b",
    "done": "#b7aea5"
   }
+ ],
+ "payPeriods": [
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-05",
+   "end": "2026-08-19",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-20",
+   "end": "2026-09-04",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-08-20",
+   "end": "2026-09-04",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2025-12-20",
+   "end": "2026-01-04",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-05",
+   "end": "2025-12-19",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-05",
+   "end": "2025-11-19",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2025-12-20",
+   "end": "2026-01-04",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-05",
+   "end": "2025-12-19",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-05",
+   "end": "2025-11-19",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-20",
+   "end": "2027-01-04",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-05",
+   "end": "2026-12-19",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-05",
+   "end": "2027-01-19",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-20",
+   "end": "2027-02-04",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-05",
+   "end": "2026-02-19",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-20",
+   "end": "2028-03-04",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-05",
+   "end": "2028-02-19",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-05",
+   "end": "2028-01-19",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-05",
+   "end": "2028-03-19",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-20",
+   "end": "2028-04-04",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-05",
+   "end": "2026-02-19",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-05",
+   "end": "2026-04-19",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-05",
+   "end": "2026-04-19",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-05",
+   "end": "2026-12-19",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    5,
+    20
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-20",
+   "end": "2027-01-04",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-16",
+   "end": "2026-09-30",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-16",
+   "end": "2026-08-31",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-16",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-16",
+   "end": "2026-09-30",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-16",
+   "end": "2026-08-31",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-16",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-16",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-15",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-16",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-16",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-15",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-16",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-16",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-15",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-16",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2026-01-01",
+   "end": "2026-01-15",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-16",
+   "end": "2025-12-31",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-16",
+   "end": "2025-11-30",
+   "periodNumber": 142
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-16",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-02-01",
+   "end": "2026-02-15",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2026-01-01",
+   "end": "2026-01-15",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-16",
+   "end": "2025-12-31",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-16",
+   "end": "2025-11-30",
+   "periodNumber": 142
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-16",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-02-01",
+   "end": "2026-02-15",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-16",
+   "end": "2026-12-31",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-01",
+   "end": "2026-12-15",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-01",
+   "end": "2027-01-15",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-16",
+   "end": "2027-01-31",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-16",
+   "end": "2026-02-28",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-01",
+   "end": "2026-02-15",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-01",
+   "end": "2026-01-15",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-01",
+   "end": "2026-03-15",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-16",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-16",
+   "end": "2028-02-29",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-01",
+   "end": "2028-02-15",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-01",
+   "end": "2028-01-15",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-01",
+   "end": "2028-03-15",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-16",
+   "end": "2028-03-31",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-03-01",
+   "end": "2026-03-15",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-16",
+   "end": "2026-02-28",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-16",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-16",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-04-01",
+   "end": "2026-04-15",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-01",
+   "end": "2026-03-15",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-02-16",
+   "end": "2026-02-28",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-01-16",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-16",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-01",
+   "end": "2026-04-15",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-16",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-03-01",
+   "end": "2026-03-15",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-02-01",
+   "end": "2026-02-15",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-04-01",
+   "end": "2026-04-15",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-16",
+   "end": "2026-04-30",
+   "periodNumber": 152
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-16",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-01",
+   "end": "2026-11-15",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-01",
+   "end": "2026-10-15",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-01",
+   "end": "2026-12-15",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    1,
+    16
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-16",
+   "end": "2026-12-31",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-05",
+   "end": "2026-08-19",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-20",
+   "end": "2026-09-04",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-09-20",
+   "end": "2026-10-04",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-08-20",
+   "end": "2026-09-04",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-20",
+   "end": "2026-11-04",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-05",
+   "end": "2026-09-19",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2025-12-20",
+   "end": "2026-01-04",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-05",
+   "end": "2025-12-19",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-05",
+   "end": "2025-11-19",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2025-12-20",
+   "end": "2026-01-04",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-05",
+   "end": "2025-12-19",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-05",
+   "end": "2025-11-19",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-20",
+   "end": "2027-01-04",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-05",
+   "end": "2026-12-19",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-05",
+   "end": "2027-01-19",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-20",
+   "end": "2027-02-04",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-05",
+   "end": "2026-02-19",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-20",
+   "end": "2028-03-04",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-05",
+   "end": "2028-02-19",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-05",
+   "end": "2028-01-19",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-05",
+   "end": "2028-03-19",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-20",
+   "end": "2028-04-04",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-05",
+   "end": "2026-02-19",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-05",
+   "end": "2026-01-19",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-05",
+   "end": "2026-04-19",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-05",
+   "end": "2026-03-19",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-02-20",
+   "end": "2026-03-04",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-01-20",
+   "end": "2026-02-04",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-03-20",
+   "end": "2026-04-04",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-05",
+   "end": "2026-04-19",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-20",
+   "end": "2026-12-04",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-05",
+   "end": "2026-11-19",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-05",
+   "end": "2026-10-19",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-05",
+   "end": "2026-12-19",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    20,
+    5
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-20",
+   "end": "2027-01-04",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-15",
+   "end": "2026-09-30",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-15",
+   "end": "2026-08-30",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-15",
+   "end": "2026-10-30",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-15",
+   "end": "2026-09-30",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-15",
+   "end": "2026-08-30",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-15",
+   "end": "2026-10-30",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-15",
+   "end": "2026-10-30",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-08-31",
+   "end": "2026-09-14",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-15",
+   "end": "2026-10-30",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-08-31",
+   "end": "2026-09-14",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-15",
+   "end": "2026-10-30",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-15",
+   "end": "2026-09-30",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-12-01",
+   "end": "2026-12-14",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2025-12-31",
+   "end": "2026-01-14",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-15",
+   "end": "2025-12-30",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-15",
+   "end": "2025-11-30",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-15",
+   "end": "2026-01-30",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-01-31",
+   "end": "2026-02-14",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2025-12-31",
+   "end": "2026-01-14",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-15",
+   "end": "2025-12-30",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-15",
+   "end": "2025-11-30",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-15",
+   "end": "2026-01-30",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-01-31",
+   "end": "2026-02-14",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-31",
+   "end": "2027-01-14",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-15",
+   "end": "2026-12-30",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-15",
+   "end": "2027-01-30",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-31",
+   "end": "2027-02-14",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-15",
+   "end": "2026-03-02",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-01-31",
+   "end": "2026-02-14",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2025-12-31",
+   "end": "2026-01-14",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-15",
+   "end": "2026-03-30",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-15",
+   "end": "2028-03-01",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-01-31",
+   "end": "2028-02-14",
+   "periodNumber": 194
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2027-12-31",
+   "end": "2028-01-14",
+   "periodNumber": 192
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-02",
+   "end": "2028-03-14",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-15",
+   "end": "2028-03-30",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-15",
+   "end": "2026-03-30",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-03-31",
+   "end": "2026-04-14",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-15",
+   "end": "2026-03-30",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-31",
+   "end": "2026-04-14",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-15",
+   "end": "2026-04-30",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-15",
+   "end": "2026-03-30",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-03-03",
+   "end": "2026-03-14",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-03-31",
+   "end": "2026-04-14",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-15",
+   "end": "2026-04-30",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-10-31",
+   "end": "2026-11-14",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-01",
+   "end": "2026-12-14",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    15,
+    31
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-15",
+   "end": "2026-12-30",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-09-25",
+   "end": "2026-10-09",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-10",
+   "end": "2026-09-24",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-10",
+   "end": "2026-08-24",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-10-25",
+   "end": "2026-11-09",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-09-25",
+   "end": "2026-10-09",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-10",
+   "end": "2026-09-24",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-10",
+   "end": "2026-08-24",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-10-25",
+   "end": "2026-11-09",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-09-25",
+   "end": "2026-10-09",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-08-25",
+   "end": "2026-09-09",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-10-25",
+   "end": "2026-11-09",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-10",
+   "end": "2026-11-24",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-09-25",
+   "end": "2026-10-09",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-08-25",
+   "end": "2026-09-09",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-10-25",
+   "end": "2026-11-09",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-10",
+   "end": "2026-11-24",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-25",
+   "end": "2026-11-09",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-10",
+   "end": "2026-09-24",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-10",
+   "end": "2026-11-24",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-25",
+   "end": "2026-12-09",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2025-12-25",
+   "end": "2026-01-09",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-10",
+   "end": "2025-12-24",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-10",
+   "end": "2025-11-24",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-10",
+   "end": "2026-01-24",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-01-25",
+   "end": "2026-02-09",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2025-12-25",
+   "end": "2026-01-09",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-10",
+   "end": "2025-12-24",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-10",
+   "end": "2025-11-24",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-10",
+   "end": "2026-01-24",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-01-25",
+   "end": "2026-02-09",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-25",
+   "end": "2027-01-09",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-10",
+   "end": "2026-12-24",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-10",
+   "end": "2026-11-24",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-10",
+   "end": "2027-01-24",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-25",
+   "end": "2027-02-09",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-25",
+   "end": "2026-03-09",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-10",
+   "end": "2026-02-24",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-10",
+   "end": "2026-01-24",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-10",
+   "end": "2026-03-24",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-25",
+   "end": "2026-04-09",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-25",
+   "end": "2028-03-09",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-10",
+   "end": "2028-02-24",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-10",
+   "end": "2028-01-24",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-10",
+   "end": "2028-03-24",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-25",
+   "end": "2028-04-09",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-02-25",
+   "end": "2026-03-09",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-10",
+   "end": "2026-02-24",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-10",
+   "end": "2026-01-24",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-10",
+   "end": "2026-03-24",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-03-25",
+   "end": "2026-04-09",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-10",
+   "end": "2026-03-24",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-02-25",
+   "end": "2026-03-09",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-01-25",
+   "end": "2026-02-09",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-25",
+   "end": "2026-04-09",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-10",
+   "end": "2026-04-24",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-10",
+   "end": "2026-03-24",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-02-25",
+   "end": "2026-03-09",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-01-25",
+   "end": "2026-02-09",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-03-25",
+   "end": "2026-04-09",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-10",
+   "end": "2026-04-24",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-25",
+   "end": "2026-12-09",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-10",
+   "end": "2026-11-24",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-10",
+   "end": "2026-10-24",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-10",
+   "end": "2026-12-24",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    10,
+    25
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-25",
+   "end": "2027-01-09",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-15",
+   "end": "2026-09-30",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-15",
+   "end": "2026-08-31",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-15",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-15",
+   "end": "2026-09-30",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-15",
+   "end": "2026-08-31",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-15",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-15",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-14",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-15",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-14",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-15",
+   "end": "2026-10-31",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-01",
+   "end": "2026-09-14",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2026-01-01",
+   "end": "2026-01-14",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-15",
+   "end": "2025-12-31",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-15",
+   "end": "2025-11-30",
+   "periodNumber": 142
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-15",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-02-01",
+   "end": "2026-02-14",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2026-01-01",
+   "end": "2026-01-14",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-15",
+   "end": "2025-12-31",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-15",
+   "end": "2025-11-30",
+   "periodNumber": 142
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-15",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-02-01",
+   "end": "2026-02-14",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-15",
+   "end": "2026-12-31",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-01",
+   "end": "2026-12-14",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-01",
+   "end": "2027-01-14",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-15",
+   "end": "2027-01-31",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-15",
+   "end": "2026-02-28",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-01",
+   "end": "2026-02-14",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-01",
+   "end": "2026-01-14",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-01",
+   "end": "2026-03-14",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-15",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-15",
+   "end": "2028-02-29",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-01",
+   "end": "2028-02-14",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-01",
+   "end": "2028-01-14",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-01",
+   "end": "2028-03-14",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-15",
+   "end": "2028-03-31",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-03-01",
+   "end": "2026-03-14",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-15",
+   "end": "2026-02-28",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-15",
+   "end": "2026-01-31",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-15",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-04-01",
+   "end": "2026-04-14",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-15",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-03-01",
+   "end": "2026-03-14",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-02-01",
+   "end": "2026-02-14",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-04-01",
+   "end": "2026-04-14",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-15",
+   "end": "2026-04-30",
+   "periodNumber": 152
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-15",
+   "end": "2026-03-31",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-03-01",
+   "end": "2026-03-14",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-02-01",
+   "end": "2026-02-14",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-04-01",
+   "end": "2026-04-14",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-15",
+   "end": "2026-04-30",
+   "periodNumber": 152
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-15",
+   "end": "2026-11-30",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-01",
+   "end": "2026-11-14",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-01",
+   "end": "2026-10-14",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-01",
+   "end": "2026-12-14",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    1,
+    15
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-15",
+   "end": "2026-12-31",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-04",
+   "offset": 0,
+   "start": "2026-09-28",
+   "end": "2026-10-13",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-04",
+   "offset": -1,
+   "start": "2026-09-14",
+   "end": "2026-09-27",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-04",
+   "offset": -3,
+   "start": "2026-08-14",
+   "end": "2026-08-27",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-04",
+   "offset": 1,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-04",
+   "offset": 2,
+   "start": "2026-10-28",
+   "end": "2026-11-13",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-05",
+   "offset": 0,
+   "start": "2026-09-28",
+   "end": "2026-10-13",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-05",
+   "offset": -1,
+   "start": "2026-09-14",
+   "end": "2026-09-27",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-05",
+   "offset": -3,
+   "start": "2026-08-14",
+   "end": "2026-08-27",
+   "periodNumber": 159
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-05",
+   "offset": 1,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-05",
+   "offset": 2,
+   "start": "2026-10-28",
+   "end": "2026-11-13",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-19",
+   "offset": 0,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-19",
+   "offset": -1,
+   "start": "2026-09-28",
+   "end": "2026-10-13",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-19",
+   "offset": -3,
+   "start": "2026-08-28",
+   "end": "2026-09-13",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-19",
+   "offset": 1,
+   "start": "2026-10-28",
+   "end": "2026-11-13",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-19",
+   "offset": 2,
+   "start": "2026-11-14",
+   "end": "2026-11-27",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-20",
+   "offset": 0,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-20",
+   "offset": -1,
+   "start": "2026-09-28",
+   "end": "2026-10-13",
+   "periodNumber": 162
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-20",
+   "offset": -3,
+   "start": "2026-08-28",
+   "end": "2026-09-13",
+   "periodNumber": 160
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-20",
+   "offset": 1,
+   "start": "2026-10-28",
+   "end": "2026-11-13",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-20",
+   "offset": 2,
+   "start": "2026-11-14",
+   "end": "2026-11-27",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-31",
+   "offset": 0,
+   "start": "2026-10-28",
+   "end": "2026-11-13",
+   "periodNumber": 164
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-31",
+   "offset": -1,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-31",
+   "offset": -3,
+   "start": "2026-09-14",
+   "end": "2026-09-27",
+   "periodNumber": 161
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-31",
+   "offset": 1,
+   "start": "2026-11-14",
+   "end": "2026-11-27",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-10-31",
+   "offset": 2,
+   "start": "2026-11-28",
+   "end": "2026-12-13",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-01",
+   "offset": 0,
+   "start": "2025-12-28",
+   "end": "2026-01-13",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-01",
+   "offset": -1,
+   "start": "2025-12-14",
+   "end": "2025-12-27",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-01",
+   "offset": -3,
+   "start": "2025-11-14",
+   "end": "2025-11-27",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-01",
+   "offset": 1,
+   "start": "2026-01-14",
+   "end": "2026-01-27",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-01",
+   "offset": 2,
+   "start": "2026-01-28",
+   "end": "2026-02-13",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-04",
+   "offset": 0,
+   "start": "2025-12-28",
+   "end": "2026-01-13",
+   "periodNumber": 144
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-04",
+   "offset": -1,
+   "start": "2025-12-14",
+   "end": "2025-12-27",
+   "periodNumber": 143
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-04",
+   "offset": -3,
+   "start": "2025-11-14",
+   "end": "2025-11-27",
+   "periodNumber": 141
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-04",
+   "offset": 1,
+   "start": "2026-01-14",
+   "end": "2026-01-27",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-01-04",
+   "offset": 2,
+   "start": "2026-01-28",
+   "end": "2026-02-13",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-12-31",
+   "offset": 0,
+   "start": "2026-12-28",
+   "end": "2027-01-13",
+   "periodNumber": 168
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-12-31",
+   "offset": -1,
+   "start": "2026-12-14",
+   "end": "2026-12-27",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-12-31",
+   "offset": -3,
+   "start": "2026-11-14",
+   "end": "2026-11-27",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-12-31",
+   "offset": 1,
+   "start": "2027-01-14",
+   "end": "2027-01-27",
+   "periodNumber": 169
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-12-31",
+   "offset": 2,
+   "start": "2027-01-28",
+   "end": "2027-02-13",
+   "periodNumber": 170
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-02-28",
+   "offset": 0,
+   "start": "2026-02-28",
+   "end": "2026-03-13",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-02-28",
+   "offset": -1,
+   "start": "2026-02-14",
+   "end": "2026-02-27",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-02-28",
+   "offset": -3,
+   "start": "2026-01-14",
+   "end": "2026-01-27",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-02-28",
+   "offset": 1,
+   "start": "2026-03-14",
+   "end": "2026-03-27",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-02-28",
+   "offset": 2,
+   "start": "2026-03-28",
+   "end": "2026-04-13",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2028-02-29",
+   "offset": 0,
+   "start": "2028-02-28",
+   "end": "2028-03-13",
+   "periodNumber": 196
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2028-02-29",
+   "offset": -1,
+   "start": "2028-02-14",
+   "end": "2028-02-27",
+   "periodNumber": 195
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2028-02-29",
+   "offset": -3,
+   "start": "2028-01-14",
+   "end": "2028-01-27",
+   "periodNumber": 193
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2028-02-29",
+   "offset": 1,
+   "start": "2028-03-14",
+   "end": "2028-03-27",
+   "periodNumber": 197
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2028-02-29",
+   "offset": 2,
+   "start": "2028-03-28",
+   "end": "2028-04-13",
+   "periodNumber": 198
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-01",
+   "offset": 0,
+   "start": "2026-02-28",
+   "end": "2026-03-13",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-01",
+   "offset": -1,
+   "start": "2026-02-14",
+   "end": "2026-02-27",
+   "periodNumber": 147
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-01",
+   "offset": -3,
+   "start": "2026-01-14",
+   "end": "2026-01-27",
+   "periodNumber": 145
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-01",
+   "offset": 1,
+   "start": "2026-03-14",
+   "end": "2026-03-27",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-01",
+   "offset": 2,
+   "start": "2026-03-28",
+   "end": "2026-04-13",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-15",
+   "offset": 0,
+   "start": "2026-03-14",
+   "end": "2026-03-27",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-15",
+   "offset": -1,
+   "start": "2026-02-28",
+   "end": "2026-03-13",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-15",
+   "offset": -3,
+   "start": "2026-01-28",
+   "end": "2026-02-13",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-15",
+   "offset": 1,
+   "start": "2026-03-28",
+   "end": "2026-04-13",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-15",
+   "offset": 2,
+   "start": "2026-04-14",
+   "end": "2026-04-27",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-16",
+   "offset": 0,
+   "start": "2026-03-14",
+   "end": "2026-03-27",
+   "periodNumber": 149
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-16",
+   "offset": -1,
+   "start": "2026-02-28",
+   "end": "2026-03-13",
+   "periodNumber": 148
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-16",
+   "offset": -3,
+   "start": "2026-01-28",
+   "end": "2026-02-13",
+   "periodNumber": 146
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-16",
+   "offset": 1,
+   "start": "2026-03-28",
+   "end": "2026-04-13",
+   "periodNumber": 150
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-03-16",
+   "offset": 2,
+   "start": "2026-04-14",
+   "end": "2026-04-27",
+   "periodNumber": 151
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-11-30",
+   "offset": 0,
+   "start": "2026-11-28",
+   "end": "2026-12-13",
+   "periodNumber": 166
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-11-30",
+   "offset": -1,
+   "start": "2026-11-14",
+   "end": "2026-11-27",
+   "periodNumber": 165
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-11-30",
+   "offset": -3,
+   "start": "2026-10-14",
+   "end": "2026-10-27",
+   "periodNumber": 163
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-11-30",
+   "offset": 1,
+   "start": "2026-12-14",
+   "end": "2026-12-27",
+   "periodNumber": 167
+  },
+  {
+   "payDates": [
+    28,
+    14
+   ],
+   "today": "2026-11-30",
+   "offset": 2,
+   "start": "2026-12-28",
+   "end": "2027-01-13",
+   "periodNumber": 168
+  }
  ]
 }

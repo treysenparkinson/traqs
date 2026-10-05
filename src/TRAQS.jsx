@@ -36,6 +36,7 @@ import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, 
          spentBarFill, doneBarFill, activeBarFill,
          barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
+import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDates as payPeriodAtOffsetFromDates } from "./payPeriod.js";
 import { placeContextMenu } from "./menuPlacement.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
@@ -5849,40 +5850,10 @@ Extraction rules:
   const _opHrs = (op) => Math.round((op.hpd || 0) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
   const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
-  // Pay-period maths (the helpers that read it were removed in root cause 9 chunk 2)
-  // periodType: "weekly" | "biweekly" | "semi-monthly" | "monthly"
-  // startDate: ISO date string of the first pay period anchor
-  // Returns { start, end, periodNumber }
-  // getPayPeriodFromDates([d1, d2], today) — semi-monthly by explicit day-of-month pair
-  // e.g. [5, 20] → periods are 5th–19th and 20th–4th each month
-  const getPayPeriodFromDates = (payDates, today) => {
-    const dates = [...(payDates||[5,20])].map(Number).sort((a,b)=>a-b);
-    const [d1, d2] = dates;
-    const _today = today || TD;
-    const t = new Date(_today + "T00:00:00");
-    const y = t.getFullYear(), m = t.getMonth(), day = t.getDate();
-    const toDS = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-    let start, end;
-    if (day >= d1 && day < d2) {
-      start = new Date(y, m, d1); end = new Date(y, m, d2 - 1);
-    } else if (day >= d2) {
-      start = new Date(y, m, d2); end = new Date(y, m + 1, d1 - 1);
-    } else {
-      start = new Date(y, m - 1, d2); end = new Date(y, m, d1 - 1);
-    }
-    const periodNumber = (y - 2020) * 24 + m * 2 + (day >= d2 ? 1 : day >= d1 ? 0 : -1) + 1;
-    return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, periodNumber) };
-  };
-  const getPayPeriodAtOffsetFromDates = (payDates, today, offset) => {
-    const toDS = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-    let period = getPayPeriodFromDates(payDates, today);
-    for (let i = 0; i < Math.abs(offset); i++) {
-      const ref = new Date((offset < 0 ? period.start : period.end) + "T00:00:00");
-      ref.setDate(ref.getDate() + (offset < 0 ? -1 : 1));
-      period = getPayPeriodFromDates(payDates, toDS(ref));
-    }
-    return period;
-  };
+  // Pay-period maths: src/payPeriod.js, held to iOS by the parity fixture. `today` falls back
+  // to the shop's today, as it always did here.
+  const getPayPeriodFromDates = (payDates, today) => payPeriodFromDates(payDates, today || TD);
+  const getPayPeriodAtOffsetFromDates = (payDates, today, offset) => payPeriodAtOffsetFromDates(payDates, today || TD, offset);
 
   // Re-render tick while at least one worker is clocked into a job, so progress bars and the
   // shrinking left edge of the worked op stay live. RENDER ONLY — this tick writes nothing.

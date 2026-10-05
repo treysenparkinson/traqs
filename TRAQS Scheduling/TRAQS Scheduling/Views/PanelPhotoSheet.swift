@@ -387,8 +387,7 @@ struct EndJobPhotoOverlay: View {
 
     /// "<PanelName>_<yyyy-MM-dd>.<ext>", with "_N" for same-day repeats.
     private func filename(ext: String) -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
+        let fmt = ShopTime.current.formatter("yyyy-MM-dd")   // a shared file: the shop's day
         let stem = "\(target.panelTitle)_\(fmt.string(from: Date()))"
             .replacingOccurrences(of: " ", with: "_")
         let existing = appState.panelAttachmentCount(jobId: target.jobId, panelId: target.panelId, stemPrefix: stem)

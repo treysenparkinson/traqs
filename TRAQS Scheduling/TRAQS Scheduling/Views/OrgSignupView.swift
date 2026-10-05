@@ -386,15 +386,19 @@ private struct PayrollStep: View {
     let errors: [OrgSignup.Field: String]
     @State private var pickingDate = false
 
+    /// The shop being signed up: the zone picked above, not the phone's. A first pay day is a
+    /// shop day (chunk D ruling 6), and the org has no settings yet for `ShopTime.current`.
+    private var shop: ShopTime { ShopTime(zone: TimeZone(identifier: form.timeZone) ?? .current) }
+
     private var date: Binding<Date> {
         Binding(
-            get: { OrgSignup.dayFormatter.date(from: form.payPeriodStart) ?? Date() },
-            set: { form.payPeriodStart = OrgSignup.dayFormatter.string(from: $0) })
+            get: { shop.date(ofDay: form.payPeriodStart) ?? Date() },
+            set: { form.payPeriodStart = shop.ymd($0) })
     }
 
     private var dateLabel: String? {
-        guard let d = OrgSignup.dayFormatter.date(from: form.payPeriodStart) else { return nil }
-        return DateFormatter.display("MMMM d, yyyy").string(from: d)
+        guard let d = shop.date(ofDay: form.payPeriodStart) else { return nil }
+        return shop.formatter("MMMM d, yyyy").string(from: d)
     }
 
     var body: some View {
@@ -420,7 +424,7 @@ private struct PayrollStep: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             if form.payPeriodStart.isEmpty {
-                                form.payPeriodStart = OrgSignup.dayFormatter.string(from: Date())
+                                form.payPeriodStart = shop.day(Date())
                             }
                             pickingDate.toggle()
                         }
@@ -442,6 +446,7 @@ private struct PayrollStep: View {
 
                     if pickingDate {
                         DatePicker("First pay period starts", selection: date, displayedComponents: .date)
+                            .environment(\.timeZone, shop.zone)
                             .datePickerStyle(.graphical)
                             .labelsHidden()
                             .tint(Paper.blue)

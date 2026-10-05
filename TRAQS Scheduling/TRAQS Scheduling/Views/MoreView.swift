@@ -268,13 +268,13 @@ struct MoreView: View {
     /// The selected week's date range, e.g. "Jun 30 – Jul 6" (or "Jul 1–7"
     /// when the week stays within one month).
     private var rangeLabel: String {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let interval = statsInterval
         let start = interval.start
         let last = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
-        let mdd = DateFormatter.display("MMM d")
+        let mdd = ShopTime.current.formatter("MMM d")
         if cal.isDate(start, equalTo: last, toGranularity: .month) {
-            let dOnly = DateFormatter.display("d")
+            let dOnly = ShopTime.current.formatter("d")
             return "\(mdd.string(from: start))–\(dOnly.string(from: last))"
         }
         return "\(mdd.string(from: start)) – \(mdd.string(from: last))"
@@ -285,7 +285,7 @@ struct MoreView: View {
     /// Monday–Sunday, matching the desktop's analytics week. `.weekOfYear` would
     /// start Sunday under en_US and split Sunday's hours across platforms.
     private var weekInterval: DateInterval {
-        StatsMath.weekInterval(containing: weekAnchor, calendar: Calendar.current)
+        StatsMath.weekInterval(containing: weekAnchor, calendar: ShopTime.current.calendar)
     }
 
     /// The window EVERY time-scoped number on this page is measured over — the
@@ -303,7 +303,7 @@ struct MoreView: View {
         case .payPeriod:
             let w = appState.payPeriodWindow(now: weekAnchor)
             return StatsMath.payPeriodInterval(start: w.start, endInclusive: w.end,
-                                               calendar: Calendar.current)
+                                               calendar: ShopTime.current.calendar)
         }
     }
 
@@ -318,7 +318,7 @@ struct MoreView: View {
     private func capacityHours(in interval: DateInterval) -> Double {
         let s = appState.orgSettings
         let days = StatsMath.workDayCount(in: interval, workCalendar: WorkCalendar(org: s),
-                                          calendar: Calendar.current)
+                                          calendar: ShopTime.current.calendar)
         return max(1.0, s.productiveHoursPerDay * Double(days))
     }
 
@@ -527,13 +527,10 @@ private extension MoreView {
     func dayOf(_ iso: String?, _ dateStr: String?) -> Date? {
         if let iso, let d = Date.fromFlexibleISO8601(iso) { return d }
         if let dateStr, !dateStr.isEmpty {
-            return Self.isoDateOnly.date(from: dateStr)   // cached; was allocated per call
+            return ShopTime.current.date(ofDay: dateStr)   // the shop's day, as the server dates it
         }
         return nil
     }
-    static let isoDateOnly: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f
-    }()
 
     /// Hours currently accruing from OPEN clocks, attributed to the calendar day
     /// the clock started. Pay = elapsed of an open pay shift minus LUNCH — the
@@ -584,7 +581,7 @@ private extension MoreView {
     /// drives the LIVE portion: open clocks add their elapsed to their start day,
     /// so passing a ticking `now` grows the bars in real time.
     func efficiencyDays(for personId: String?, now: Date = Date()) -> [EffDay] {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let week = statsInterval
         let dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         let pays = payEntries(for: personId)
@@ -700,7 +697,7 @@ private extension MoreView {
     /// Task switching = distinct jobs touched in the selected week (a job
     /// clocked out of and back into still counts once). Team-wide for now.
     var taskSwitchingCount: Int {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         let week = statsInterval
         var jobIds = Set<String>()
         for s in appState.jobSessions where !s.jobId.isEmpty {
@@ -732,7 +729,7 @@ private extension MoreView {
     /// My completed job sessions inside the pay period, newest first.
     var jobSessionsInPeriod: [JobSession] {
         let w = periodWindow
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
+        let end = ShopTime.current.calendar.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         return appState.jobSessions
             .filter { s in
                 guard let pid = statsPersonId, s.personId == pid else { return false }
@@ -771,8 +768,8 @@ private extension MoreView {
 
     /// Job sessions grouped by day for the dated log.
     var jobSessionGroups: [EntryGroup] {
-        let cal = Calendar.current
-        let df = DateFormatter.display("EEE · MMM d")
+        let cal = ShopTime.current.calendar
+        let df = ShopTime.current.formatter("EEE · MMM d")
         let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
             // Fall back to the session's `date` (as jobSessionsInPeriod does) before
             // today, so a session with a nil clockIn isn't misfiled under today.
@@ -810,8 +807,7 @@ private extension MoreView {
     }
 
     func parseISO(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        ShopTime.current.date(ofDay: s) ?? Date.fromFlexibleISO8601(s)
     }
 }
 
@@ -1022,7 +1018,7 @@ struct EffDay: Identifiable {
     /// Day-of-month, for the second label line on a multi-week chart. Over a
     /// pay period "Mon" appears twice and the date is the only thing that tells
     /// the two apart.
-    var dayNumber: String { "\(Calendar.current.component(.day, from: date))" }
+    var dayNumber: String { "\(ShopTime.current.calendar.component(.day, from: date))" }
 }
 
 private struct EfficiencyCard: View {

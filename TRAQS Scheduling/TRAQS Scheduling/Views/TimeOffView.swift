@@ -401,15 +401,8 @@ private struct RequestTimeOffOverlay: View {
 
     private var isEditing: Bool { editing != nil }
 
-    private static let ymd: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-
     private var validRange: Bool {
-        let cal = Calendar.current
+        let cal = ShopTime.current.calendar
         return cal.startOfDay(for: end) >= cal.startOfDay(for: start)
     }
 
@@ -531,6 +524,9 @@ private struct RequestTimeOffOverlay: View {
                 }
                 .tint(Color(hex: T.accentGradientStart))
             }
+            // Time off is booked in shop days (ruling 6): the pickers open on the shop's today
+            // and show its calendar, and what they show is what is saved.
+            .environment(\.timeZone, ShopTime.current.zone)
             .padding(.horizontal, 14).padding(.vertical, 10)
             // A well INSIDE the glass panel, so the two date rows read as one
             // grouped control rather than as loose text on the popup's face.
@@ -587,8 +583,8 @@ private struct RequestTimeOffOverlay: View {
         guard let r = editing, !didPrefill else { return }
         didPrefill = true
         type = r.type
-        if let s = Self.ymd.date(from: r.start) { start = s }
-        if let e = Self.ymd.date(from: r.end) { end = e }
+        if let s = ShopTime.current.date(ofDay: r.start) { start = s }
+        if let e = ShopTime.current.date(ofDay: r.end) { end = e }
         note = r.note
     }
 
@@ -597,8 +593,8 @@ private struct RequestTimeOffOverlay: View {
         noteFocused = false
         submitting = true
         error = nil
-        let s = Self.ymd.string(from: start)
-        let e = Self.ymd.string(from: end)
+        let s = ShopTime.current.ymd(start)
+        let e = ShopTime.current.ymd(end)
         let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {

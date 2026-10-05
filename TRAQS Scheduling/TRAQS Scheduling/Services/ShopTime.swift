@@ -16,13 +16,23 @@ import Foundation
 // This is the primitive #250 needs. Moving the rest of the app onto it is #304 (chunk D).
 struct ShopTime {
     let zone: TimeZone
+    /// A Gregorian calendar in the shop's zone. The device's locale and first weekday are kept:
+    /// they are how a person reads a calendar, not where the shop is.
+    let calendar: Calendar
 
-    init(zone: TimeZone) { self.zone = zone }
+    init(zone: TimeZone) {
+        self.zone = zone
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = zone
+        c.locale = .current
+        c.firstWeekday = Calendar.current.firstWeekday
+        calendar = c
+    }
 
     /// The org's zone, or the device's when the org has none (or names one Foundation does
     /// not know) — `setShopZone`'s fallback.
     init(org: OrgSettings) {
-        zone = org.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current
+        self.init(zone: org.timeZone.flatMap { TimeZone(identifier: $0) } ?? .current)
     }
 
     private static let hourMs = 3_600_000.0
@@ -95,6 +105,72 @@ struct ShopTime {
     /// "Oct 5 – Oct 7", or one label when the range is a single day.
     static func rangeLabel(start: String, end: String) -> String {
         start == end ? label(day: start) : "\(label(day: start)) – \(label(day: end))"
+    }
+}
+
+// MARK: - The app's shop (#304)
+//
+// `setShopZone`: the web sets its shop zone once and every schedule question reads it. iOS does
+// the same — AppState sets `ShopTime.current` whenever orgSettings change, and a site that asks
+// a SHOP question (what day it is, a schedule day's columns, a pay period, hours today) reads
+// `ShopTime.current.calendar` or `.formatter(_:)` where it used to read `Calendar.current` or a
+// bare DateFormatter. Each is a one-line swap, so a site's ruling is visible at the site.
+//
+// A VIEWER question — when a message was sent, when a punch happened — keeps the device's
+// calendar, as on the web. Chunk D's rulings decide which is which.
+extension ShopTime {
+
+    /// A display formatter in the shop's zone — `DateFormatter.display`, with the zone pinned.
+    /// Cached per zone, format and locale; formatter construction is the expensive part.
+    func formatter(_ format: String) -> DateFormatter {
+        let locale = Locale.current
+        let key = "\(zone.identifier)|\(format)|\(locale.identifier)"
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        if let hit = Self.formatters[key] { return hit }
+        let f = DateFormatter()
+        f.locale = locale
+        f.timeZone = zone
+        f.dateFormat = format
+        Self.formatters[key] = f
+        return f
+    }
+
+    /// The shop's midnight starting the day `now` falls in.
+    func startOfToday(_ now: Date = Date()) -> Date { calendar.startOfDay(for: now) }
+
+    /// The shop's midnight starting a stored day ("yyyy-MM-dd"), or nil when it is not one.
+    func date(ofDay ymd: String) -> Date? {
+        let p = ymd.split(separator: "-")
+        guard p.count == 3, let y = Int(p[0]), let m = Int(p[1]), let d = Int(p[2]),
+              (1...12).contains(m), (1...31).contains(d) else { return nil }
+        return calendar.date(from: DateComponents(year: y, month: m, day: d))
+    }
+
+    /// The stored day ("yyyy-MM-dd") a shop-midnight Date stands for — `day(_:)` for a Date
+    /// that came out of this calendar.
+    func ymd(_ date: Date) -> String { AppState.ymd(date, in: zone) }
+
+    // MARK: Which shop
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var formatters: [String: DateFormatter] = [:]
+    nonisolated(unsafe) private static var stored = ShopTime(zone: .current)
+
+    /// Tests pin a shop without touching the app's: `ShopTime.$override.withValue(denver) { … }`.
+    @TaskLocal static var override: ShopTime?
+
+    /// The shop every schedule question reads. The device's zone until the org's settings load.
+    static var current: ShopTime {
+        if let o = override { return o }
+        lock.lock(); defer { lock.unlock() }
+        return stored
+    }
+
+    /// `setShopZone` — AppState calls this whenever orgSettings change.
+    static func set(org: OrgSettings) {
+        let next = ShopTime(org: org)
+        lock.lock(); defer { lock.unlock() }
+        stored = next
     }
 }
 
