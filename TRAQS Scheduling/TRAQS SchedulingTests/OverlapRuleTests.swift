@@ -24,8 +24,10 @@ struct OverlapRuleTests {
 
     /// One op, as the web stores it. Decoded rather than built, so `team` goes
     /// through the real flex-id decoding and `startHour` through extras.
-    private func op(_ id: String, team: String = "[7]", _ fields: String) -> String {
-        #"{"id":"\#(id)","title":"\#(id)","team":\#(team),"status":"Not Started",\#(fields)}"#
+    /// `status` is a parameter, never part of `fields`: written in both, the key appeared twice
+    /// and Foundation keeps the FIRST, so a "Finished" op decoded as Not Started (#367).
+    private func op(_ id: String, team: String = "[7]", status: String = "Not Started", _ fields: String) -> String {
+        #"{"id":"\#(id)","title":"\#(id)","team":\#(team),"status":"\#(status)",\#(fields)}"#
     }
 
     private func job(_ ops: String...) -> [Job] {
@@ -79,7 +81,7 @@ struct OverlapRuleTests {
     }
 
     @Test func finishedWorkDoesNotTakePart() {
-        #expect(hits(job(op("Y", #""start":"2026-10-05","end":"2026-10-05","startHour":8,"hpd":4,"status":"Finished""#),
+        #expect(hits(job(op("Y", status: "Finished", #""start":"2026-10-05","end":"2026-10-05","startHour":8,"hpd":4"#),
                          op("X", #""start":"2026-10-05","end":"2026-10-05","startHour":9,"hpd":2"#))) == [])
     }
 
