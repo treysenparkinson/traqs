@@ -22,7 +22,7 @@ import { normalizeAppearance, appearanceTheme, ACCENTS, DEFAULT_PREFS } from "./
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
-import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
+import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows, mergeInOrder } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
@@ -8176,6 +8176,18 @@ Extraction rules:
       if (changedSlice.people) lastSavedRef.current.people = nextKeys.people;
       if (changedSlice.clients) lastSavedRef.current.clients = nextKeys.clients;
 
+      // THE CACHE IS REFRESHED ON SUCCESS (#379), not only after a rejection.
+      // The only cacheFullSlices call used to sit in the rollback branch, so a
+      // save that WORKED left IndexedDB holding the pre-save tree — and the next
+      // `tasks-changed` event replayed it over the state that had just been
+      // written. That is the drag that saved and sprang back.
+      //
+      // After adoptStamps, deliberately: these rows have just taken the server's
+      // lastModifiedAt, and the merge rule now decides by that stamp. Caching
+      // them before adoption would store rows with no stamp, which would lose
+      // every future merge and leave the cache permanently unable to win.
+      cacheFullSlices(latestTasksRef.current, latestPeopleRef.current, dataRef.current.clients);
+
       protectedJobIds.current.clear();
       setSaveError(null);
       setTimeout(() => setSaveStatus("saved"), 600);
@@ -8327,14 +8339,13 @@ Extraction rules:
   // messages/groups/timeclock/settings are not save-tracked, so they apply directly.
   useEffect(() => {
     const busy = () => saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved";
-    const mergeInOrder = (prev, fresh) => {
-      const byId = new Map(fresh.map(r => [String(r.id), r]));
-      const seen = new Set();
-      const out = [];
-      for (const r of prev) { const id = String(r.id); if (byId.has(id)) { out.push(byId.get(id)); seen.add(id); } }
-      for (const r of fresh) { const id = String(r.id); if (!seen.has(id)) out.push(r); }
-      return out;
-    };
+    // mergeInOrder moved to src/db/sync.js (#379). It used to take the CACHE's
+    // row for every id present in both, with no recency test, so a drag that had
+    // committed AND SAVED was reverted on screen by the next sync event — the
+    // server had the move, the board drew the old position, and the move was
+    // re-done by hand. It now compares lastModifiedAt, which every record
+    // carries since #337. It lives beside the cache it merges rather than here,
+    // so it can be tested as a function.
     const applySlice = async (entity) => {
       // Only the save-tracked slices must bail while the user has unsaved edits
       // (tasks/people/clients each re-check busy() before their own setState

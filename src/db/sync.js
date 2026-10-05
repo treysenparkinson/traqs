@@ -238,3 +238,52 @@ export async function hasCachedData() {
   const [cursor, taskCount] = await Promise.all([getCursor(), db.tasks.count()]);
   return !!cursor || taskCount > 0;
 }
+
+/**
+ * Fold a cached slice over live in-memory state, newest row wins.
+ *
+ * #379. This rule used to live inside TRAQS.jsx and took the CACHE's row for
+ * every id present in both, with no recency test:
+ *
+ *     for (const r of prev) if (byId.has(id)) out.push(byId.get(id));
+ *
+ * So a drag that had committed and SAVED was reverted on screen the moment any
+ * `tasks-changed` event fired, because the cache still held the pre-drag tree.
+ * The server had the move; the board drew the old position; and the user
+ * re-dragged work that had already moved.
+ *
+ * Every record carries `lastModifiedAt` since #337, so the question "which of
+ * these two is current" has an answer and does not need guessing. ISO-8601
+ * stamps compare correctly as plain strings, which is why this is a `<` and not
+ * a Date parse.
+ *
+ * MISSING STAMPS are decided in the direction that protects live state: an
+ * unstamped cache row cannot prove it is newer, so it loses. An unstamped LIVE
+ * row has no provenance of its own, so a stamped cache row beats it. With
+ * neither stamped, live is kept — the cache has no claim.
+ *
+ * Membership and order are unchanged from the original: live order leads,
+ * cache-only rows are appended, and a row that exists only in live is dropped
+ * (the cache is the authority on what EXISTS; this only decides which version).
+ */
+export function mergeInOrder(prev, fresh) {
+  const prevList = Array.isArray(prev) ? prev : [];
+  const freshList = Array.isArray(fresh) ? fresh : [];
+  const byId = new Map(freshList.map(r => [String(r?.id), r]));
+  const stamp = (r) => (r && typeof r.lastModifiedAt === "string" ? r.lastModifiedAt : "");
+  const winner = (live, cached) => {
+    const a = stamp(live), b = stamp(cached);
+    if (a && b) return b > a ? cached : live;   // a tie keeps live: not a reason to replace
+    if (a && !b) return live;                   // unstamped cache cannot claim to be newer
+    if (!a && b) return cached;                 // unstamped live has nothing to defend with
+    return live;                                // neither: the cache has no claim
+  };
+  const seen = new Set();
+  const out = [];
+  for (const r of prevList) {
+    const id = String(r?.id);
+    if (byId.has(id)) { out.push(winner(r, byId.get(id))); seen.add(id); }
+  }
+  for (const r of freshList) { const id = String(r?.id); if (!seen.has(id)) out.push(r); }
+  return out;
+}

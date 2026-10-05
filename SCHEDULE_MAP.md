@@ -1027,6 +1027,43 @@ Everything else was read at the cited line. Nothing was run against live data.
     for a reason it cannot articulate. All three are found by asking the same question, which is
     not "is it green?" but "what exactly did it compare?"
 
+11. I MEASURED THE STORE AND CALLED IT THE SCREEN. Treysen's framing, from #377, and it is the
+    most expensive measuring mistake in this campaign because the number was not approximately
+    right — it was confidently wrong.
+
+    Asked whether the schedule draws bars from deleted jobs, I read `getPersonBars`, found it had
+    no `deletedAt` guard anywhere in its 150 lines, counted the deleted-job ops in
+    `tasks.json`, and reported that 531 of 551 bars — 96% of the board — were work that does not
+    exist. I produced a per-person table of what would vanish. All of it was wrong.
+    `GET /tasks` returns `filterLive(data)`: tombstoned jobs are stripped SERVER-SIDE and never
+    reach the browser. The true count of phantom bars at Matrix is ZERO.
+
+    The reader really does lack the guard. It cannot matter, because the data is gone three
+    layers earlier.
+
+    THE CHECK: before any measurement about what the USER SEES, establish what the CLIENT
+    ACTUALLY RECEIVES. There are at least three filters between the store and the screen —
+    the server filters on read (`filterLive`), the client filters on load (`normalizeTasks`,
+    the view lists), and the renderer filters again (`takesPart`, `showCompleted`,
+    `isTimelinePlaced`). A count taken at the wrong layer does not come out slightly high; it
+    comes out describing a different system.
+
+    THE RETRACTION CHAIN, because this is the fourth time a measurement sent the work the wrong
+    way, and THREE OF THE FOUR ARE THE SAME DELETED-DATA MISTAKE IN MY OWN SCRIPTS:
+
+      #347  "Tyler at 205%, the crew at 172%" — struck. Deleted jobs counted as live load. The
+            real figures are ~21% and ~14%, and there was no staffing finding at all.
+      #357  `measure-plan-gaps.mjs` shipped carrying the same bug, so the tool built to measure
+            the schedule was itself counting deleted work.
+      441   The "441 multi-day ops on the schedule" that framed the drag report was my own
+            earlier count including deleted jobs. It made a drag question look like it was about
+            most of the board. The live figure is 75, or 20 by the schedule's own predicate.
+      #377  This one. The same data, now mistaken for what the browser holds.
+
+    The common root is not carelessness about `deletedAt` specifically. It is reading the STORE
+    because the store is easy to read — one GET, no app, no browser — and then describing the
+    SCREEN. S3 is the easiest layer to measure and the furthest from what anybody looks at.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1485,3 +1522,76 @@ Everything else was read at the cited line. Nothing was run against live data.
     WHAT THE SWEEP TAUGHT, which is why the first draft of it was useless: NOT EVERY `\n` IS A HAZARD. A CRLF document CONTAINS `\n` — the sequence is `\r` then `\n` — so a pattern anchored on the newline alone still matches. `"\n    if (x)"` matches `"\r\n    if (x)"`; `/\s*\n\s*const/` matches, because `\s*` absorbs the `\r`; `/[^\n]*\n/` matches, because `[^\n]` absorbs it. The hazard is a LITERAL CHARACTER sitting immediately before the newline, which then has to touch `\n` with a `\r` in the way — `"=> {\n"` against `"=> {\r\n"`, which is exactly #314's bug. A first pass that flagged any `\n` returned 27 suites, 26 of them fine; a list that size is ignored for the same reason a red build is. Re-scoped to the real hazard it returns exactly one: schedule-parity.
 
     MUTATION-PROVED, three mutants, each checked for the RIGHT failure rather than just a non-zero exit: removing the normalisation fires the canary by name (not a phantom rule change); removing the canary is caught by the sweep; removing the normalisation is independently caught by the sweep. The second of those exposed a hole in this suite's own first draft — it asserted the canary's MESSAGE, so replacing the guard with `if (false)` left the wording in place and passed. It now requires the condition to be real and to inspect what was read. A guard that guards nothing is the family this whole suite exists to catch, and it was in the catcher.
+
+
+377. STRUCK 2026-10-05, the same day it was raised. IT WAS WRONG, and the correction matters more than the entry did. I reported that the schedule draws bars from deleted jobs — 531 of 551, 96% of the board — with a per-person table of what would vanish and a claim that the month-view drag refusals were therefore correct refusals against phantoms. None of that is true.
+
+    WHAT DISPROVES IT, in one line of the server: `GET /tasks` returns `filterLive(data)` (`netlify/functions/tasks.js:37`), and `filterLive` drops every record with a `deletedAt`. Tombstoned jobs are stripped BEFORE the response leaves the server and never reach the browser. Measured against what the client is actually served: 114 jobs in S3, 64 served, 50 stripped; of the bars `getPersonBars` would then draw, 20 are real, 0 come from a deleted panel, 0 from a deleted op. THE TRUE PHANTOM COUNT IS ZERO.
+
+    WHAT REMAINS TRUE: `getPersonBars` (`src/TRAQS.jsx:14829-14975`) really does contain no `deletedAt` check — its guards are `jobType`, `onTeam`, `showCompleted`/Finished, and `isTimelinePlaced` (= `start && end` plus `team.length`), none of which look at deletion. The gap it leaves is a deleted PANEL or OP inside a LIVE job, because `filterLive` only tests the top level of the array. At Matrix there are currently 0 of those, so the gap is latent, not live. That is a #356 entry, not a defect of its own.
+
+    WHAT IT COST: two turns of work built on it, a withdrawn conclusion that the month-view drag was "not a drag bug", and a per-person impact table that described a system nobody runs. The drag is an open question again — see #378 and the fork recorded there.
+
+    THE LESSON IS LESSONS #11, "I measured the store and called it the screen". Before any measurement about what the user sees, establish what the client actually receives: the server filters on read, the client filters on load, and the renderer filters again. This is the fourth measurement in this campaign to send the work the wrong way and the third of those to be the same deleted-data mistake in my own scripts (#347, #357, the "441").
+
+    A SECOND QUESTION ANSWERED WHILE DISPROVING THE FIRST — how 33 jobs came to hold 531 dated, teamed, unfinished ops. BY DESIGN, and correctly. `delTask` (`src/TRAQS.jsx:10188`) HARD-REMOVES the node from the client tree and posts the tree without it; the server's `reconcileDeletions` sees it in `previous` and absent from `next` and calls `softDelete(rec)`, which is `{ ...record, deletedAt, lastModifiedAt }` — the subtree is spread UNCHANGED. It has to be, or a restore would have nothing to restore. The ops keeping their dates and teams is the tombstone working, not a second defect upstream.
+
+    AND WHO DELETED THE SEVEN TORUS DUPLICATES (450 ops, all deleted 2026-09-29 to 10-02): A PERSON, testing. The S3 version history at the deletion timestamps shows the signature of interactive use, not a script — 22:31:25 a +39-byte write (one job gaining `deletedAt` and `lastModifiedAt`), 22:31:54 a +40,703-byte write (a fresh 60-op job created), then eighteen writes of 240-290 bytes each between 1 and 6 seconds apart (field edits autosaving), then 22:33:26 another +39-byte tombstone. Median gap between writes: 3 seconds. A script writes once and large; a person writes small and often. It matches Treysen's own stated intent to run a real re-plan on Matrix. NOTHING IN THIS CAMPAIGN'S WORK DELETED THEM: every measurement script written for it uses `GetObjectCommand` only, and the five scripts in `scripts/` that can write to S3 are pre-existing backfills, none of which were run.
+
+
+378. RE-SCOPED 2026-10-05, same day. I logged `src/TRAQS.jsx:16687` (`if (snapS === null) return;`) as "a bare return sitting before the refusal handling in the drop" — a path that could refuse a move and tell the user nothing. Treysen ruled on it as the silent-refusal path. THAT WAS WRONG, and the error was not checking which handler the line is in.
+
+    Both handlers are registered together at `:16356`, and the file is deep enough that the boundary is easy to miss: `onM` (mousemove) runs `:16580-16731`, `onU` (mouseup) runs `:16732-16825`. Line 16687 is inside **onM**. It is the GHOST-DRAWING path. All it does is skip updating the ghost for one frame when the projected start cannot be computed; it never reaches a commit, never refuses anything, and cannot produce a snap-back.
+
+    WHAT IT ACTUALLY LEAVES: when that early return fires, `teamDragLiveRef.current` is not updated for that frame either — the assignment is at `:16724`, after the return. The drop reads its landing from that same ref (`:16739-16740`, `teamDragLiveRef.current?.snapStart ?? _dragBaseStart`), so a drag whose LAST mousemove took the early return would commit the landing from the previous frame. That is a real sharp edge and worth keeping, but it is a one-frame staleness, not a silent refusal, and it is not what Trey hit.
+
+    NOT A DEFECT ON ITS OWN. Left open as a note on the ref's lifetime rather than as a bug with a user-visible symptom. The symptom it was logged for belongs to #379.
+
+379. OPEN, DIAGNOSED 2026-10-05 from Trey's screen recording. A COMMITTED, SAVED DRAG RENDERS AT ITS OLD POSITION. The move succeeds, the server stores it, and the bar springs back on screen — so the work has been done and the board says it has not. Trey has been re-dragging work that already moved.
+
+    THE RECORDING, frame by frame at 30fps: ghost on Draven's own row reading "Wed, Oct 14 · 11:00 AM → Fri, Oct 16 · 11:00 AM"; release; and TWO FRAMES LATER (67 ms) the bar is back at Oct 6-8. No dialog, ever. 67 ms is far too fast for a server round trip, so nothing was refused and nothing was rejected.
+
+    THE DATA SAYS THE MOVE WORKED. `"2057-02 Wire"` is stored at `2026-10-14 -> 2026-10-16, startHour 11` — exactly the ghost's reading — inside job `402057`, whose `lastModifiedAt` was `2026-10-05T21:50:36.976Z`, 15:50 Mountain, the minute of the recording. (CORRECTED: I first wrote that stamp as the OP's. OPS CARRY NO `lastModifiedAt` AT ALL — only top-level JOBS do; my script read `o.lastModifiedAt || j.lastModifiedAt` and I reported the fallback as the op's own.) Its moveLog carries three successive entries from that afternoon (`10-08 -> 10-13`, `10-13 -> 10-12`, `10-12 -> 10-14`), which is Trey dragging the same bar three times because the screen kept telling him it had not moved. Draven has exactly three ops in the whole dataset and NONE of them is at Oct 6-8: the bar the recording shows there at the end corresponds to no record on the server.
+
+    THE MECHANISM, traced statically end to end:
+
+      1. `commitLanding` applies the move with `setTasks` and schedules `doSave`. In-memory: Oct 14.
+      2. `doSave` writes it. Server: Oct 14. This is the part that works.
+      3. `doSave` DOES NOT REFRESH THE INDEXEDDB CACHE on success. The only `cacheFullSlices` call inside it (`:8227`) sits in the ROLLBACK-AFTER-REJECTED-SAVE branch — its own catch reads "Rollback after rejected save failed". A successful save leaves the cache holding the PRE-DRAG tree.
+      4. The next delta sync dispatches `tasks-changed` (`src/db/sync.js:80`), which runs `applySlice("tasks")` (`:8338`).
+      5. `applySlice` reads the stale slice and folds it over live state with `mergeInOrder` (`:8330`) — and `mergeInOrder` takes the CACHE's row for every id present in both: `for (const r of prev) { if (byId.has(id)) out.push(byId.get(id)); }`. No `lastModifiedAt` comparison, no recency test. THE CACHE WINS UNCONDITIONALLY.
+      6. `setTasksFromServer(merged)` installs the pre-drag tree. Screen: Oct 6-8. Server: still Oct 14.
+
+    ANSWERING THE QUESTION THAT NARROWS THE FIX — is the old bar a React element that never re-keyed, or does some state hold the pre-drag tree? IT IS STATE. `getPersonBars` is called during plain render, not inside a `useMemo`, so the bars recompute on every render and no stale element can survive. The pre-drag tree is genuinely in `tasks`, put back there by `applySlice`. The bar is not an orphan element; it is a faithful drawing of stale state.
+
+    WHY IT IS INTERMITTENT: `applySlice` bails early if `busy()` (a save in flight). A sync event landing DURING the save does nothing; one landing after the save completes — while the cache is still stale — reverts the screen. That is the "sometimes" in the report.
+
+    THIS IS THE SHAPE ALREADY ON FILE as "cache beats server on rehydrate": `applySlice` letting the IndexedDB copy overwrite in-memory state, with the note that authoritative writes must be folded back through `mergeFullSlice`. A save is an authoritative write and is not folded back.
+
+    WHAT IT MAY HAVE DONE TO THE SCHEDULE, which Trey should be told separately from the fix. HE RE-DRAGGED THE SAME OPERATION THREE TIMES IN ONE AFTERNOON BECAUSE THE SCREEN TOLD HIM IT HAD NOT MOVED, and EVERY ONE OF THOSE DRAGS SAVED. The moveLog on `"2057-02 Wire"` records `10-08 -> 10-13`, `10-13 -> 10-12`, `10-12 -> 10-14` within the same afternoon. Only the last is where he meant it to end up; the first two were corrections of a move he could not see had already happened. The same pattern will have applied to any other bar he dragged while this was live, and nothing on screen would have shown it. HIS SCHEDULE MAY THEREFORE HOLD WORK IN PLACES HE DID NOT INTEND — not corrupted, and every write is in the moveLog, but moved by a hand that was told the first attempt failed. Worth a pass over the moveLogs for the affected window before trusting the board.",
+  "",
+  "    FIXED 2026-10-05, both halves, because either alone leaves the defect reachable:",
+  "",
+  "      (1) THE DIRECT CAUSE. `doSave` now refreshes the IndexedDB cache on SUCCESS, not only in the rollback branch. Placed AFTER `adoptStamps`, deliberately: those rows have just taken the server's `lastModifiedAt`, and caching them before adoption would store unstamped rows that lose every future merge under (2), leaving the cache permanently unable to win.",
+  "",
+  "      (2) THE CLASS. `mergeInOrder` moved out of TRAQS.jsx into `src/db/sync.js`, beside the cache it merges, and now compares `lastModifiedAt` instead of taking the cache's row unconditionally. Every record carries that stamp since #337, so "which of these is current" has an answer and does not need guessing. Fixing only (1) would leave any OTHER path that lets the cache go stale free to do this again, and this campaign's evidence is that "some other path" eventually comes true.",
+  "",
+  "      Missing stamps are decided in the direction that protects live state: an unstamped CACHE row cannot claim to be newer and loses; an unstamped LIVE row has no provenance and loses to a stamped cache row; with neither stamped, live is kept. Membership and order are unchanged — live order leads, cache-only rows are appended, and a row present only in live is still dropped, because the cache remains the authority on what EXISTS and this only decides which VERSION wins.",
+  "",
+  "      `cache-merge-test.mjs`, 15 assertions, wired into the build (64 suites). Five mutants, five caught, including the original rule restored verbatim and a `>=` tie-break that would quietly reintroduce it.",
+  "",
+  "    CONFIRMED IN PART, 2026-10-05, by two instrumented drags:
+
+        [#379] 1. drop committed — 2026-10-08->2026-10-12 h12
+        [doSave] POST 64 tasks ...
+        [#379] 3. save ok, cache refreshed — 2026-10-08->2026-10-12 h12
+
+    FIX (1) IS PROVEN: the cache now carries the just-saved dates, where before it kept the pre-drag tree. FIX (2) IS UNEXERCISED — `applySlice` fired once at load and never again during either drag, so the merge rule has not been watched doing its job in the wild. It is correct by test and by construction, and it stays, but it is defensive rather than demonstrated.
+
+    AND THAT RAISES A PROBLEM WITH THE MECHANISM AS WRITTEN ABOVE. A sync does NOT normally fire after your own save: the server's push following a POST excludes the saving client (`netlify/functions/tasks.js:466`, `silentIds`), so the only thing that would run `applySlice` for the person who dragged is the 30-SECOND POLL (`src/TRAQS.jsx:7740`). The revert in the recording landed 67 MILLISECONDS after release. That is far too fast for a poll or an Ably round trip, so `applySlice` is UNLIKELY TO BE WHAT REVERTED THE BAR THAT DAY.
+
+    SO THE ORIGINAL SYMPTOM IS NOT EXPLAINED. Both fixes are right and both address real defects — a cache left stale by every successful save, and a merge that let any stale cache win — but neither has been shown to be the cause of what Trey filmed. The honest state is: the chain was traced from code and corroborated by stored data, the instrumented run confirmed half of it, and the timing of the recording contradicts the half that would have produced the visible revert. A candidate worth checking next is the 30s poll's FULL refetch (`refetch` at :7822): it re-checks `saveStatusRef` after the fetch resolves, but a response already in flight when the drop lands can still arrive in the window before the save marks itself dirty.
+
+    THE TRACER HAS BEEN REMOVED, as planned — it existed to prove a fix, not to ship.
+
+    (Originally logged as: INSTRUMENTED, NOT YET OBSERVED.) The chain above is traced from the code and the stored data; nobody has watched it happen. A tracer behind `localStorage.tq_trace_379 = "1"` logs three points — the commit applying, a rehydrate firing with what it holds in memory vs the cache vs the merge result, and the save completing — so ONE drag confirms or refutes it. It is off by default, changes no behaviour, and is to be REMOVED once confirmed. The console capture Treysen asked for could not be run here — what `tasks` holds immediately after the drop, what the next poll applies, and whether the rehydrate fires in between — COULD NOT BE RUN: there is no browser automation in this repo (no Playwright, no Puppeteer) and the app is behind Auth0, so the drag cannot be driven headlessly. The chain above is established by reading the code and the stored data rather than by observing it live, and the one assumption it rests on is that a `tasks-changed` event fired between the save and the revert. Instrumenting the three points and having Trey perform one drag would confirm it in a single attempt.
