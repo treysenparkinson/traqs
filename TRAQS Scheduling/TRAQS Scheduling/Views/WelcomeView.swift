@@ -346,13 +346,6 @@ struct WelcomeView: View {
             .background(Capsule().fill(brandBlue.opacity(0.12)))
             .overlay(Capsule().strokeBorder(brandBlue.opacity(0.22), lineWidth: 1))
 
-            if let domain = org?.domain, !domain.isEmpty {
-                Text("@\(domain) accounts only")
-                    .font(TTypo.sm(13))
-                    .foregroundStyle(stone)
-                    .padding(.top, 10)
-            }
-
             signInButton.padding(.top, 22)
 
             if let error = auth.error {

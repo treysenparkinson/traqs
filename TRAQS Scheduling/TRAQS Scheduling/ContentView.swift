@@ -88,8 +88,10 @@ struct RootView: View {
             largeScreen = $0
         }
         // Smaller phones read one step up too (xLarge), large ones two (xxLarge).
-        .dynamicTypeSize(largeScreen ? DynamicTypeSize.xxLarge ... .accessibility5
-                                     : DynamicTypeSize.xLarge ... .accessibility5)
+        // NOT the sign-in / sign-up gate: those screens keep their original size.
+        .dynamicTypeSize(signIn ? DynamicTypeSize.xSmall ... .accessibility5
+                         : largeScreen ? DynamicTypeSize.xxLarge ... .accessibility5
+                                       : DynamicTypeSize.xLarge ... .accessibility5)
         // The splash is an OVERLAY, not a ZStack sibling. As a sibling it drove
         // the ZStack's width (its 440pt-wide glow made the whole stack wider
         // than the screen), so the app content laid out too wide — title
