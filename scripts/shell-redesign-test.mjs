@@ -159,7 +159,14 @@ check("the rail no longer uses the cursor tooltip", () => !/tipCtx\.show/.test(A
 check("the label is placed from the hovered button's own box", () => /getBoundingClientRect\(\)/.test(RAIL) && /left: railTip\.left/.test(ASIDE) || "label not anchored to the button");
 check("the label fades (opacity transition), both ways", () => /opacity: railTip\.on \? 1 : 0/.test(ASIDE) && /transition: "opacity 0\.1\d?s/.test(ASIDE) || "no fade");
 check("the <aside> has no hover-expand handlers", () => !/<aside[^>]*onMouse(Enter|Leave)/.test(ASIDE) || "onMouseEnter/Leave on <aside>");
-check("the nav highlight is a circle", () => /borderRadius:\s*"50%"/.test((RAIL.match(/const navBtn = [\s\S]*?\n\s*\}\);/) || [""])[0]) || "navBtn is not 50%");
+// SUPERSEDED 2026-10-05: the highlight is a rounded SQUARE now, by ruling, and
+// a little smaller than the foot's button. Re-pointed rather than deleted, so
+// the shape stays asserted in one place instead of silently becoming whatever
+// the last edit left — the "nav highlight" section below carries the detail.
+check("the nav highlight is a rounded square, not a circle", () => {
+  const fn = (RAIL.match(/const navBtn = [\s\S]*?\n\s*\}\);/) || [""])[0];
+  return (/borderRadius: RAIL_NAV_R,/.test(fn) && !/borderRadius:\s*"50%"/.test(fn)) || "navBtn is still a circle";
+});
 const NAVBTN = (RAIL.match(/const navBtn = [\s\S]*?\n\s*\}\);/) || [""])[0];
 check("the selected nav button is a solid accent fill", () => /background: active \? T\.accent :/.test(NAVBTN) || "active fill is not T.accent");
 check("its icon contrasts the accent", () => /color: active \? T\.accentText :/.test(NAVBTN) || "active icon is not T.accentText");
@@ -312,6 +319,41 @@ check("no two-tone 135° fills left on the sign-in / kiosk screens", () => {
   return n === 0 || `${n} left`;
 });
 check("no radial glow orbs in the app", () => count(/radial-gradient\(circle,/g) === 0 || `${count(/radial-gradient\(circle,/g)} left`);
+
+// ── the nav's selected highlight ─────────────────────────────────────────────
+// The highlight and the button are ONE element: the disc behind an active icon
+// is the button's own background, so its shape and size are the button's.
+console.log("\nnav highlight");
+check("the nav button is a rounded square, not a circle", () =>
+  (/borderRadius: RAIL_NAV_R,/.test(RAIL) && !/width: RAIL_NAV_BTN[\s\S]{0,60}?borderRadius: "50%"/.test(RAIL))
+  || "the nav button is still a circle");
+check("...really rounded, but still square", () => {
+  const m = RAIL.match(/const RAIL_NAV_R = Math\.round\(RAIL_NAV_BTN \/ (\d+)\)/);
+  if (!m) return "could not read the nav radius";
+  // /2 is a circle. Anything at or below a third is clearly a square.
+  return Number(m[1]) >= 3 || "the radius is half the width, which is a circle";
+});
+check("...and smaller than the foot's button", () => {
+  const nav = RAIL.match(/const RAIL_NAV_BTN = (\d+);/);
+  const foot = RAIL.match(/const RAIL_BTN = (\d+);/);
+  if (!nav || !foot) return "could not read both button sizes";
+  return Number(nav[1]) < Number(foot[1]) || `nav ${nav[1]} is not smaller than foot ${foot[1]}`;
+});
+// A face in a squircle reads as a cropped photo. The profile keeps its circle.
+// Both the nav and the settings layer inside it draw the same column, so the
+// spacing is one constant — written twice, they drift and the column stops
+// looking evenly spaced in one state or the other.
+check("the button spacing is one constant, used by every button column", () =>
+  (RAIL.match(/gap: RAIL_NAV_GAP/g) || []).length === 3 || "the nav gap is not shared by all three columns");
+// Scoped to the rail's BUTTON COLUMNS — the ones with padding 7 — not to every
+// gap in the rail. The first version matched a popover's text rows too and
+// reported a defect that was not one: an assertion that fires on anything
+// nearby is a false alarm generator, and those get ignored like a red build.
+check("...and no button column is left on a literal gap", () =>
+  !/alignItems: "center", gap: \d+, padding: 7/.test(RAIL) || "a literal gap survives in a rail button column");
+check("...while the profile button keeps its circle", () =>
+  /width: RAIL_BTN, height: RAIL_BTN, padding: 0, border: "none", borderRadius: "50%"/.test(RAIL)
+  || "the profile button is no longer a circle");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

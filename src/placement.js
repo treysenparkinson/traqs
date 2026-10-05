@@ -344,6 +344,64 @@ export function hoursLoadOf(units, { excludeJobId = null } = {}) {
   return (id) => load.get(sid(id)) || 0;
 }
 
+/**
+ * The rows for the Jobs page's quick-assign picker: who can do this op, best
+ * first, with everybody else after a divider.
+ *
+ * RULED 2026-10-05. Department matches lead; the rest of the crew follow a
+ * divider. NOBODY IS HIDDEN — a strict filter would leave an op whose
+ * department no one holds with an empty dropdown and no way to assign it at
+ * all, which is worse than an imperfect order.
+ *
+ * It asks candidatesFor rather than re-deriving eligibility, so the picker and
+ * the scheduler cannot disagree about who may do an op. That is the whole point
+ * of putting this here instead of in the component.
+ *
+ * Returns [{ id, name, dept, match }] with at most one { divider: true } between
+ * the two groups, and no divider when there is nothing to divide — an op open
+ * to anyone, or one nobody matches, is a single flat list either way.
+ */
+export function assignPickerOptions(op, crew, ctx = {}) {
+  const all = (crew || []).filter(Boolean);
+  // `busyWith(personId)` -> null when free, or the unit they clash with. Passed
+  // in rather than computed here: the caller holds schedulerAvailability, the
+  // one oracle that answers "is this person free", and this must not become a
+  // second one. A busy person is MARKED, never hidden — "why isn't Caleb in the
+  // list" is a worse question to be left with than "Caleb is booked Tue–Thu".
+  const busyWith = typeof ctx.busyWith === "function" ? ctx.busyWith : () => null;
+  // An op that already names a team would make candidatesFor return just them
+  // (manual assignment wins), which is right for the scheduler and wrong for a
+  // picker whose job is to OFFER a change. Ask about the op's department only.
+  const { team: _drop, ...noTeam } = op || {};
+  const matchIds = new Set(candidatesFor(noTeam, all, ctx).map(p => sid(p.id)));
+
+  const row = (p) => ({
+    id: p.id,
+    name: p.name || sid(p.id),
+    // Resolved once per person here rather than at render: the row carries both
+    // the flag and WHAT the clash is, so the refusal can name it without asking
+    // the oracle a second time.
+    busy: !!busyWith(p.id),
+    busyWith: busyWith(p.id) || null,
+    // The person's own department, for the row's secondary label. Empty string
+    // rather than undefined so the UI can print it without a guard.
+    dept: (Array.isArray(p.departments) ? p.departments[0] : p.department) || "",
+    match: matchIds.has(sid(p.id)),
+  });
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+
+  const rows = all.map(row);
+  // Free before busy INSIDE each group, so the names that can actually be
+  // picked lead — but never across the divider: a busy department match still
+  // outranks a free outsider, because the department is the stronger signal and
+  // being busy is a timing problem rather than a competence one.
+  const order = (a, b) => (a.busy === b.busy ? byName(a, b) : (a.busy ? 1 : -1));
+  const hits = rows.filter(r => r.match).sort(order);
+  const rest = rows.filter(r => !r.match).sort(order);
+  if (!hits.length || !rest.length) return [...hits, ...rest];
+  return [...hits, { divider: true }, ...rest];
+}
+
 /** Whether an op may be re-planned at all. The only real lock is an active clock. */
 export function isReplannable(op, people) {
   const id = sid(op?.id);

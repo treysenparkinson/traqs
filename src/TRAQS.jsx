@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, isReplannable, OUTCOME } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -37,7 +37,7 @@ import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, 
          barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDates as payPeriodAtOffsetFromDates } from "./payPeriod.js";
-import { placeContextMenu } from "./menuPlacement.js";
+import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -3650,7 +3650,7 @@ function AssigneeDrop({ value, onChange, people }) {
   </div>;
 }
 // Minimal TRAQS-styled single-select. options: [{ value, label, color? }]. No built-in margin.
-function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill = false, portal = false, size = "sm" }) {
+function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill = false, portal = false, size = "sm", trigger = null }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   // Portalled menus escape a scrolling/clipping ancestor (e.g. a modal body).
@@ -3667,31 +3667,48 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
     if (portal) { window.addEventListener("resize", close); window.addEventListener("scroll", onScroll, true); }
     return () => { document.removeEventListener("mousedown", h); window.removeEventListener("resize", close); window.removeEventListener("scroll", onScroll, true); };
   }, [open, portal]);
-  const sel = options.find(o => o.value === value);
+  // A thunk is resolved only while open; an array is used as-is. Existing
+  // callers pass arrays and are unaffected.
+  const listOf = () => (typeof options === "function" ? options() : options) || [];
+  const rows = open ? listOf() : [];
+  const sel = rows.find(o => o.value === value);
   const toggle = () => {
     if (open) { setOpen(false); return; }
     if (portal) {
       const r = ref.current?.getBoundingClientRect();
       if (r) {
-        const wantH = Math.min(260, options.length * 37 + 8);
+        const wantH = Math.min(260, listOf().length * 37 + 8);
         const below = window.innerHeight - r.bottom - 12;
         const up = below < wantH && r.top - 12 > below;
-        setAnchor({ left: r.left, width: r.width, top: up ? Math.max(8, r.top - 4 - wantH) : r.bottom + 4, maxHeight: up ? Math.min(260, r.top - 12) : Math.min(260, below) });
+        // Width and horizontal placement come from placeDropMenu: a CUSTOM
+        // trigger stops dictating the menu's width (the Jobs page hands us the
+        // word "Unassigned", which rendered a 70px menu with every name clipped
+        // to two letters), while a default trigger keeps matching its own width
+        // exactly, so no existing caller moves.
+        const _w = placeDropMenu({ left: r.left, width: r.width, viewportWidth: window.innerWidth, custom: !!trigger });
+        setAnchor({ left: _w.left, width: _w.width, minWidth: _w.minWidth, maxWidth: _w.maxWidth, top: up ? Math.max(8, r.top - 4 - wantH) : r.bottom + 4, maxHeight: up ? Math.min(260, r.top - 12) : Math.min(260, below) });
       }
     }
     setOpen(true);
   };
-  const menu = <div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, width: anchor?.width, zIndex: 10060, maxHeight: anchor?.maxHeight ?? 260 } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 260 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
-    {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+  const menu = <div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, width: anchor?.width, minWidth: anchor?.minWidth, maxWidth: anchor?.maxWidth, zIndex: 10060, maxHeight: anchor?.maxHeight ?? 260 } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 260 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
+    {rows.map((o, ri) => { if (o.divider) return <div key={"div" + ri} style={{ padding: "6px 14px 4px", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.textDim, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>{o.label || "Others"}</div>; const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
       <span style={{ width: 8, height: 8, borderRadius: 8, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
-      <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
+      <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.label}</span>{o.sub ? <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.textDim, flexShrink: 0 }}>{o.sub}</span> : null}
     </div>; })}
   </div>;
   return <div ref={ref} style={{ position: "relative" }}>
-    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: size === "lg" ? "12px 16px" : pill ? "9px 14px" : "9px 12px", borderRadius: pill ? T.radiusPill : T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none" }}>
+    {/* A caller may supply its own trigger — the Jobs page hands us the
+        "Unassigned" text itself, so the cell looks untouched until pressed.
+        Without one this renders the pill it always has, so every existing
+        caller is unaffected. */}
+    {trigger
+      ? <div onClick={toggle} style={{ cursor: "pointer", display: "flex", alignItems: "center", minWidth: 0 }}>{trigger}</div>
+      :
+      <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: size === "lg" ? "12px 16px" : pill ? "9px 14px" : "9px 12px", borderRadius: pill ? T.radiusPill : T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none" }}>
       <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 8, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.bgText : hexA(T.bgText, 0.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
-    </div>
+      </div>}
     <FadeOnClose open={open && (!portal || !!anchor)}>{open && (portal ? (anchor ? createPortal(menu, document.body) : null) : menu)}</FadeOnClose>
   </div>;
 }
@@ -8761,6 +8778,57 @@ Extraction rules:
   };
 
   // A panel's toggle must not drag a clocked op in by the back door.
+  // Who a HUMAN may put on an operation. Deliberately NOT the scheduler's crew:
+  // `noAutoSchedule` means "the scheduler must not pick this person", which is a
+  // statement about automation, not about whether they can do the work. Filtering
+  // them out of a manual picker would hide people an admin is entitled to assign
+  // — at Matrix that is Heston, who is flagged noAutoSchedule and still a working
+  // employee. Deleted people are excluded; nobody else is.
+  const assignableCrew = useMemo(
+    () => people.filter(p => p && !p.deletedAt && (p.userRole === "user" || p.userRole === "admin")),
+    [people]);
+  // The quick-assign picker's rows for one op, and the commit behind them.
+  //
+  // EVERY QUESTION GOES TO AN EXISTING OWNER. Eligibility is candidatesFor, the
+  // resolver the scheduler uses. Availability is schedulerAvailability — the one
+  // oracle — asked about the op's OWN dates, because this cell never moves
+  // anything. The op is excluded from its own obstacle set, or a reassignment
+  // would find the op blocking itself. When somebody is not free, overlapsWith
+  // names the clash, so the refusal says WHAT they are on instead of "busy".
+  const assignPickerFor = (op, panel, job) => {
+    const avail = schedulerAvailability(tasks, overlapCtx, { excludeOpIds: [op.id], people });
+    const standing = occupyingUnits(tasks, overlapCtx).filter(u => !sameId(u.unit?.id, op.id));
+    const busyWith = (pid) => {
+      if (avail.free(pid, op.start, op.end, op.startHour ?? null)) return null;
+      const probe = { id: op.id, start: op.start, end: op.end, startHour: op.startHour ?? undefined,
+        hpd: op.hpd, team: [pid], status: "Not Started" };
+      const hit = overlapsWith(probe, standing, overlapCtx)[0];
+      // Nothing found means free() refused on TIME OFF, which it checks and
+      // overlapsWith does not. Say that rather than invent an op title.
+      return { title: hit?.other?.unit?.title || "time off", other: hit?.other || null };
+    };
+    return assignPickerFor_rows(op, panel, job, busyWith);
+  };
+  const assignPickerFor_rows = (op, panel, job, busyWith) =>
+    assignPickerOptions(op, assignableCrew, { panel, job, busyWith });
+
+  // ASSIGNING WRITES TO THE SCHEDULE, so it goes the way a drag goes: the same
+  // applyDragMove (which with `reassigned` writes the team AND appends the
+  // shared moveLog entry), the same recalcBounds, and the same commitLanding
+  // backstop that refuses rather than rearranges. A name on a row with no bar
+  // behind it is the same as no assignment, so this must not be a quieter path
+  // than dragging the bar there by hand.
+  const commitAssign = (op, nextTeam) => {
+    const at = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null };
+    const movedBy = loggedInUser?.name || "Admin";
+    // from and to carry the SAME dates: this moves nobody in time, it only
+    // changes who is on it.
+    const mover = { id: String(op.id), reassigned: true,
+      from: { ...at, team: op.team || [] }, to: { ...at, team: nextTeam } };
+    const reason = nextTeam.length ? "Assigned from the Jobs list" : "Unassigned from the Jobs list";
+    return commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy, reason }), movedBy),
+      [String(op.id)], op.title || "");
+  };
   const selectableOpIdsOf = (panel) => opIdsOf(panel).filter(id => {
     const op = (panel?.subs || []).find(o => String(o.id) === String(id));
     return !op || !opReplanBlock(op);
@@ -13279,31 +13347,91 @@ ${jobsCtx || "No jobs found."}`;
             // anyway -- while a row that is one person's work names them. A phase with
             // a single operator reads like the operation under it, which is what it is.
             case "assignee": {
-              if (!who.length) return (
-                <div style={{ ...cellBase }}>
-                  <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>
+              // QUICK ASSIGN. Three rulings shape this cell (2026-10-05):
+              //
+              //   OPERATION ROWS ONLY. A job or phase row rolls its assignees up from
+              //   everything beneath it, so assigning there would write every op under it
+              //   from one press. The leaf is the only level where what gets written is
+              //   exactly what was pressed.
+              //
+              //   DATES FIRST. The cell assigns a person; it does not schedule. takesPart
+              //   requires a start, so an op with no dates cannot become a bar however
+              //   many names go on it — offering a menu there would promise something it
+              //   cannot deliver. It says why instead.
+              //
+              //   REOPEN TO CHANGE OR CLEAR. An assigned cell opens the same menu with an
+              //   Unassign row, so this is one control in both states, not a one-way door.
+              //
+              // THE CELL'S CONTENT IS THE TRIGGER, in every state. The first cut built a
+              // separate trigger and broke the crew rendering: assignee-col-test counts the
+              // avatar rings and the joined name list and expects one of each, which is
+              // exactly the duplication it exists to prevent — a crew shows FACES, and the
+              // names live in the hover title alone. So the three branches below are
+              // untouched; `wrap` either makes what they render pressable or does not.
+              //
+              // That suite counts RAW occurrences, comments included, so the sentence above
+              // deliberately describes those two patterns instead of quoting them. A comment
+              // that quotes the code a neighbouring assertion counts will break it (#5).
+              const _leaf = !(item.subs || []).length;
+              const hasDates = !!(item.start && item.end);
+              const canReassign = can("reassign") && _leaf;
+              const canQuickAssign = canReassign && hasDates;
+              if (canReassign && !hasDates && !who.length) return (
+                <div style={{ ...cellBase }} title="Set a start and end on this operation first — an operation with no dates cannot appear on the schedule.">
+                  <span style={{ fontSize: 10.5, color: T.textDim, fontStyle: "italic" }}>Can't assign until dates are set.</span>
                 </div>
               );
+              const _job = canQuickAssign ? (tasks.find(t => sameId(t.id, jobId)) || null) : null;
+              const _panel = canQuickAssign && panelId ? ((_job?.subs) || []).find(p => sameId(p.id, panelId)) || null : null;
+              const wrap = (content, style, t) => canQuickAssign ? (
+                <div style={style} title={t} onClick={e => e.stopPropagation()}>
+                  <SimpleDrop
+                    portal
+                    value={who.length ? who[0].id : ""}
+                    trigger={content}
+                    options={() => {
+                      const rows = assignPickerFor(item, _panel, _job).map((r, ri) => r.divider
+                        ? { divider: true, label: "Others", value: "__div" + ri }
+                        : { value: r.id, label: r.name, sub: r.busy ? `busy — ${r.busyWith.title}` : r.dept, color: r.busy ? T.danger : undefined });
+                      // Clearing is offered only when there is something to clear.
+                      return who.length ? [{ value: "__clear", label: "Unassign", color: T.textDim }, ...rows] : rows;
+                    }}
+                    onChange={v => {
+                      if (!v || String(v).startsWith("__div")) return;
+                      if (v === "__clear") { commitAssign(item, []); return; }
+                      // REFUSED AT PICK, with the reason, rather than hidden from the list.
+                      // Shown-and-refused answers "why can't I pick Caleb"; hiding leaves
+                      // "why isn't Caleb here", which is the worse question to be left with.
+                      const picked = assignPickerFor(item, _panel, _job).find(r => !r.divider && sameId(r.id, v));
+                      if (picked && picked.busy) {
+                        showLandingRefusal({ kind: "overlap", title: item.title || "", other: picked.busyWith.other },
+                          `${picked.name} is not free then`);
+                        return;
+                      }
+                      commitAssign(item, [v]);
+                    }}
+                  />
+                </div>
+              ) : <div style={style} title={t}>{content}</div>;
+              if (!who.length) return wrap(
+                <span style={{ fontSize: 11, color: canQuickAssign ? T.accent : T.textDim, fontStyle: "italic", borderBottom: canQuickAssign ? `1px dashed ${T.accent}66` : "none", cursor: canQuickAssign ? "pointer" : "default" }}>Unassigned</span>,
+                { ...cellBase });
               const title = who.map(p => p.name).join(", ");
               if (who.length === 1) return (
-                <div style={{ ...cellBase, gap: 6, overflow: "hidden" }} title={title}>
+                wrap(<>
                   <PersonAvatar person={who[0]} size={22} ring={T.card} />
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{who[0].name}</span>
-                </div>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderBottom: canQuickAssign ? `1px dashed ${T.accent}55` : "none", cursor: canQuickAssign ? "pointer" : "default" }}>{who[0].name}</span>
+                </>, { ...cellBase, gap: 6, overflow: "hidden" }, title)
               );
-              // Overlapped, and drawn front-to-back so each face sits over the one after
-              // it rather than being clipped by it. The ring is what separates them.
               const shown = who.slice(0, 5);
-              return (
-                <div style={{ ...cellBase, gap: 0, overflow: "hidden" }} title={title}>
-                  {shown.map((p, i) => (
-                    <div key={p.id} style={{ display: "flex", flexShrink: 0, marginLeft: i === 0 ? 0 : -8, zIndex: shown.length - i }}>
-                      <PersonAvatar person={p} size={22} ring={T.card} />
-                    </div>
-                  ))}
-                  {who.length > shown.length && <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, marginLeft: 6, flexShrink: 0 }}>+{who.length - shown.length}</span>}
-                </div>
-              );
+              return wrap(<>
+                {shown.map((p, i) => (
+                  <div key={p.id} style={{ display: "flex", flexShrink: 0, marginLeft: i === 0 ? 0 : -8, zIndex: shown.length - i, cursor: canQuickAssign ? "pointer" : "default" }}>
+                    <PersonAvatar person={p} size={22} ring={T.card} />
+                  </div>
+                ))}
+                {who.length > shown.length && <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, marginLeft: 6, flexShrink: 0 }}>+{who.length - shown.length}</span>}
+              </>, { ...cellBase, gap: 0, overflow: "hidden" }, title);
             }
             case "appr": {
               const st = apprStateFor(item, level, jobId, panelId);
@@ -13619,9 +13747,22 @@ ${jobsCtx || "No jobs found."}`;
 
             // The current view's jobs, in the saved manual order (row drag).
             const viewList = curJobView.list;
-            const ordered = taskOrder.length
+            // FINISHED WORK SINKS (ruled 2026-10-05). Applied to the whole list
+            // before grouping, so it holds for EVERY grouping — by client or by
+            // person a finished job shares a bucket with live ones, and ordering
+            // the buckets alone would not have moved it.
+            //
+            // Two passes over one array rather than a comparator: a sort would
+            // have to be stable to preserve the manual drag order (taskOrder)
+            // inside each half, and splitting says that outright instead of
+            // relying on it.
+            const _sinkFinished = (list) => [
+              ...list.filter(t => t.status !== "Finished"),
+              ...list.filter(t => t.status === "Finished"),
+            ];
+            const ordered = _sinkFinished(taskOrder.length
               ? taskOrder.map(id => viewList.find(t => t.id === id)).filter(Boolean).concat(viewList.filter(t => !taskOrder.includes(t.id)))
-              : viewList;
+              : viewList);
 
             // Maps a column key → (job) => { key, label } for bucketing jobs by that column's value.
             const valueForGrouping = (colKey) => {
@@ -13650,7 +13791,16 @@ ${jobsCtx || "No jobs found."}`;
             const sortBuckets = (colKey, entries) => {
               const empties = entries.filter(([k]) => k === "__empty__");
               const rest = entries.filter(([k]) => k !== "__empty__");
-              if (colKey === "status") { const o = STATUSES; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
+              if (colKey === "status") {
+                const o = STATUSES;
+                rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0]));
+                // ...then Finished goes last, whatever the org configured. The
+                // configured sequence is a WORKFLOW and is right for a dropdown;
+                // in a list it put the done pile 5th of 17 at Matrix, above Late,
+                // On Hold, Crated and Shipped. Only Finished moves — the statuses
+                // sitting after it in the configured order are still live work.
+                rest.splice(0, rest.length, ...rest.filter(([k]) => k !== "Finished"), ...rest.filter(([k]) => k === "Finished"));
+              }
               else if (colKey === "pri") { const o = ["High", "Medium", "Low"]; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
               else if (colKey === "jobNum" || colKey === "hrs") { rest.sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0)); }
               else if (colKey === "due" || colKey === "start" || colKey === "end") { rest.sort((a, b) => String(a[0]).localeCompare(String(b[0]))); }
@@ -26039,6 +26189,28 @@ ${jobsCtx || "No jobs found."}`;
       // own fill, so it is a circle by construction; there is no separate
       // sliding indicator to keep aligned.
       const RAIL_BTN = 54;
+      // The NAV target, and with it the selected highlight — the two are one
+      // element, so the disc behind an active icon is just this button's own
+      // background. A little smaller than RAIL_BTN, and a strongly rounded SQUARE
+      // rather than a circle.
+      //
+      // The foot keeps RAIL_BTN and its circle: the profile button holds a FACE,
+      // and a face in a squircle reads as a cropped photo rather than an avatar.
+      // Different shapes because they are different things, not an oversight.
+      const RAIL_NAV_BTN = 48;
+      // A third of the width. Half would be a circle again; a third is as round as
+      // a square can read while still reading as a square.
+      const RAIL_NAV_R = Math.round(RAIL_NAV_BTN / 3);
+      // The space between nav buttons. ONE constant for both the <nav> and the
+      // settings layer inside it: they are two elements drawing one column, and
+      // when the number was written twice they could drift a pixel apart and the
+      // column would not look evenly spaced in either state.
+      //
+      // Taller than it looks: the nav scrolls when it runs out of room, so adding
+      // gap spends height that the rail may not have on a short window. It is
+      // affordable here because the buttons also came down from 54 to 48, which
+      // gives back more than this takes.
+      const RAIL_NAV_GAP = 9;
       // The mark sits on the same line as the page titles, which all match the
       // dashboard greeting: 24px from the top (frostScroll's "24px 32px 28px",
       // the greeting's padTop) in a 57px row (52px type at lineHeight 1.1), so
@@ -26063,8 +26235,8 @@ ${jobsCtx || "No jobs found."}`;
       const railHover = railLight ? hexA(T.text, 0.07) : T.hover;
       const navBtn = (active, o = {}) => ({
         position: "relative", flexShrink: 0,
-        width: RAIL_BTN, height: RAIL_BTN, padding: 0,
-        borderRadius: "50%",
+        width: RAIL_NAV_BTN, height: RAIL_NAV_BTN, padding: 0,
+        borderRadius: RAIL_NAV_R,
         border: o.border || "none",
         // Selected = a solid accent disc, its icon in the accent's own contrast colour.
         background: active ? T.accent : (o.bg || "transparent"),
@@ -26104,11 +26276,11 @@ ${jobsCtx || "No jobs found."}`;
           hidden) when that space runs out: with 54px buttons the full rail is
           ~920px tall, more than a 14" laptop window, and overflow:hidden on the
           rail would otherwise clip the bell and the avatar off the bottom. */}
-      <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
+      <nav className="tq-rail-nav" style={{ position: "absolute", left: "50%", top: RAIL_NAV_TOP, transform: "translateX(-50%)", padding: 7, display: "flex", flexDirection: "column", alignItems: "center", gap: RAIL_NAV_GAP, maxHeight: `calc(100% - ${RAIL_NAV_TOP + RAIL_FOOT_CLEAR}px)`, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", boxSizing: "border-box" }}>
         {/* ─── App navigation. Settings keeps it (TRAQS Hi-fi Directions › Settings:
             "same rail"), with the Settings button lit; its sections are a nav inside
             the page. Leaving for another page goes through the unsaved-changes guard. ─── */}
-        <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: 4 }}>
+        <div style={{ ...settingsNavLayer(false), alignItems: "center", gap: RAIL_NAV_GAP }}>
         {views.map(v => {
           const active = !settingsMode && view === v.id;
           return (
@@ -26218,7 +26390,10 @@ ${jobsCtx || "No jobs found."}`;
            </button>
          );
        })()}
-       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: 7 }}>
+       {/* The foot's button column — same shape as the nav above it (padding 7,
+           centred, stacked) so it takes the same spacing. Two columns drawing one
+           rail should not be spaced differently. */}
+       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: RAIL_NAV_GAP, padding: 7 }}>
         {/* Enable desktop (Windows) notifications — only on web, until granted */}
         {canWebPush && pushPerm !== "granted" && (
           <button onClick={async (e) => {

@@ -231,8 +231,12 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   // half. A SIXTH caller is fine if it asks this oracle, and the failure to
   // care about is a caller that does not appear here at all because it rolled
   // its own again.
-  ok("every free-check goes through the shared oracle (three schedulers, the preflight, the backstop)",
-    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 5);
+  // SIX now: the Jobs page's quick-assign picker joined them. It asks the same
+  // oracle about the op's OWN dates — the cell assigns a person and never moves
+  // anything — with the op excluded from its own obstacle set, or a reassignment
+  // would find the op blocking itself.
+  ok("every free-check goes through the shared oracle (three schedulers, the preflight, the backstop, the Jobs picker)",
+    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 6);
   // And the scan it replaced must not come back.
   ok("…and no hand-rolled date-interval scan stands beside it",
     /\.start\s*<=\s*\w+\.end\s*&&\s*\w+\.end\s*>=\s*\w+\.start[\s\S]{0,120}?overlapErrors/.test(SRC), false);

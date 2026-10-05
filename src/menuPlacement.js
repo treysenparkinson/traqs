@@ -35,3 +35,33 @@ export function placeContextMenu({ y, viewportHeight, menuHeight, pad = 12 }) {
     maxHeight: constrained ? Math.max(0, Math.min(avail, vh)) : undefined,
   };
 }
+
+/**
+ * Horizontal placement and width for an anchored dropdown menu.
+ *
+ * A portalled menu used to take its width straight from the trigger's rect,
+ * which is correct while the trigger is a full-width field and wrong as soon as
+ * it is a word. The Jobs page's quick-assign picker hands SimpleDrop the text
+ * "Unassigned" as its trigger; the menu came out about 70px wide and clipped
+ * every name in it to two letters.
+ *
+ * So a CUSTOM trigger stops dictating width: the menu sizes to its own content
+ * with a readable floor, and is pulled back from the viewport edge rather than
+ * hanging off it. A DEFAULT trigger keeps matching its own width exactly, which
+ * is what every existing caller expects and what makes this safe to change in a
+ * shared control.
+ *
+ * @param {{left:number, width:number, viewportWidth:number, custom?:boolean,
+ *          minWidth?:number, pad?:number}} o
+ * @returns {{left:number, width:number|undefined, minWidth:number|undefined,
+ *            maxWidth:number}}
+ */
+export function placeDropMenu({ left, width, viewportWidth, custom = false, minWidth = 220, pad = 8 }) {
+  const maxWidth = Math.max(120, viewportWidth - pad * 2);
+  if (!custom) return { left, width, minWidth: undefined, maxWidth };
+  // Never wider than the viewport allows, never narrower than readable.
+  const want = Math.min(Math.max(minWidth, width), maxWidth);
+  // Pull back from the right edge, then refuse to go off the left.
+  const x = Math.max(pad, Math.min(left, viewportWidth - want - pad));
+  return { left: x, width: undefined, minWidth: want, maxWidth };
+}
