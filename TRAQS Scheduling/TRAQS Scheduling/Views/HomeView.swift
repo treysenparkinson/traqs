@@ -397,7 +397,7 @@ private struct SuggestedJobCard: View {
 
 // MARK: - Basic: today's shift and the next one
 
-private struct BasicShiftsCard: View {
+struct BasicShiftsCard: View {
     @Environment(AppState.self) private var appState
     let onJump: () -> Void
 
@@ -408,8 +408,12 @@ private struct BasicShiftsCard: View {
             .filter { $0.personId == me }
     }
 
+    /// The shop's day, so the card turns over at the shop's midnight. It took the UTC day,
+    /// which rolled to tomorrow's shifts at 18:00 in Denver.
+    static func today(now: Date, org: OrgSettings) -> String { ShopTime(org: org).day(now) }
+
     var body: some View {
-        let today = AppState.ymd(Date())
+        let today = Self.today(now: Date(), org: appState.orgSettings)
         let mine = myShifts
         // Covering today, earliest first — a multi-day shift that started
         // yesterday is still today's.

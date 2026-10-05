@@ -2036,15 +2036,16 @@ class AppState {
     /// name is no longer guaranteed to exist or to be unique.
     // MARK: Calendar dates
 
-    private static let ymdFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
-
-    static func ymd(_ d: Date) -> String { ymdFormatter.string(from: d) }
+    /// A date picked in the device's calendar, as the "yyyy-MM-dd" day it shows. A DatePicker
+    /// hands back the device's midnight; read in UTC, as this used to, that is the day before
+    /// anywhere east of UTC, so a job picked for Oct 5 saved as Oct 4. Not "today" — the shop's
+    /// day is `ShopTime.day`.
+    static func ymd(_ d: Date, in zone: TimeZone = .current) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = zone
+        let c = cal.dateComponents([.year, .month, .day], from: d)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
 
     // MARK: Group management
     //

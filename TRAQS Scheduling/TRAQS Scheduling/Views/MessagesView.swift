@@ -2106,13 +2106,7 @@ struct TimeOffRequestBubble: View {
         default:          return ("—", .neutral, false)   // unknown, not pending
         }
     }
-    private var rangeLabel: String {
-        let out = DateFormatter(); out.dateFormat = "MMM d"
-        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
-        let sL = inF.date(from: startD).map(out.string(from:)) ?? startD
-        let eL = inF.date(from: endD).map(out.string(from:)) ?? endD
-        return startD == endD ? sL : "\(sL) – \(eL)"
-    }
+    private var rangeLabel: String { ShopTime.rangeLabel(start: startD, end: endD) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

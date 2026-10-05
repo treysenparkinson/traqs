@@ -173,19 +173,7 @@ private struct TimeOffRequestCard: View {
         default:          return ("Pending", .amber, true)
         }
     }
-    private var rangeLabel: String {
-        // Stored dates are pure "yyyy-MM-dd" calendar days. ISO8601DateFormatter
-        // parses them at UTC midnight, so the output formatter MUST also be UTC —
-        // otherwise a device in a negative-offset zone (all of the US) renders the
-        // day BEFORE (e.g. "2026-07-04" → "Jul 3"), showing requesters and
-        // approvers a date one day off from the real request.
-        let out = DateFormatter(); out.dateFormat = "MMM d"
-        out.timeZone = TimeZone(identifier: "UTC")
-        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
-        let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
-        let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
-        return request.start == request.end ? sL : "\(sL) – \(eL)"
-    }
+    private var rangeLabel: String { ShopTime.rangeLabel(start: request.start, end: request.end) }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -256,19 +244,7 @@ private struct TimeOffApprovalCard: View {
     @State private var failed = false
 
     private var typeColor: Color { request.type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
-    private var rangeLabel: String {
-        // Stored dates are pure "yyyy-MM-dd" calendar days. ISO8601DateFormatter
-        // parses them at UTC midnight, so the output formatter MUST also be UTC —
-        // otherwise a device in a negative-offset zone (all of the US) renders the
-        // day BEFORE (e.g. "2026-07-04" → "Jul 3"), showing requesters and
-        // approvers a date one day off from the real request.
-        let out = DateFormatter(); out.dateFormat = "MMM d"
-        out.timeZone = TimeZone(identifier: "UTC")
-        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
-        let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
-        let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
-        return request.start == request.end ? sL : "\(sL) – \(eL)"
-    }
+    private var rangeLabel: String { ShopTime.rangeLabel(start: request.start, end: request.end) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

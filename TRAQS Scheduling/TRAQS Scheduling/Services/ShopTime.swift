@@ -76,6 +76,26 @@ struct ShopTime {
         for _ in 0..<400 where !calendar.isWorkDay(ds) { ds = JobsScheduler.adding(days: 1, to: ds) }
         return instant(ds, hour: workEnd)
     }
+
+    // MARK: Stored days as labels
+    //
+    // A stored day ("yyyy-MM-dd" — a time-off range, a job's start) names no instant, so no zone
+    // belongs to it: it is read and printed in one fixed zone, and the device's never enters.
+    // Reading it at UTC midnight and printing it in the device's zone put every US viewer a day
+    // early — the chat time-off card showed Oct 5–7 as "Oct 4 – Oct 6".
+
+    /// A stored calendar day as a label, "MMM d" by default; anything unparseable as itself.
+    static func label(day: String, format: String = "MMM d") -> String {
+        let utc = TimeZone(identifier: "UTC")!
+        let out = DateFormatter(); out.dateFormat = format; out.timeZone = utc
+        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]; inF.timeZone = utc
+        return inF.date(from: day).map(out.string(from:)) ?? day
+    }
+
+    /// "Oct 5 – Oct 7", or one label when the range is a single day.
+    static func rangeLabel(start: String, end: String) -> String {
+        start == end ? label(day: start) : "\(label(day: start)) – \(label(day: end))"
+    }
 }
 
 // MARK: - Job-clock session hours

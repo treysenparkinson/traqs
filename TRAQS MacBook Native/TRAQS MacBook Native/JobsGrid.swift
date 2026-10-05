@@ -1588,8 +1588,7 @@ enum JobsDate {
 
     /// `TD` — today as a LOCAL `yyyy-MM-dd`. The web's `toDS` reads
     /// `getFullYear/getMonth/getDate`, so "overdue" turns over at the user's
-    /// midnight rather than London's. `AppState.ymd` pins GMT for server date keys
-    /// and is the wrong helper for this.
+    /// midnight rather than London's.
     static var todayKey: String { keyFormatter.string(from: Date()) }
 
     /// `safeDate` — `toLocaleDateString("en-US", { month: "short", day: "numeric" })`,
