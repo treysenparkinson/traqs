@@ -434,7 +434,11 @@ function Spinner({ label }) {
         animation: "spin 0.8s linear infinite", marginBottom: 20,
       }} />
       {label && <div style={{ fontSize: 14, color: "#94a3b8" }}>{label}</div>}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      {/* `spin` comes from TRAQS.jsx's global sheet, which is appended to
+          document.head at MODULE LOAD — and this file imports TRAQS statically
+          (line 3), so it is on the page before anything here renders. A local
+          copy stood here and was a third declaration of the same name (#417).
+          If TRAQS is ever lazy-loaded, this screen loses its spinner. */}
     </div>
   );
 }

@@ -925,11 +925,21 @@ animStyle.textContent = `
   .msg-in-mine, .msg-in-other, .msg-read-pop, .msg-time-in, .msg-time-out { animation: none !important; }
 }
 
-/* The standard dropdown entrance: the menu drops in, its rows cascade one by
-   one behind it. These have to live in the GLOBAL sheet — toolDrop used to be
-   declared only inside the Jobs view's <style>, so the cascade silently did
-   nothing on every other page, and menuIn was never declared at all despite
-   ~20 call sites. */
+/* The standard dropdown entrance: the menu drops in and its rows arrive with it
+   (the one-by-one cascade is gone — #416).
+
+   THESE HAVE TO LIVE IN THE GLOBAL SHEET. toolDrop used to be declared only
+   inside the Jobs view's <style>, so the cascade silently did nothing on every
+   other page, and menuIn was never declared at all despite ~20 call sites.
+
+   AND THAT WAS WRITTEN ONCE AND NOT KEPT (#417). The declarations were moved here
+   and the originals were never deleted, so toolDrop ended up declared THREE times
+   and menuIn twice — including in the accent <style>, which is re-injected on
+   every theme change. A later-parsed @keyframes of the same name wins globally,
+   so this sheet was silently outranked by two copies with identical bodies:
+   nothing looked wrong, and an edit here would have changed nothing with no way
+   to tell. scripts/keyframe-lint-test.mjs is the ratchet now — a comment is not
+   a guard. (No backticks in this note: it lives inside a template literal.) */
 @keyframes menuIn   { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes toolDrop { from { opacity: 0; transform: translateY(-7px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -4108,7 +4118,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // Same accent, roughly two thirds the alpha, so it still separates the button
     // from the card without carrying far enough to meet the card's own rim.
     document.documentElement.style.setProperty("--tq-glow-ring-soft", `${a}2e`);
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
   // Solid chrome color + the translucent tint used by opt-in `.tq-frost` content (job-list sections).
   useEffect(() => {
@@ -13047,7 +13057,6 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
         {taskSubView === "list" && <>
-          <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
           {/* Select */}
           {can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</button>}
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
@@ -25430,7 +25439,9 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ textAlign: "center" }}>
           <div style={{ width: 48, height: 48, borderRadius: "50%", border: `3px solid ${T.accent}33`, borderTop: `3px solid ${T.accent}`, animation: "spin 0.8s linear infinite", margin: "0 auto 20px" }} />
           <div style={{ fontSize: 14, color: T.textDim }}>Loading TRAQS…</div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          {/* `spin` is in this file's own global sheet, appended at module load
+              (:2310), so it is already on the page here. The local copy that
+              stood here was a second declaration of the same name (#417). */}
         </div>
       </div>
     );

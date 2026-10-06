@@ -2328,13 +2328,39 @@ Everything else was read at the cited line. Nothing was run against live data.
     TWO OF THIS SUITE'S OWN ASSERTIONS WERE WRONG FIRST. A sweep demanding zero computed `toolDrop` delays anywhere CONTRADICTED the section requiring the two out-of-scope lists to survive — two assertions in one file disagreeing about the same lines — now an allow-list that names its exceptions. And `animation: "menuIn 0.15s ease-out"` appears FOURTEEN times, so a bare presence check stayed green with SimpleDrop's own copy deleted; that mutant was the only survivor of the first run. Assert the statement where it has to be, not the string somewhere. LESSONS #13 again, twice.
 
 
-417. [SURVEYED 2026-10-06, NOT CHANGED] **`toolDrop` IS DECLARED THREE TIMES AND `menuIn` TWICE — THE EXACT BUG THE COMMENT ABOVE THEM SAYS WAS FIXED.** The global sheet at `:933`-`:934` carries a note: *"These have to live in the GLOBAL sheet — toolDrop used to be declared only inside the Jobs view's `<style>`, so the cascade silently did nothing on every other page."* The declaration was MOVED and the original was never deleted. Still live:
+417. **FIXED 2026-10-06 — AND THE COMMENT THAT STATED THE RULE IS NOW A BUILD GUARD.** `toolDrop` was declared three times and `menuIn` twice, which is the exact bug the comment above them says was fixed. The global sheet at `:933`-`:934` carries a note: *"These have to live in the GLOBAL sheet — toolDrop used to be declared only inside the Jobs view's `<style>`, so the cascade silently did nothing on every other page."* The declaration was MOVED and the original was never deleted. Still live:
 
         menuIn     TRAQS.jsx:933   (global)   and  :4097  (the accent <style>, re-injected on every theme change)
         toolDrop   TRAQS.jsx:934   (global)   and  :4097  and  :13027  (inline in the Jobs list header)
 
     All three `toolDrop` bodies are currently IDENTICAL, so nothing is wrong on screen today — which is the whole risk. A later-parsed `@keyframes` of the same name wins globally, so the accent sheet (rewritten on every theme change) and a page-local `<style>` both silently outrank the stylesheet the comment says is authoritative. Whoever edits the global one next will change nothing and have no way to tell. Found while surveying #416; not folded into it because it is a different defect with a different fix.
 
+
+    ─── WHAT WAS BUILT ───
+
+    The duplicates are deleted and the global sheet keeps both: `menuIn` and `toolDrop` are gone from the accent `<style>` (which is re-injected on every theme change and has no business carrying animations that do not use the accent — `glow-pulse`, `optFlash` and `newBadgePulse` stay, and the suite asserts they do), and `toolDrop` is gone from the Jobs list header.
+
+    **A THIRD NAME TURNED UP IN THE CENSUS, AND THE FIRST EXEMPTION WRITTEN FOR IT WAS FALSE.** `spin` was declared three times — App's auth spinner, TRAQS's data-loading spinner, and the global sheet. The draft exempted it as *"three self-contained loading screens, each rendering BEFORE the global sheet is on the page"*. **That reason was wrong.** TRAQS.jsx appends its sheet to `document.head` at MODULE LOAD (`:2310`), and `App.jsx` imports TRAQS statically on line 3, so the sheet is on the page before any component renders — both loading screens included. All three were redundant; two are deleted and the global one remains. **The exemption list is now empty**, and the reasoning is recorded where the list lives, because an exemption is a claim about why a rule does not apply and a claim nobody checks is how a guard becomes decoration.
+
+    ONE DUPLICATE SURVIVES AND IS DETECTED, NOT LISTED: `tqPadIn` is redeclared inside `@media (prefers-reduced-motion: reduce)`, which is the mechanism working as intended — that is how you turn an animation down. The guard tests for the enclosing block structurally, and a plain `@media (max-width: …)` is NOT a free pass, nor is a reduced-motion block that has already closed.
+
+    THE GUARD IS `scripts/_keyframe-lint.mjs` + `scripts/keyframe-lint-test.mjs`, wired beside the membership lint (82 suites). Trey's framing: *"the comment proves someone already learned this lesson once and the code didn't keep it"* — so the comment now points at the ratchet, and says in as many words that a comment is not a guard.
+
+    TESTED red-first — the first run named all three sites: `menuIn (TRAQS.jsx:933, :4111)` and `toolDrop (TRAQS.jsx:934, :4111, :13050)`. 35 assertions. **14 mutants, 14 caught**, after a first run with one skipped, two "caught" by CRASH and two survivors:
+
+        a mutant that made the rule report nothing crashed the suite on [0].where
+          instead of failing it — a crash says the harness broke, not that the
+          property is false. `?.` throughout now.
+        "the body comparison stops normalising whitespace" SURVIVED, because every
+          fixture used identical formatting. The shape that actually occurred was
+          a MINIFIED copy beside a formatted one; without normalisation those read
+          as different bodies and the hazard looks like a deliberate override.
+        "the scan misses names with a digit or dash" SURVIVED, because no fixture
+          used one — though `glow-pulse` is in this very stylesheet.
+        and the mutant for the Jobs header was SKIPPED on an anchor that matched
+          twice, so the thing it was meant to prove was never run.
+
+    **LINT CAUGHT SOMETHING THE SUITE COULD NOT.** The new comment above the global declarations lives INSIDE a CSS template literal, and the first draft quoted the guard's filename in backticks — which closed the template. `eslint` reported `Parsing error: Unexpected token` at `:941`; no assertion in any suite would have. It is why the build runs lint first (LESSONS #12), and the note now says in-line that it carries no backticks and why.
 418. **FIXED 2026-10-06 — THE SCANNER IS CORRECT, AND THE EXPOSURE WAS REAL BUT UNREALISED.** `codeOf()` deleted 772 lines of real code while 23 suites asserted against what was left. Its own header says a drifted scanner "is the quietest kind of broken test: it keeps passing". It is that test.
 
     THE MECHANISM. The JSX-comment pass is `\{\s*\/\*[\s\S]*?\*\/\s*\}`. A CSS rule inside a template literal opens with `{`, and its first declaration is very often a `/* comment */` — so the match STARTS at the rule's brace and runs forward to the next `*/` that happens to sit before a `}`, hundreds of lines later. Two such matches swallow **298 lines (1267..1564)** and **459 lines (2197..2655)**. Worse, they consume `/*` and `*/` tokens UNEVENLY, so the plain block-comment pass that runs next is left unbalanced and eats more.
