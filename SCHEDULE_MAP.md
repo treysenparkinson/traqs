@@ -2335,7 +2335,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     All three `toolDrop` bodies are currently IDENTICAL, so nothing is wrong on screen today — which is the whole risk. A later-parsed `@keyframes` of the same name wins globally, so the accent sheet (rewritten on every theme change) and a page-local `<style>` both silently outrank the stylesheet the comment says is authoritative. Whoever edits the global one next will change nothing and have no way to tell. Found while surveying #416; not folded into it because it is a different defect with a different fix.
 
-418. [MEASURED 2026-10-06, NOT FIXED — SHOULD JUMP THE QUEUE] **`codeOf()` DELETES 772 LINES OF REAL CODE, AND 23 SUITES ASSERT AGAINST WHAT IS LEFT.** Its own header says a drifted scanner "is the quietest kind of broken test: it keeps passing". It is that test.
+418. **FIXED 2026-10-06 — THE SCANNER IS CORRECT, AND THE EXPOSURE WAS REAL BUT UNREALISED.** `codeOf()` deleted 772 lines of real code while 23 suites asserted against what was left. Its own header says a drifted scanner "is the quietest kind of broken test: it keeps passing". It is that test.
 
     THE MECHANISM. The JSX-comment pass is `\{\s*\/\*[\s\S]*?\*\/\s*\}`. A CSS rule inside a template literal opens with `{`, and its first declaration is very often a `/* comment */` — so the match STARTS at the rule's brace and runs forward to the next `*/` that happens to sit before a `}`, hundreds of lines later. Two such matches swallow **298 lines (1267..1564)** and **459 lines (2197..2655)**. Worse, they consume `/*` and `*/` tokens UNEVENLY, so the plain block-comment pass that runs next is left unbalanced and eats more.
 
@@ -2350,6 +2350,47 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     `scripts/menu-stagger-test.mjs` does NOT use it, and says why at the import. Everything else still does. The fix is a real scanner that tracks strings and template literals rather than a pair of regexes — and the hard part is not the scanner, it is that **re-running 23 suites against a view that suddenly contains 772 more lines will turn some of them red, and each of those is a finding.** That is the job, and it is worth more than #417.
 
+
+    ─── THE FIX ───
+
+    A SCANNER, NOT A PATTERN. It walks the source once and always knows whether it is in code, a string, a template literal, a `${}` inside one, a regex literal or a comment. A comment marker is only a comment in code context. Two safety rules, because this reads JSX and JSX is not quite JS: **a quote that does not close on its own line is a CHARACTER, not a delimiter** (or the apostrophe in `<p>don't</p>` opens a string that never closes and the rest of the file is read as string content), and **a `/` only starts a regex where one is grammatically possible AND closes on the same line** (regex literals cannot span lines, so a run-on is division — `50% / 50%` in JSX text). Both rules fail toward KEEPING text, which is the safe direction: a missed comment makes an assertion fail and be noticed; a deleted line makes one pass and cannot.
+
+    `/* … */` IS ALSO STRIPPED INSIDE TEMPLATE LITERALS, deliberately — this app's whole stylesheet lives in them, and a CSS rule's comment names what the rule replaced, which is exactly the prose that satisfies an assertion about code. `//` is NOT stripped there: it is not a CSS comment and inside a template it is almost always a URL. The comment must open and close within the same template run, so a stray `/*` in template data cannot reach past a `${` or the closing backtick.
+
+    ─── THE RE-RUN, WHICH IS THE POINT OF THE JOB ───
+
+    **ALL 23 SUITES STAYED GREEN. NOT ONE ASSERTION WENT RED.** That is the honest result and it deserves interrogating rather than celebrating, so the audit ran the other way: how many assertions were CAPABLE of being affected?
+
+        the gap (lines the new view has and the old did not)   1,470
+        patterns tested against the code view                    122
+        ...that can match anything in the gap                      5
+        ...excluding this fix's own three probes                   2
+
+    Both survivors are PRESENCE assertions whose evidence lay OUTSIDE the gap, so neither was ever green for free:
+
+        assign-cell-test:172        /className="tq-drop"/
+        replan-selection-test:115   /transition:\s*"background[^"]*"/
+
+    **SO THE EXPOSURE WAS REAL AND UNREALISED — luck, not design.** Nothing prevented a wiring assertion from naming something in those 1,470 lines, this campaign adds such assertions weekly, and they are overwhelmingly of the "the old spelling is gone" shape that passes for free when the spelling is invisible. The right conclusion is not "no harm done" but "the guard that would have caught it did not exist". It does now, as `scripts/code-view-test.mjs`'s ratchet: no line carrying a strong code signature may be missing from the view.
+
+    NO REGRESSION IN THE OTHER DIRECTION EITHER. 262 lines are in the old view and not the new one: 249 carry a trailing comment that is now correctly stripped, and **13 ARE NOT IN THE SOURCE AT ALL** — remnants the old regex chopped mid-line, like `select:not(:disabled)` with its brace eaten, which is the clearest possible evidence of what it was doing. Zero real source lines were lost.
+
+    TWO WEAK ASSERTIONS FOUND BY THE AUDIT, REPORTED NOT FIXED. `className="tq-drop"` appears **13 times** across the dropdown components, and `assign-cell-test`'s "SimpleDrop … renders its own pill when none is given" is satisfiable by any of the other twelve; `replan-selection`'s background-transition check is unscoped the same way. Neither is wrong about the code — both are weaker than their labels read. Same shape as the `menuIn`×14 case in #416. They want scoping to the component under test.
+
+    TESTED red-first, `scripts/code-view-test.mjs`, 47 assertions, wired FIRST in the build (81 suites) — before anything that depends on it. 16 mutants, 16 caught, **after five survived the first run and every one of the five was this suite's own fixture being too weak to tell the difference**:
+
+        a `/a\/\/b/` fixture contains no `//` at all (its chars are \,/,\,/), so
+          "regex detection removed" changed nothing — a character class was needed
+        `/A\n\s*B/` matches a BLANK LINE between A and B as happily as nothing, so
+          it could not tell "comment line dropped" from "blanked and kept"
+        asserting only that the line AFTER a template survived missed that the
+          `${v}` INSIDE it was the thing the guard protects
+        recovering from an apostrophe by emitting the rest of the file verbatim
+          still left `const AFTER` present, so the fixture needed a comment after it
+        a block comment not preserving its newlines only shows when a GENUINE blank
+          line follows it, because that is where `before[idx]` alignment is read
+
+    Five fixtures that proved nothing, in a suite written to prove exactly this. LESSONS #13's family again, and the reason mutation testing is not optional here.
 419. [LOGGED 2026-10-06, NOT FIXED] **THE MOBILE SETTINGS MODAL'S General / Organization TABS DO NOTHING.** Found while renaming the Account section. `settingsTab` is declared at `:5759` (`"main" | "org"`) and read in exactly one place — the tabs' OWN styling, to decide which of them is underlined. **Nothing below switches on it.** So both tabs render the same body; the control moves an underline and changes nothing else.
 
     **THE PATTERN WORTH NAMING: a control looks like it works because the ONLY THING READING ITS STATE IS ITS OWN STYLING.** The underline moves, the label goes bold, the accent changes — every signal a working tab gives — and all of it is the tab describing itself. Nothing downstream consults it. That is why this kind survives review: the feedback loop is real, it is just closed. The test is not "does clicking it change anything on screen" but "does anything other than this control read this state".
