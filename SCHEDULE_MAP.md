@@ -99,6 +99,47 @@ Guarded by `scripts/stranded-control-test.mjs`, which pairs each FAST TRAQS labe
 handler it wraps rather than banning the phrase — a ban passes the moment someone writes a
 different wrong label.
 
+### R4. A PRESENCE ASSERTION MUST BE SCOPED TO THE BLOCK UNDER TEST.
+
+If the string being matched appears anywhere else in the file, a bare presence check proves
+nothing about the site it names. It does not fail when that site breaks — it keeps finding
+one of the others — so it reads as coverage and is not.
+
+**SIX INSTANCES IN THREE SESSIONS, every one found by a mutant rather than by review:**
+
+| assertion | what it claimed | matches in file |
+|---|---|---|
+| `/animation: "menuIn 0\.15s ease-out"/` | SimpleDrop's menu animates | **14** |
+| `/className="tq-drop"/` | SimpleDrop renders its own pill | **13** |
+| `/stripDerived\(/` | the save strips derived fields | **2 call sites** |
+| `/setModalStep\(2\)…/` | a TRAQS Cloud row opens the wizard | **2** |
+| `/setOrgSettingsOpen\(true\)/` | the mobile settings entry survives | **2** |
+| `<Tip label="…">` (×2 mutants) | the Jobs toolbar's label is right | **2 toolbars** |
+
+The `stripDerived` one is the clearest: #412's two most important mutants — removing the
+call from the tasks payload, then from the people payload — **both read as green**, because
+a bare `/stripDerived\(/` passed as long as EITHER remained. The fix shipped would not have
+been the fix tested.
+
+**THE CHECK, before writing a presence assertion: count the matches in the file.** More than
+one means scope it or anchor it to its enclosing function:
+
+```js
+const at = CODE.indexOf("function SimpleDrop(");
+const sd = at < 0 ? "" : CODE.slice(at, at + 4200);
+ok("SimpleDrop was found", sd.length > 1000, true);     // the slice itself is asserted
+ok("...and its own menu animates", /animation: "menuIn/.test(sd), true);
+```
+
+Two details that matter: **assert the slice was found**, or a moved anchor silently empties
+it and every assertion under it passes vacuously (LESSONS #16); and **name each call site
+separately** when a statement must appear more than once, rather than counting — a count
+assertion is only as good as its pattern (LESSONS #14).
+
+This is LESSONS #13's family — an assertion that cannot fail — but it earns a RULE rather
+than a lesson because it is not a thing to have learned, it is a thing to DO before writing
+the line.
+
 ---
 ---
 
