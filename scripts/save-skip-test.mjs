@@ -75,8 +75,15 @@ ok("it starts empty, so the first save of a session always goes",
   ok("...and is computed per slice", /tasks:.*contentKey\(dedupedTasks\)/s.test(fn), true);
   ok("a fully-unchanged save returns without POSTing",
     /if \(!changedSlice\.tasks && !changedSlice\.people && !changedSlice\.clients\) \{/.test(fn), true);
+  // The intent is "this path reports saved and returns", not "those two lines
+  // are adjacent". #403 inserted the save verdict between them
+  // (`lastSaveResultRef.current = { ok: true }`), which an adjacency pattern
+  // reads as a regression and is not one — a no-op save IS a successful save,
+  // and the AI chat path now needs to be told so.
   ok("...and still reports saved rather than leaving the pill on 'saving'",
-    /setSaveStatus\("saved"\);\s*\n\s*return;/.test(fn), true);
+    /setSaveStatus\("saved"\);[\s\S]{0,120}?return;/.test(fn), true);
+  ok("...and records that verdict for a caller that awaited it",
+    /setSaveStatus\("saved"\);[\s\S]{0,120}?lastSaveResultRef\.current = \{ ok: true \};/.test(fn), true);
 }
 ok("each endpoint is skipped independently",
   /changedSlice\.tasks \? saveTasks\(/.test(J)

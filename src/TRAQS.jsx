@@ -39,6 +39,7 @@ import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, 
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDates as payPeriodAtOffsetFromDates } from "./payPeriod.js";
 import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
+import { OUTCOME_APPLIED, OUTCOME_NOCHANGE, toolResultsFor } from "./aiActions.js";
 import { serializeRuns } from "./saveQueue.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
@@ -5002,6 +5003,11 @@ Extraction rules:
   const pollAppliedRef = useRef({ tasks: null, people: null, clients: null });
   const seenSliceRef = useRef({ tasks: null, people: null, clients: null });
   const saveStatusRef = useRef("saved");
+  // #403. The last save's verdict, so a caller that AWAITS doSave can report
+  // what the server said instead of assuming. Written on every exit path of
+  // doSaveOnce below. Read by executeConfirmedActions, which used to tell the
+  // assistant "Action applied successfully." whatever happened.
+  const lastSaveResultRef = useRef(null);
 
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
@@ -8015,6 +8021,7 @@ Extraction rules:
       if (!dataLoadedRef.current) {
         console.warn("doSave blocked — initial S3 load has not succeeded yet");
         setSaveStatus("unsaved");
+        lastSaveResultRef.current = { ok: false, message: "The initial load has not finished, so nothing was saved." };
         return;
       }
       // #387. CANCEL THE QUEUED DEBOUNCED SAVE BEFORE RUNNING THIS ONE.
@@ -8094,6 +8101,7 @@ Extraction rules:
         console.log("[doSave] nothing changed since the last successful save — no POST");
         setSaveError(null);
         setSaveStatus("saved");
+        lastSaveResultRef.current = { ok: true };
         return;
       }
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`
@@ -8126,6 +8134,8 @@ Extraction rules:
         // Roll back to the server's copy instead, which clears "unsaved"; the
         // banner above stays up to say what was refused. A 401 is not a verdict
         // (the token expired) and a 5xx may be transient, so those keep the edit.
+        lastSaveResultRef.current = { ok: false, status: f.error?.status || 0,
+          message: f.error?.serverMessage || f.error?.message || String(f.error) };
         const rejected = failures.some(x => x.error?.status >= 400 && x.error?.status < 500 && x.error?.status !== 401);
         if (rejected) { await rollbackToServerRef.current(); return; }
         setSaveStatus("unsaved");
@@ -8213,6 +8223,8 @@ Extraction rules:
         // does mean the refused job's content can go up on the next save. The
         // banner set just above has already told the user what was kept; a
         // client stuck in a refusal loop cannot tell them anything at all.
+        lastSaveResultRef.current = { ok: false, status: 409,
+          message: `${titles.join(", ")} changed on the server while you were editing.` };
         adoptAll();
         await rollbackToServerRef.current();
         return;
@@ -8240,9 +8252,12 @@ Extraction rules:
 
       protectedJobIds.current.clear();
       setSaveError(null);
+      lastSaveResultRef.current = { ok: true };
       setTimeout(() => setSaveStatus("saved"), 600);
     } catch (e) {
       console.error("Auto-save failed:", e);
+      lastSaveResultRef.current = { ok: false, status: e?.status || 0,
+        message: e?.serverMessage || e?.message || String(e) };
       setSaveError({
         endpoint: e?.endpoint || "unknown",
         status: e?.status || 0,
@@ -10690,8 +10705,16 @@ ${jobsCtx || "No jobs found."}`;
   const executeConfirmedActions = async () => {
     if (!pendingActions) return;
     const { toolUses } = pendingActions;
+    // #403. WHAT ACTUALLY HAPPENED, per tool use. Several handlers are
+    // `prev.map(t => t.id === input.job_id ? … : t)`, which matches nothing for
+    // an unknown id and returns the list untouched — and every one of them used
+    // to be reported as "Action applied successfully."
+    const outcomes = {};
+    const jobExists = (id) => tasks.some(t => sameId(t.id, id));
+    const nodeExists = (id) => !!findTaskNode(id);
     for (const tu of toolUses) {
       const { name, input } = tu;
+      let changed = true;
       switch (name) {
         case "update_job": {
           const upd = {};
@@ -10702,7 +10725,8 @@ ${jobsCtx || "No jobs found."}`;
           if (input.due_date !== undefined)   upd.dueDate = input.due_date || null;
           if (input.job_number !== undefined) upd.jobNumber = input.job_number;
           if (input.notes !== undefined)      upd.notes = input.notes;
-          updTask(input.job_id, upd);
+          changed = nodeExists(input.job_id);
+          if (changed) updTask(input.job_id, upd);
           break;
         }
         case "create_job":
@@ -10712,10 +10736,12 @@ ${jobsCtx || "No jobs found."}`;
           delTask(input.job_id);
           break;
         case "assign_person_to_job":
-          setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t));
+          changed = jobExists(input.job_id);
+          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t));
           break;
         case "remove_person_from_job":
-          setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t));
+          changed = jobExists(input.job_id);
+          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t));
           break;
         case "update_operation": {
           const opUpd = {};
@@ -10723,7 +10749,8 @@ ${jobsCtx || "No jobs found."}`;
           if (input.start !== undefined)            opUpd.start = input.start;
           if (input.end !== undefined)              opUpd.end = input.end;
           if (input.assign_person_id !== undefined) opUpd.team = [input.assign_person_id];
-          updTask(input.operation_id, opUpd, input.panel_id);
+          changed = nodeExists(input.operation_id);
+          if (changed) updTask(input.operation_id, opUpd, input.panel_id);
           break;
         }
         // Legacy tool names (backward compat)
@@ -10733,10 +10760,25 @@ ${jobsCtx || "No jobs found."}`;
         case "remove_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t)); break;
         case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 0, notes: "", customOps: [] }]); break;
       }
+      outcomes[tu.id] = changed ? OUTCOME_APPLIED : OUTCOME_NOCHANGE;
     }
-    // Trigger an immediate save so changes persist to S3 right away
-    setTimeout(() => doSave(), 300);
-    const toolResults = toolUses.map(tu => ({ type: "tool_result", tool_use_id: tu.id, content: "Action applied successfully." }));
+    // #403. AWAIT THE SAVE AND REPORT WHAT IT SAID.
+    //
+    // This was `setTimeout(() => doSave(), 300)` with the results built
+    // immediately afterwards from a constant string, so the report could not
+    // have known the answer even in principle. The local mutation can be
+    // perfect and the write still refused at /tasks, which classifies the change
+    // and demands the matching permission — a worker asking TRAQS to reassign is
+    // refused THERE, after the chat has already said it worked.
+    //
+    // lastSaveResultRef is null when the save coalesced into one already in
+    // flight (serializeRuns, #388). toolResultsFor reads a missing result the
+    // generous way, which is the right direction here: the write is on its way,
+    // and claiming failure would be its own false report.
+    lastSaveResultRef.current = null;
+    await doSaveRef.current();
+    const saveResult = lastSaveResultRef.current;
+    const toolResults = toolResultsFor(toolUses, outcomes, saveResult);
     const toolResultMsg = { role: "user", content: toolResults };
     const historyWithResult = [...askHistory, toolResultMsg];
     setAskHistory(h => [...h, toolResultMsg]);
