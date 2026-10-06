@@ -2013,6 +2013,31 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     RULED OUT ALONG THE WAY, each by reading rather than assuming: `buildExpanded` (resolves deps and expands quantities; never touches dates or hours), `pickTeam` (returns `{team, start, end}`, no hour), `saveTask`'s `nextFreeStart` seeding (only runs when `startHour == null`; returns h8 ×11 and h12 ×1 for these twelve, with their real spans), today's `getNextStartHour` (8 or 17 on that board, never 15.5), `timeclock.js:304` (writes a moveLog entry; all twelve have none), and iOS — `startHour` is not a modelled property there but rides in `JSONExtras`, captured on decode and re-emitted on encode, and its ONLY writer is `SimpleJob.makeJob`, which fires when a new simple job is created and never rewrites an existing op. A board scan found `endHour: 15.5` on three ops, none belonging to the four people involved, so the neighbour-endHour route is out too.
 
+
+    **BOTH FIXES BUILT 2026-10-06 — AND THE MEASUREMENT AFTER THEM OVERTURNS THE CAUSAL STORY AGAIN.**
+
+    FIX 1: both runs pass the start hour. `isAvailLocal(pid, s, eDate, sh)` and `isAvail(pid, s, eDate, sh)` now forward a fourth argument, and all SIX call sites pass `_opH` — the hour the op already carries, read off the op in `pickTeamLocal` and `pickTeam`. Omitting it made `free` probe with `startHour: undefined`, which is a different question.
+
+    FIX 2: the run's result goes through `enforceNoOverlap` before it is written, **per op rather than per run**. This is a DELIBERATE DEVIATION from "go through commitLanding", flagged rather than taken quietly: `commitLanding` refuses the WHOLE commit, and #344 removed exactly that ("The run never aborts: per-op outcomes instead"). So the same guard runs and anything it reports becomes the same per-op `noWindow` outcome the verifier already produces — the op keeps its original record and is named in step 3. The suite asserts the ORDERING, because pushing those outcomes after `_blockedIds` reads `runOutcomes` would be a no-op that still reads correct.
+
+    MEASURED OVER MATRIX'S LIVE BOARD, replaying the scheduler's search both ways across all 49 single-person dated ops: **5 placements change, 10.2%.** And the direction is the opposite of what was assumed — the day-only question is MORE CONSERVATIVE, reporting a person busy when the hours do not actually clash, so passing the hour finds room that was being hidden:
+
+        402056  Layout          h15.5   day-only -> 2026-10-14   with-hour -> 2026-10-07
+        402057  2057-02 Cut     h8.5    day-only -> 2026-10-13   with-hour -> 2026-10-06
+        402057  2057-03 Layout  h15.5   day-only -> 2026-10-14   with-hour -> 2026-10-13
+
+    So the fix's value is NOT that it prevents overlaps. It is that it stops the scheduler pushing work later than it needs to — five ops on today's board would be scheduled earlier, one of them by a week.
+
+    **AND IT WOULD NOT HAVE PREVENTED THIS ENTRY'S OWN OVERLAP.** Asked directly — place `2057-03 Layout` on 2026-10-05..07 for `txkw0ci0l` with `2057-01 Layout` already sitting there at h12.5 — the oracle refuses at EVERY granularity:
+
+        free(…, null) -> false      <- what the old call asked
+        free(…, 8)    -> false
+        free(…, 12.5) -> false
+        free(…, 15.5) -> false      <- where it actually landed
+
+    The day-only question ALREADY says no. So the overlap was not produced by asking the wrong question of this oracle — **it was produced by a build that did not have this oracle at all.** `schedulerAvailability` appears ZERO times in `e0e480d`; that scheduler used hand-rolled `otherBusy`/`selfBusy` date-interval comparisons, which `cee5baf` ("Auto-schedulers and save-time seeding use the shared overlap rule") and #344 replaced.
+
+    THE HONEST ANSWER to "would the fixed scheduler still produce them from the same inputs": **no — and neither would the UNFIXED current scheduler.** The defect that made #402 was fixed by the oracle consolidation before this investigation began. The two fixes built today are correct, measurably useful, and address a DIFFERENT defect from the one that put those two bars on the board. Said plainly because the alternative is a changelog implying a fix for something it did not fix.
     LESSON, AND IT IS A NEW ONE: **TO EXPLAIN A PAST WRITE, READ THE BUILD THAT MADE IT.** `git log --format=%h --until=<the write's timestamp> -1` is one command and it was not run until three hypotheses had died. Every one of those three was a correct reading of the wrong file. See LESSONS #15.
     ONE MEASUREMENT WORTH KEEPING for #403's sibling question (`saveTask` excluding the job being saved from its own obstacle set, `tasks.filter(j => j.id !== ed.id)`): across the twelve, `tst5cu0x3` is the **ONLY** op where excluding its own job changes `nextFreeStart`'s answer — job-EXCLUDED gives `2026-10-05 h8` (colliding with its sibling), job-INCLUDED gives `2026-10-07 h12` (clean). That is exactly the op that ended up overlapping. **But it is not established that this path ran**: the seeding only computes an hour when `startHour == null`, and these ops arrived at saveTask already carrying 15.5 from the planner, in which case `nextFreeStart` never executed. The exclusion is a real defect and is logged separately; its contribution HERE is unproven.
 

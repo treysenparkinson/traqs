@@ -23563,7 +23563,13 @@ ${jobsCtx || "No jobs found."}`;
           // The shared overlap rule, counting this run's own placements (booked below) — the
           // whole-day check here ignored the job being scheduled and double-booked people.
           const _localAvail = schedulerAvailability(tasks, overlapCtx, { excludeJobId: ed.id, people });
-          const isAvailLocal = (pid, s, eDate) => _localAvail.free(pid, s, eDate);
+          // #402. THE HOUR GOES WITH THE DAYS. Omitting the fourth argument makes
+          // `free` probe with `startHour: undefined`, which asks a DIFFERENT
+          // QUESTION — one that cannot see an hour-level clash — while the drag and
+          // the Jobs-list assign cell both pass it. The run then placed an op onto
+          // days the same person already had work on, wrote no moveLog, and the only
+          // way it surfaced was by measuring the board.
+          const isAvailLocal = (pid, s, eDate, sh) => _localAvail.free(pid, s, eDate, sh ?? null);
           const personCursors = {};
           allCrew.forEach(pp => { personCursors[pp.id] = newStartDate; });
           // Same fix as the wizard's copy (#345): hours, through the shared
@@ -23571,6 +23577,9 @@ ${jobsCtx || "No jobs found."}`;
           // first place.
           const loadHoursLocal = hoursLoadOf(occupyingUnits(tasks, overlapCtx), { excludeJobId: ed.id });
           const pickTeamLocal = (op, minStart = null) => {
+            // The hour the op already carries. Since #344 the run assigns none of its
+            // own, so this is what it will actually sit at.
+            const _opH = (typeof op === "object" && op) ? (op.startHour ?? null) : null;
             const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : productiveHoursPerDay;
             const reqDepts = typeof op === "object" ? deptsOfUnit(op, null, null) : [];
             // Same rule as pickTeam above: no department means stay unassigned.
@@ -23598,7 +23607,7 @@ ${jobsCtx || "No jobs found."}`;
               let tryStart = minStart || newStartDate;
               for (let guard = 0; guard < 300; guard++) {
                 const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
-                for (const candidate of eligible) { if (isAvailLocal(candidate.id, tryStart, tryEnd)) return { team: [candidate], start: tryStart, end: tryEnd }; }
+                for (const candidate of eligible) { if (isAvailLocal(candidate.id, tryStart, tryEnd, _opH)) return { team: [candidate], start: tryStart, end: tryEnd }; }
                 tryStart = sAddBD(tryStart, 1);
               }
               return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
@@ -23609,7 +23618,7 @@ ${jobsCtx || "No jobs found."}`;
             for (let guard = 0; guard < 300; guard++) {
               const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
               let allFree = true;
-              for (const m of eligible) { if (!isAvailLocal(m.id, tryStart, tryEnd)) { allFree = false; break; } }
+              for (const m of eligible) { if (!isAvailLocal(m.id, tryStart, tryEnd, _opH)) { allFree = false; break; } }
               if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
               tryStart = sAddBD(tryStart, 1);
             }
@@ -23617,7 +23626,7 @@ ${jobsCtx || "No jobs found."}`;
             for (let g2 = 0; g2 < 300; g2++) {
               const tryS = sAddBD(fallbackStart, g2);
               const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
-              const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE));
+              const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE, _opH));
               if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * productiveHoursPerDay))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
             }
             return { team: [], start: fallbackStart, end: fallbackStart };
@@ -24317,7 +24326,9 @@ ${jobsCtx || "No jobs found."}`;
                       const personCursors={};
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
                       const inSession=[];
-                      const isAvail=(pid,s,eDate) => _applyAvail.free(pid,s,eDate);
+                      // #402. Same fix as the preview run's isAvailLocal: the hour is
+                      // part of the question, not a detail settled afterwards.
+                      const isAvail=(pid,s,eDate,sh) => _applyAvail.free(pid,s,eDate,sh ?? null);
                       // LOAD IS HOURS, NOT BARS (#345). What stood here counted
                       // unfinished panel and op ROWS, which called TORUS's 370h/179h
                       // split even because both people held a similar NUMBER of bars.
@@ -24326,6 +24337,8 @@ ${jobsCtx || "No jobs found."}`;
                       // unfinished bar made someone look busy forever.
                       const loadHours=hoursLoadOf(occupyingUnits(tasks, overlapCtx), { excludeJobId: ed.id });
                       const pickTeam=(op,minStart=null) => {
+                        // #402. The hour the op already carries, asked alongside the days.
+                        const _opH=(typeof op === "object" && op) ? (op.startHour ?? null) : null;
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
                         const reqDepts=typeof op==="object"?deptsOfUnit(op,null,null):[];
                         // No department on this unit -> deliberately unassigned. Dates are
@@ -24383,7 +24396,7 @@ ${jobsCtx || "No jobs found."}`;
                           if(minStart && tryStart<minStart) tryStart=minStart;
                           for(let guard=0;guard<300;guard++) {
                             const tryEnd=sAddBD(tryStart,Math.max(0,singleDur-1));
-                            for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd)) return {team:[candidate],start:tryStart,end:tryEnd}; }
+                            for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd,_opH)) return {team:[candidate],start:tryStart,end:tryEnd}; }
                             tryStart=sAddBD(tryStart,1);
                           }
                           // NO WINDOW IN 300 BUSINESS DAYS. This used to return
@@ -24402,7 +24415,7 @@ ${jobsCtx || "No jobs found."}`;
                         for(let guard=0;guard<300;guard++) {
                           const tryEnd=sAddBD(tryStart,Math.max(0,durBD-1));
                           let allFree=true;
-                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd)) { allFree=false; break; } }
+                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd,_opH)) { allFree=false; break; } }
                           if(allFree) return {team:eligible,start:tryStart,end:tryEnd};
                           tryStart=sAddBD(tryStart,1);
                         }
@@ -24410,7 +24423,7 @@ ${jobsCtx || "No jobs found."}`;
                         for(let g2=0;g2<300;g2++) {
                           const tryS=sAddBD(fallbackStart,g2);
                           const tryE=sAddBD(tryS,Math.max(0,singleDur-1));
-                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE));
+                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE,_opH));
                           if(freeSubset.length>0) { const sz=freeSubset.length; const finalDur=Math.max(1,Math.ceil(totalHours/(sz*productiveHoursPerDay))); return {team:freeSubset,start:tryS,end:sAddBD(tryS,Math.max(0,finalDur-1))}; }
                         }
                         // Same refusal for the team path: no subset of the crew was free on
@@ -24547,6 +24560,38 @@ ${jobsCtx || "No jobs found."}`;
                       // panels.length` — panel counts against a panel-id list — which
                       // cannot answer the question once the selection is ops. An op
                       // that was not re-planned keeps exactly what it had.
+                      // #402. THE BACKSTOP THE SCHEDULER WAS MISSING — PER OP, NOT PER RUN.
+                      //
+                      // After the 2026-10-06 consolidation the drag, the Jobs-list assign
+                      // cell and the inline date cells all commit through commitLanding,
+                      // which refuses on enforceNoOverlap. The scheduler was the one writer
+                      // of placements still outside it, which is how #402's overlapping
+                      // pair reached the board with no moveLog behind it.
+                      //
+                      // DELIBERATELY NOT commitLanding ITSELF, and this is a deviation from
+                      // the literal instruction rather than an oversight: commitLanding
+                      // refuses the WHOLE commit, and #344 removed exactly that behaviour
+                      // ("The run never aborts: per-op outcomes instead"). Reinstating an
+                      // abort here would trade one defect for a worse one. So the same
+                      // guard runs, and anything it reports becomes the same per-op
+                      // noWindow outcome the verifier above already produces — the op keeps
+                      // its original record and is named in step 3.
+                      const _bsIds = newSubs.flatMap(pn => [String(pn.id), ...((pn.subs || []).map(o => String(o.id)))]);
+                      // Its own strip: the shared `_strip` is declared below this point,
+                      // and the run-local `_placed`/`_outcome` scratch fields must not
+                      // reach the overlap rule any more than they may reach S3.
+                      const _bsClean = (n) => { const { _outcome: _o, _placed: _pl, placedSubs: _ps, ...rest } = n;
+                        return { ...rest, ...(rest.subs ? { subs: rest.subs.map(_bsClean) } : {}) }; };
+                      const _bsProbe = tasks.map(j => String(j.id) === String(p.id) ? { ...j, subs: newSubs.map(_bsClean) } : j);
+                      const { moved: _bsMoved, refused: _bsStuck } = enforceNoOverlap(_bsProbe, _bsIds);
+                      const _bsBlocked = new Set([..._bsMoved, ..._bsStuck].map(String));
+                      if (_bsBlocked.size > 0) {
+                        console.warn("[schedule] backstop caught placements the run would have written", [..._bsBlocked]);
+                        for (const id of _bsBlocked) {
+                          if (runOutcomes.some(o => String(o.id) === id)) continue;
+                          runOutcomes.push({ id, op: { id, title: "" }, outcome: OUTCOME.noWindow, person: null, candidates: 0 });
+                        }
+                      }
                       const _replanned = new Set(rescheduleSelection.map(String));
                       // #344. An op the run could not place keeps its ORIGINAL record.
                       // This is the same promise the preview already makes on screen —
