@@ -251,7 +251,10 @@ console.log("\n7. Server: overlap in log mode (OVERLAP_RULE_MODE), Business only
   const realWarn = console.warn;
   console.warn = (...a) => { if (typeof a[0] === "string" && a[0].startsWith("{")) { try { const o = JSON.parse(a[0]); if (o.tag) { logs.push(o); return; } } catch {} } realWarn(...a); };
   const K = { tasks: "orgs/TESTORG/tasks.json", people: "orgs/TESTORG/people.json", settings: "orgs/TESTORG/settings.json", billing: "orgs/TESTORG/billing.json" };
-  const clean = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 4 }), op("X", { start: MON, end: MON, startHour: 13, hpd: 2 }));
+  // The server takes "today" from the real clock (UTC with no timeZone set) and ignores past
+  // days, so a fixed near date here goes stale — MON stopped overlapping at 00:00 UTC 2026-10-06.
+  const DAY = "2099-10-05";   // a Monday, always in the future
+  const clean = job(op("Y", { start: DAY, end: DAY, startHour: 8, hpd: 4 }), op("X", { start: DAY, end: DAY, startHour: 13, hpd: 2 }));
   const seed = (mode, tier) => {
     if (mode === undefined) delete process.env.OVERLAP_RULE_MODE; else process.env.OVERLAP_RULE_MODE = mode;
     process.env.SCHEDULE_RULES_MODE = "off"; process.env.TASK_CONFLICT_MODE = "off"; delete process.env.PERMISSION_GATES_MODE;
