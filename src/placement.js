@@ -411,3 +411,49 @@ export function isReplannable(op, people) {
   });
   return clockedInto ? { ok: false, reason: OUTCOME.clocked } : { ok: true };
 }
+
+/**
+ * A NON-BLOCKING load hint for one person over one date range: "3 of 5 days full",
+ * or null when there is nothing worth saying (#395).
+ *
+ * WHAT THIS REPLACES. `planAvailability` in TRAQS.jsx answered a CAPACITY question
+ * — is every working day in the range either time off or booked to capacity — and
+ * the Job Details popover used its verdict to STRIKE PEOPLE OUT. The Jobs-list
+ * picker meanwhile asked `schedulerAvailability`, which answers an OVERLAP
+ * question: does this person's existing work occupy the hours this op occupies.
+ * Two oracles, two questions, one control.
+ *
+ * Measured on Matrix across 109 dated ops x 18 people — 1962 pairs — they
+ * disagreed on 244, or 12.4%: 203 struck out in Job Details that the list called
+ * free, and 41 the other way. The overlap oracle wins, because it is what the
+ * drag, the scheduler and the server's own activeClock rule already use, and
+ * because a fifth definition of "free" is how this codebase got four schedulers.
+ *
+ * THE CAPACITY NUMBER IS STILL WORTH SEEING, so it is kept — as a sentence beside
+ * the name, never as a verdict. Treysen's ruling: "a strike that means 'busy
+ * week' reads as 'can't do this', and 203 people being wrongly struck is worse
+ * than 41 being wrongly offered."
+ *
+ * Returns a STRING or NULL and nothing else. It has no `ok` field on purpose:
+ * there is no shape of this value that a caller could mistake for permission.
+ */
+export function dayLoadHint(personId, start, end, ctx = {}) {
+  if (!start || !end || personId == null) return null;
+  const { isWorkDay, isOff, bookedHrs, capacity = 0 } = ctx;
+  if (typeof isWorkDay !== "function" || typeof bookedHrs !== "function") return null;
+  const off = typeof isOff === "function" ? isOff : () => false;
+  let days = 0, loaded = 0;
+  // Bounded the same way the calendar walks are, so a reversed or absurd range
+  // cannot spin here.
+  for (let d = start, g = 0; d <= end && g < 5000; g++) {
+    if (isWorkDay(d)) {
+      days++;
+      if (off(personId, d) || bookedHrs(personId, d) >= capacity) loaded++;
+    }
+    const t = Date.parse(`${d}T12:00:00Z`);
+    if (!Number.isFinite(t)) break;
+    d = new Date(t + 86400000).toISOString().slice(0, 10);
+  }
+  if (days === 0 || loaded === 0) return null;
+  return `${loaded} of ${days} days full`;
+}

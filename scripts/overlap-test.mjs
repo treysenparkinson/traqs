@@ -233,12 +233,21 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   // half. A SIXTH caller is fine if it asks this oracle, and the failure to
   // care about is a caller that does not appear here at all because it rolled
   // its own again.
-  // SIX now: the Jobs page's quick-assign picker joined them. It asks the same
+  // SIX then: the Jobs page's quick-assign picker joined them. It asks the same
   // oracle about the op's OWN dates — the cell assigns a person and never moves
   // anything — with the op excluded from its own obstacle set, or a reassignment
   // would find the op blocking itself.
-  ok("every free-check goes through the shared oracle (three schedulers, the preflight, the backstop, the Jobs picker)",
-    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 6);
+  //
+  // SEVEN now (#395), and this is the count going the RIGHT way. The Job Details
+  // assign popover used to ask `planAvailability`, a CAPACITY question over a
+  // date range, and strike people out on its verdict — while the Jobs-list picker
+  // struck people out on an OVERLAP question. Measured on Matrix across 109 dated
+  // ops x 18 people: the two disagreed on 244 of 1962 pairs, 12.4%, with 203
+  // struck in Job Details that the list called free. The popover now asks this
+  // oracle, planAvailability is deleted, and the capacity number survives as a
+  // non-blocking hint (`dayLoadHint`) beside the name rather than as a verdict.
+  ok("every free-check goes through the shared oracle (three schedulers, the preflight, the backstop, the Jobs picker, the Job Details popover)",
+    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 7);
   // And the scan it replaced must not come back.
   ok("…and no hand-rolled date-interval scan stands beside it",
     /\.start\s*<=\s*\w+\.end\s*&&\s*\w+\.end\s*>=\s*\w+\.start[\s\S]{0,120}?overlapErrors/.test(SRC), false);

@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, OUTCOME } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -8903,6 +8903,32 @@ Extraction rules:
   // behind it is the same as no assignment, so this must not be a quieter path
   // than dragging the bar there by hand.
   const commitAssign = (op, nextTeam) => {
+    // #393. THE ACTIVE-CLOCK GUARD LIVES HERE, IN THE COMMIT, NOT ON THE CELLS.
+    //
+    // The drag path refuses this at its first layer (refuseDragMove's `isLive`).
+    // The Jobs-list cell called commitLanding directly and so skipped
+    // refuseLanding, which is where isLive lives — and then three more layers
+    // passed it through: the server's activeClock rule DOES detect a team change
+    // on a clocked-into op (scheduleRules.js:334) but SCHEDULE_RULES_MODE is
+    // unset, which means `log`; and the stranded-clock sweep's fingerprint is
+    // `start|end|startHour|hpd|panelId`, which has no `team` in it, so it does
+    // not notice either.
+    //
+    // Guarding the COMMIT rather than each cell is the point of this change: the
+    // Job Details popover now routes through here too, and a fifth caller
+    // inherits it without anyone remembering to add it.
+    //
+    // Measured at Matrix before building: `activeJobClock` is absent on all 18
+    // people, so this is currently unreachable there. It is insurance, and
+    // isReplannable is the existing owner of the question rather than a second
+    // copy of it.
+    const replan = isReplannable(op, people);
+    if (!replan.ok) {
+      const who = people.find(p => p?.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, op.id));
+      showLandingRefusal({ kind: "live", title: op.title || "", other: null },
+        who ? `${who.name} is clocked into this operation` : "Somebody is clocked into this operation");
+      return false;
+    }
     const at = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null };
     const movedBy = loggedInUser?.name || "Admin";
     // from and to carry the SAME dates: this moves nobody in time, it only
@@ -8911,6 +8937,38 @@ Extraction rules:
       from: { ...at, team: op.team || [] }, to: { ...at, team: nextTeam } };
     const reason = nextTeam.length ? "Assigned from the Jobs list" : "Unassigned from the Jobs list";
     return commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy, reason }), movedBy),
+      [String(op.id)], op.title || "");
+  };
+  // #398. TYPING A DATE DOES WHAT DRAGGING TO IT DOES.
+  //
+  // The inline start/end cells went through commitCellEdit -> updTask, a plain
+  // field patch: no refusal chain, no overlap backstop, no moveLog. Dragging the
+  // same bar to the same dates runs every check. That is the same "quieter path"
+  // the assign cell's own comment forbids, on a different cell.
+  //
+  // THE EVIDENCE IT MATTERS (#402): the live board carries one overlapping pair,
+  // 2057-01 Layout and 2057-03 Layout, both at 2026-10-05..07, and BOTH HAVE
+  // moveLog = 0 — so neither was dragged and neither was assigned through the
+  // list cell. Something placed them at overlapping hours without going through
+  // the refusal chain.
+  //
+  // ACCEPTED CONSEQUENCE, ruled 2026-10-06: typing a date that overlaps is now
+  // REFUSED where it used to succeed silently. A quieter path is the defect.
+  const commitDates = (op, next) => {
+    const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] };
+    const to = { ...from, ...next };
+    const movedBy = loggedInUser?.name || "Admin";
+    // A drop that sets WHO as well as WHEN is a reassignment too — `placeTaskAt`
+    // does both in one gesture. applyDragMove only writes `team` when it is told
+    // the move is a reassignment, so a placement that changed the crew and did
+    // not say so would move the dates and silently drop the team change.
+    const teamChanged = JSON.stringify((from.team || []).map(String))
+      !== JSON.stringify((to.team || []).map(String));
+    const plan = [{ id: String(op.id), node: op, from, to, ...(teamChanged ? { reassigned: true } : {}) }];
+    const refusal = refuseLanding(plan);
+    if (refusal) { showLandingRefusal(refusal); return false; }
+    return commitLanding(
+      (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason: "Date typed on the Jobs list" }), movedBy),
       [String(op.id)], op.title || "");
   };
   const selectableOpIdsOf = (panel) => opIdsOf(panel).filter(id => {
@@ -9276,22 +9334,30 @@ Extraction rules:
   // and refusing it would rule out most of the roster most of the time. The
   // partial case is reported separately so the row can say so without being
   // disabled.
-  const planAvailability = useCallback((pid, start, end) => {
-    if (!start || !end || pid == null) return { ok: true };
-    const wd = orgSettings.workDays, hol = orgSettings.holidays || [];
-    let days = 0, off = 0, full = 0;
-    for (let d = start; d <= end; d = addD(d, 1)) {
-      if (!isWorkDay(d, wd) || hol.includes(d)) continue;
-      days++;
-      if (isOff(pid, d)) { off++; continue; }
-      if (bookedHrs(pid, d) >= productiveHoursPerDay) full++;
-    }
-    if (days === 0) return { ok: true };                  // nothing but weekend/holiday
-    if (off === days) return { ok: false, why: "Time off" };
-    if (off + full === days) return { ok: false, why: off ? "Off / booked up" : "Booked up" };
-    if (off + full > 0) return { ok: true, why: `${off + full} of ${days} days full` };
-    return { ok: true };
-  }, [orgSettings.workDays, orgSettings.holidays, isOff, bookedHrs, productiveHoursPerDay]);
+  // #395. THE CAPACITY NUMBER, AS A HINT AND NEVER AS A VERDICT.
+  //
+  // This was `planAvailability`, and the Job Details popover used its `ok` to
+  // STRIKE PEOPLE OUT while the Jobs-list picker struck people out on a different
+  // question entirely. planAvailability asked about CAPACITY over a date range
+  // (is every working day off or booked to the cap); schedulerAvailability asks
+  // about OVERLAP (does their work occupy the hours this op occupies). One
+  // control, two oracles.
+  //
+  // MEASURED on Matrix, 109 dated ops x 18 people = 1962 pairs: they disagreed on
+  // 244, or 12.4% -- 203 struck out in Job Details that the list called free, and
+  // 41 the other way. The overlap oracle wins because the drag, the scheduler and
+  // the server's own activeClock rule already use it, and a fifth definition of
+  // "free" is how this codebase came by four schedulers.
+  //
+  // RULED 2026-10-06: "a strike that means 'busy week' reads as 'can't do this',
+  // and 203 people being wrongly struck is worse than 41 being wrongly offered."
+  // So the number survives as a sentence beside the name. dayLoadHint returns a
+  // string or null and has no `ok` field, so no caller can mistake it for
+  // permission.
+  const planLoadHint = useCallback((pid, start, end) => dayLoadHint(pid, start, end, {
+    isWorkDay: (d) => isWorkDay(d, orgSettings.workDays) && !(orgSettings.holidays || []).includes(d),
+    isOff, bookedHrs, capacity: productiveHoursPerDay,
+  }), [orgSettings.workDays, orgSettings.holidays, isOff, bookedHrs, productiveHoursPerDay]);
 
   // Returns "primary" | "secondary" | false — secondary means the person can cover
   // the job as a backup (their secondaryDepartment matches) but should sort below primary.
@@ -10226,7 +10292,15 @@ Extraction rules:
       : Math.max(1, spanDays);
     const start = dayStr;
     const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
-    updTask(it.id, { team: [personId], start, end }, it.pid || null);
+    // #394/#398. A FIFTH WRITER, found while consolidating the other four. This
+    // was `updTask(it.id, { team: [personId], start, end }, …)` — one plain patch
+    // setting both WHO and WHEN, with no refusal chain, no overlap backstop and
+    // no moveLog, launched from the same Job Details popover as the assign list.
+    // It goes through the shared commit now, which sets `reassigned` for it
+    // because the crew changes as well as the dates.
+    const node = findTaskNode(it.id);
+    if (!node) return;
+    if (commitDates(node, { start, end, team: [personId] }) === false) return;
     const who = people.find(pp => sameId(pp.id, personId));
     toast(`${it.title || "Task"} placed on ${who ? who.name : "row"} · ${fmtDate(start)}`);
     setPlacingTask(null);
@@ -12414,6 +12488,14 @@ ${jobsCtx || "No jobs found."}`;
     // The key the server enforces for this field (src/taskActions.js).
     const need = key === "start" || key === "end" ? "moveJobs" : key === "team" ? "reassign" : "editJobs";
     if (!can(need)) return denied(PERM_VERB[need]);
+    // #398. start/end are SCHEDULE fields, so they go the way a drag goes rather
+    // than straight to updTask. dueDate deliberately does not: it is not a
+    // placement, and routing it here would start refusing a due date for an
+    // overlap it has nothing to do with.
+    if (key === "start" || key === "end") {
+      const node = findTaskNode(id);
+      if (node) return commitDates(node, { [key]: val });
+    }
     const patch = { [key]: val };
     if (apprSelectKeys.has(key)) {
       // "—" is the dropdown's own empty option, so choosing it reads as a clear
@@ -27656,7 +27738,13 @@ ${jobsCtx || "No jobs found."}`;
       const live = findTaskNode(planAssign.id) || {};
       const team = (live.team || []).map(String);
       const commit = (next, person, added) => {
-        updTask(planAssign.id, { team: next }, planAssign.pid || null);
+        // #394. THE SAME COMMIT THE JOBS LIST USES. This was
+        // `updTask(planAssign.id, { team: next }, …)` — a plain field patch with
+        // no moveLog, no overlap backstop and no shared oracle, which made this
+        // the quietest of the four assignment paths. commitAssign already takes a
+        // FULL TEAM ARRAY, so this popover keeps its multi-select unchanged and
+        // simply stops being a second writer.
+        if (commitAssign(live, next) === false) return;
         // Confirmation in the app's own idiom, naming the task as well as the
         // person: a phase routinely holds several rows with the same title, so
         // "Treysen assigned" alone would not say which one took it.
@@ -27679,22 +27767,29 @@ ${jobsCtx || "No jobs found."}`;
 
       // Availability against the task's own dates. Someone ALREADY on the task is
       // never struck out: they are on it, and offering no way to take them off
-      // would strand the assignment. An undated task cannot be judged, so
-      // planAvailability returns ok and nobody is struck.
-      // NO DATES, NO ASSIGNING.
+      // would strand the assignment.
       //
-      // planAvailability returns { ok: true } for an undated task -- it has no range
-      // to measure against -- so the roster renders with nobody struck out and every
-      // person looks equally free. Picking from that list is guesswork dressed up as
-      // a recommendation, and the whole point of the strike-out is to stop exactly
-      // that. So the roster is withheld until there are dates to judge against.
+      // NO DATES, NO ASSIGNING. An undated task has no range to measure against,
+      // so every person would render equally free and picking from that list is
+      // guesswork dressed up as a recommendation. The roster is withheld until
+      // there are dates to judge against. (This paragraph described
+      // planAvailability's { ok: true } for an undated task; the oracle is now
+      // schedulerAvailability and the reasoning is unchanged -- #395.)
       const planUndated = !planAssign.start || !planAssign.end;
       // The drop sets WHO and WHEN; the one thing it cannot invent is HOW LONG.
       // Either source answers that: the task's hours, or the span of dates it
       // already has. Only a task with neither is unplaceable.
       const planHasHours = (live.hpd || 0) > 0;
       const planNoHours = !planHasHours && planUndated;
-      const avail = pp => planAvailability(pp.id, planAssign.start, planAssign.end);
+      // #395. THE SAME ORACLE THE JOBS LIST AND THE DRAG USE. The op is excluded
+      // from its own obstacle set or a reassignment finds the op blocking itself,
+      // exactly as assignPickerFor does.
+      const planAvail = schedulerAvailability(tasks, overlapCtx, { excludeOpIds: [planAssign.id], people });
+      const avail = pp => ({
+        ok: !planAssign.start || !planAssign.end
+          || planAvail.free(pp.id, planAssign.start, planAssign.end, live.startHour ?? null),
+        why: planLoadHint(pp.id, planAssign.start, planAssign.end) || undefined,
+      });
       const personRow = (pp, i) => {
         const on = team.includes(String(pp.id));
         const av = avail(pp);

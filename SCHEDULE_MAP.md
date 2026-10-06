@@ -1087,6 +1087,60 @@ Everything else was read at the cited line. Nothing was run against live data.
     CODE for a name; this is about searching DATA for one. Both fail the same way: the search
     was well-formed, ran cleanly, returned nothing, and the nothing was believed.
 
+13. A WIRING ASSERTION MUST MATCH THE GUARD CONDITION, NEVER THE CALL TEXT ALONE — AND THE
+    MUTATION SET FOR ONE MUST INCLUDE `if (false)`. Treysen's ruling, 2026-10-06, after the
+    same mutant walked past three separate wiring checks: #389's clamp, #392's guard, and
+    #398's date-cell routing. THREE TIMES IS NOT THREE MISTAKES, IT IS A MISSING CONVENTION.
+
+    The shape every time:
+
+        ok("the drag clamps the drop hour", /dropHour = clampStartHour\(/.test(CODE), true);
+
+    and the mutant that satisfies it:
+
+        if (false) dropHour = clampStartHour(dropHour, dayWindowCfg);
+
+    The line is present, reads correctly, and never executes. This is LESSONS #1 — a green
+    assertion over code nothing runs — reached by a different road: not a test on a dead
+    path, but a test that cannot tell a live path from a dead one. The repair is to assert
+    the WHOLE STATEMENT including its condition:
+
+        ok("...", /if \(dropHour !== null\) dropHour = clampStartHour\(dropHour, dayWindowCfg\);/.test(CODE), true);
+
+    A SECOND FORM OF THE SAME ERROR: an assertion that matches the NAME rather than the CALL.
+    `/segmentsForBar/` is satisfied by the import line on its own, so a mutant that deleted
+    the call and kept the import passed (#69/#70). Match the call site, with its arguments.
+
+    THE RULE, for any assertion whose subject is "this code is wired up":
+      - match the statement and its guard, not the callee;
+      - match a call with its arguments, not a bare name that an import satisfies;
+      - and run `if (false)` against it before believing it. A wiring check that has not
+        been mutated has not been tested, and this is the one mutant it exists to survive.
+
+14. A COUNT ASSERTION IS ONLY AS GOOD AS ITS PATTERN, AND A PATTERN SCOPED TO A SHAPE CANNOT
+    SEE THE SAME THING WITH MORE KEYS IN IT. From the same day, #394. The consolidation's
+    central claim was "there is now exactly ONE writer of `team`", asserted as a count:
+
+        const writes = (CODE.match(/\{ team: [A-Za-z_]+ \}/g) || []);
+        ok("no `{ team: … }` patch object remains", writes, []);
+
+    It returned `[]` and was green while a FIFTH WRITER sat in the file:
+
+        updTask(it.id, { team: [personId], start, end }, it.pid || null);
+
+    `[A-Za-z_]+` matches a bare identifier. It does not match an array literal, and it does
+    not match an object that carries other keys beside the one being counted. The write that
+    mattered most — one patch setting WHO and WHEN together, with no refusal chain behind
+    either — was the one shape the pattern could not express. It was found by reading a grep
+    of `updTask(... { team:` while fixing something else, not by the assertion built to find it.
+
+    THE CHECK: when counting occurrences of a WRITE, anchor on the CALL and the KEY
+    (`/updTask\([^)]*\{\s*team:/`), never on a full object literal whose shape you have
+    guessed. The thing you are looking for is "this field is written here", and every extra
+    character of assumed shape is a way for the answer to be zero for the wrong reason.
+    Sibling of LESSONS #3 (a sweep that returns zero is when to check the sweep) — this is
+    the case where the sweep returns zero and the zero looks like success.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1813,3 +1867,29 @@ Everything else was read at the cited line. Nothing was run against live data.
     THE QUESTION UNDERNEATH, logged on Treysen's instruction rather than acted on: SHOULD AN IDLE, UNWORKED OP BE PINNED TO THE CURSOR AT ALL? It paints a bar somewhere its data does not say it is. That is the root of this entire week: a rendering that contradicts the stored value made the save path, the conflict log, the drag arithmetic and the renderer each read as correct in isolation, and cost four fixes and a day of Trey's time before anyone looked at the paint. The anchor has a real purpose — showing what is idle NOW rather than where it was once scheduled — but the current form expresses it by MOVING THE BAR, which is indistinguishable on screen from the data having changed. A treatment that marks an op as overdue without relocating it (a tint, a marker at the cursor, a leader line) would keep the information and remove the contradiction. Not changed now; see also #69 and #70, which are the same anchor misbehaving in two other ways.
 
     The #391 trace stays in until Trey confirms the bar moves.
+
+393. FIXED 2026-10-06 (consolidation). THE JOBS-LIST ASSIGN CELL HAD NO ACTIVE-CLOCK GUARD, AND FOUR LAYERS PASSED IT THROUGH. The cell gated on `can("reassign") && _leaf` only; `commitAssign` called `commitLanding` directly and so skipped `refuseLanding`, which is where `isLive` lives; the server's `activeClock` rule DOES detect a team change on a clocked-into op (`scheduleRules.js:334`) but `SCHEDULE_RULES_MODE` is unset, which means `log`; and the stranded-clock sweep's fingerprint is `start|end|startHour|hpd|panelId`, with no `team` in it, so it does not notice either. The drag path refuses this at its first layer.
+
+    THE GUARD IS NOW IN THE COMMIT, NOT ON THE CELL, which is what makes this one fix instead of one per surface: the Job Details popover routes through `commitAssign` now too, and a fifth caller inherits it. `isReplannable` is the existing owner of the question rather than a second copy of it.
+
+    MEASURED BEFORE BUILDING: `activeJobClock` is absent on ALL 18 live people at Matrix, so this is currently UNREACHABLE there, and zero `schedule-rule` records exist in the log (the tag is written durably at `tasks.js:289`, so the sweep is sound — the rule genuinely has not fired). It is insurance and is written as insurance. The end-to-end outcome remains INFERRED; what would confirm it is reassigning an op somebody is clocked into and reading the log.
+
+394. FIXED 2026-10-06. THE JOB DETAILS ASSIGN POPOVER WAS A SECOND IMPLEMENTATION: `updTask(planAssign.id, { team: next }, …)`, a plain field patch with no moveLog, no overlap backstop and no shared oracle. The Jobs-list cell's own comment says assignment "must not be a quieter path than dragging the bar there by hand" — and this was quieter than the cell. It now calls `commitAssign`, keeping its multi-select unchanged, because **`commitAssign` already took a full team array**: the single-select is in the LIST CELL, not in the commit, so routing the popover through it does NOT make #396 live. (Treysen's premise when approving this was that it would; it does not, and #396 stays a Jobs-list UI question.)
+
+    AND A FIFTH WRITER TURNED UP DURING THE BUILD, which the survey had not found: `placeTaskAt` — the Job Details "Place" button — set WHO and WHEN in one gesture with one plain patch, `updTask(it.id, { team: [personId], start, end }, …)`. It goes through the shared commit now. `commitDates` marks a crew change as a reassignment, derived from comparing the teams rather than trusted from the caller, because `applyDragMove` writes `team` ONLY when the mover says so — a placement that changed the crew and did not say would have moved the dates and silently dropped the team change.
+
+    THE ASSERTION THAT WALKED PAST IT. The suite's "no `{ team: … }` patch remains" check was written as `/\{ team: [A-Za-z_]+ \}/`, which matches a bare identifier and MISSES `{ team: [personId], start, end }`. A count assertion is only as good as its pattern, and this one was narrower than the thing it was counting.
+
+395. FIXED 2026-10-06. TWO AVAILABILITY ORACLES ANSWERING DIFFERENT QUESTIONS THROUGH ONE CONTROL. `schedulerAvailability` asks about OVERLAP — does this person's work occupy the hours this op occupies. `planAvailability` asked about CAPACITY over a date range — is every working day off or booked to the cap — and the Job Details popover STRUCK PEOPLE OUT on its verdict.
+
+    MEASURED on Matrix across 109 dated ops × 18 people = 1962 pairs: **they disagreed on 244, or 12.4%** — 203 struck out in Job Details that the list called free (Quincy on "Labels" 2026-06-29..07-02, for one), and 41 the other way (Heston on "Wire (2)" 2026-07-29..08-14).
+
+    THE OVERLAP ORACLE WINS: it is what the drag, the scheduler and the server's own `activeClock` rule already use, and a fifth definition of "free" is how this codebase came by four schedulers. `planAvailability` is deleted; `schedulerAvailability` now has SEVEN callers and `overlap-test` counts them with the reason attached.
+
+    THE CAPACITY NUMBER SURVIVES AS A NON-BLOCKING HINT. Treysen's ruling: "a strike that means 'busy week' reads as 'can't do this', and 203 people being wrongly struck is worse than 41 being wrongly offered." `dayLoadHint` returns `"3 of 5 days full"` or `null` — a string or null, with no `ok` field, so no caller can mistake it for permission.
+
+398. FIXED 2026-10-06. THE INLINE start/end CELLS BYPASSED THE REFUSAL CHAIN ENTIRELY — `commitCellEdit` → `updTask`, a plain patch, while dragging the same bar to the same dates ran every check. `commitDates` builds a mover and goes through `refuseLanding` + `commitLanding`, so typing a date now does what dragging to it does, with a moveLog. `dueDate` deliberately still does not: it is not a placement, and routing it there would start refusing a due date for an overlap it has nothing to do with.
+
+    ACCEPTED CONSEQUENCE, ruled 2026-10-06: typing a date that overlaps is now REFUSED where it used to succeed silently. "A quieter path is the defect." Trey is being told before he meets it.
+
+402. [MEASURED, NOT EXPLAINED — logged, not chased] TWO OPS SIT AT OVERLAPPING HOURS ON THE LIVE BOARD WITH NO MOVELOG BETWEEN THEM. `2057-01 Layout` and `2057-03 Layout`, both `2026-10-05..2026-10-07`, startHour 12.5 and 15.5, hpd 15, one person each — and **both have `moveLog = 0`**. So neither was dragged and neither was assigned through the Jobs-list cell, both of which write a moveLog entry. Something placed them at overlapping hours without going through the refusal chain, and neither this consolidation (#393/#394/#395/#398) nor the auto-scheduler work explains which path did it. One distinct overlapping pair out of 19 occupying units on the board. Candidates not investigated: the job wizard, the scheduler's own writes, an iOS write, or a pre-backstop edit. The consolidation closes the paths that could do this GOING FORWARD; it does not account for these two.
