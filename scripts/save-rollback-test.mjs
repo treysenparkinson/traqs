@@ -17,6 +17,12 @@
 //   - an edit made while the rollback fetch is in flight is not clobbered;
 //   - no direct saveTasks call bypasses doSave's handling (#184).
 import { readFileSync } from "node:fs";
+// #223/#224. doSave now strips client-DERIVED defaults before the POST, and the
+// sandbox below auto-stubs any identifier it does not know with a function that
+// returns UNDEFINED — which turned dedupedTasks into undefined and failed 21
+// assertions that have nothing to do with it. The REAL helper is a pure function,
+// so the harness imports it rather than stubbing it.
+import { stripDerived } from "../src/derived.js";
 const SRC = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 
 function slice(anchor, { optional = false } = {}) {
@@ -80,6 +86,7 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
   const log = { fetchTasks: 0, readSlice: 0 };
   const saveStatusRef = { current: "saved" };
   const deps = {
+    stripDerived,
     console: { log() {}, warn() {}, error() {} },
     saveStatusRef,
     setSaveStatus: (s) => { saveStatusRef.current = s; },          // J:6013 mirrors it

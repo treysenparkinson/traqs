@@ -41,6 +41,7 @@ import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDa
 import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
 import { OUTCOME_APPLIED, OUTCOME_NOCHANGE, toolResultsFor } from "./aiActions.js";
 import { serializeRuns } from "./saveQueue.js";
+import { markDerived, stripDerived } from "./derived.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -7177,15 +7178,26 @@ Extraction rules:
   }, [isAdmin]);
 
   // Data migration normalizers: backfill department/requiredDepartment from legacy role/requiredRole fields
-  const normalizePeople = arr => arr.map(p => ({
-    ...p,
-    department: p.department ?? p.role ?? "",
-  }));
-  const normalizeOp = op => ({
-    ...op,
-    requiredDepartment: op.requiredDepartment ?? op.requiredRole ?? "",
-    subs: (op.subs || []).map(normalizeOp),
-  });
+  // #224. The department is still DERIVED for the screen, and is no longer SAVED
+  // as though somebody chose it. Measured: department === role on 18 of 18 live
+  // people, because `??` fills once and then persists forever.
+  //
+  // What is already stored is left exactly as it is: it arrives with the key
+  // present, so nothing is filled and nothing is marked. Those 18 stay readable
+  // against `role`, which survives alongside them.
+  const normalizePeople = arr => arr.map(p => (
+    p.department != null ? p : markDerived({ ...p, department: p.role ?? "" }, "department")
+  ));
+  // #223. Same treatment. 109 of 294 live nodes already carry a persisted "" —
+  // those stay, because `deptList("")` yields `[]` and `unitDepartments` skips
+  // it exactly as it skips an absent key. They are inert, and tidying inert data
+  // is risk for nothing.
+  const normalizeOp = op => {
+    const subs = (op.subs || []).map(normalizeOp);
+    return op.requiredDepartment != null
+      ? { ...op, subs }
+      : markDerived({ ...op, requiredDepartment: op.requiredRole ?? "", subs }, "requiredDepartment");
+  };
   // Stable color derivation from a panel id — same id always produces the same color, so panels
   // don't change color across reloads and don't shuffle when reordered.
   const _colorForId = (id) => {
@@ -7218,18 +7230,30 @@ Extraction rules:
       // because every tree the app holds passes through normalizeTasks, so there
       // is one place to get it right instead of one per write site.
       const _dw = (n) => withDepartmentDualWrite(n, orgSettings.roles || null);
-      return _dw({
+      // #223. A colour this client RESOLVED is marked, so it is not written back
+      // as though somebody picked it. A colour that ARRIVED is left untouched.
+      //
+      // Measured: 118 of 118 panels carry their job's colour and 112 of 112 ops
+      // carry their panel's — NOT ONE COLOUR BELOW JOB LEVEL WAS EVER CHOSEN.
+      // There is no job-level colour picker at all; all three editors are
+      // per-panel, and `updPanel` patches `{ ...pn, ...patch }` with no cascade.
+      // So every one of those 112 ops is stranded the moment the panel colour
+      // picker is used — persisting the inheritance is what froze it.
+      //
+      // The existing ones are NOT cleaned up: they cannot be told apart from a
+      // choice, and guessing a second time is the mistake this is fixing.
+      const _withColor = (nd, resolved) =>
+        (nd.color != null ? nd : markDerived({ ...nd, color: resolved }, "color"));
+      return _dw(_withColor({
         ...job,
-        color: jobColor,
-        subs: (job.subs || []).map(panel => _dw({
+        subs: (job.subs || []).map(panel => _dw(_withColor({
           ...panel,
-          color: panel.color || jobColor,
           subs: (panel.subs || []).map(op => {
             const norm = normalizeOp(op);
-            return _dw({ ...norm, color: norm.color || panel.color || jobColor });
+            return _dw(_withColor(norm, norm.color || panel.color || jobColor));
           }),
-        })),
-      });
+        }, panel.color || jobColor))),
+      }, jobColor));
     });
   };
 
@@ -8049,7 +8073,9 @@ Extraction rules:
       clearTimeout(saveTimerRef.current);
       setSaveStatus("saving");
       const tasks = latestTasksRef.current;
-      const people = latestPeopleRef.current;
+      // #224. Same as the tasks tree below: a department this client derived from
+      // `role` is not sent back as though it were chosen.
+      const people = stripDerived(latestPeopleRef.current);
       const clients = dataRef.current.clients;
       // Defend against unloaded state only — null/undefined means "data isn't ready yet".
       // An empty array is a legitimate state (user deleted everything) and must be allowed to save,
@@ -8059,7 +8085,18 @@ Extraction rules:
       // Run each save independently so we know exactly which one failed
       // (and so a single failure doesn't mask success of the others). The
       // errors array carries through to the banner UI below.
-      const dedupedTasks = tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i);
+      // #223/#224. A VALUE THIS CLIENT DERIVED DOES NOT GO BACK TO THE SERVER.
+      //
+      // normalizeTasks and normalizePeople fill a missing colour, department or
+      // requiredDepartment on LOAD — correctly, for the screen — and the autosave
+      // then wrote the guess to S3, where it became indistinguishable from
+      // something somebody typed. Same shape as #341's title heuristic.
+      //
+      // Stripped HERE rather than at each normaliser, because the normalisers
+      // must keep deriving (that is what makes a panel the same colour across
+      // reloads) and this is the one place the tree leaves the client. A value
+      // that ARRIVED from the server is unmarked and therefore untouched.
+      const dedupedTasks = stripDerived(tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i));
       // Diagnostic: log a fingerprint of what's being POSTed so we can tell
       // whether a "Saved" status is being followed by a stale data POST.
       // Sample = first 3 jobs' (id, title, start, end) + count of ops with moveLog.
