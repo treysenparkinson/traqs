@@ -53,9 +53,51 @@ In practice:
 ### R2. AN ENTRY THAT TURNS OUT TO BE WRONG IS CORRECTED IN PLACE, SAYING SO PLAINLY.
 
 Not rewritten to look like it always said the right thing, and not quietly deleted. #377,
-#378, #379, #389 and #70 all carry their own retractions, and the retraction is usually the
-more useful half — it records the measurement that disproved the claim, which is what stops
-the next reader making it again.
+#378, #379, #389, #405 and #70 all carry their own retractions, and the retraction is usually
+the more useful half — it records the measurement that disproved the claim, which is what
+stops the next reader making it again.
+
+### R3. WHEN A REWRITE REMOVES OR RELOCATES BEHAVIOUR, THE CONTROL THAT INVOKED IT IS PART
+OF THE DIFF.
+
+The code that DID the thing gets deleted and reviewed. The button, the tab, the tooltip and
+the comment that pointed at it are in other files, other components, other screens — so they
+survive, and what they promise outlives what they do. **Three instances, all found by
+accident rather than by looking:**
+
+  - **#49** — a comment describing a function that had been deleted. It read as documentation
+    for a missing button, and sent a survey hunting for one.
+  - **#405** — `bae5483` wrapped an UNLABELLED cloud button in a `<Tip>` and wrote
+    "FAST TRAQS — import or update jobs from a file" on it. The button opens TRAQS Cloud, a
+    queue of jobs parked for later scheduling, and always did. The label came from the
+    toolbar's own header comment, not from the handler.
+  - **#419** — `04957e1` ("move settings into the sidebar") replaced the mobile settings body
+    with one list and left the General/Organization tab strip above it. `settingsTab` went
+    from three body reads to none and the strip stayed for five months.
+
+**A MISLABELLED CONTROL IS WORSE THAN A DEAD ONE.** A dead control disappoints once. A
+mislabelled one sends someone looking for file import inside a scheduling queue, and they
+conclude the feature is broken rather than that the sign is wrong.
+
+**The reason this family hides so well is that the feedback loop is real but closed.** #419's
+tabs moved an underline, went bold and changed the accent — every signal a working tab gives
+— and all of it was the tab describing itself. The test is not "does clicking it change
+anything on screen", it is **"does anything other than this control read this state"**.
+
+In practice, when deleting or moving a behaviour:
+
+  - grep for its state setter and its function name, and follow every CALLER up to the
+    control that starts it;
+  - for a `useState`, ask what READS the value — if the only reader is the control's own
+    styling, the control is already dead;
+  - read the handler before trusting a label, a tooltip or a nearby comment, because all
+    three are written by people and none of them is executed;
+  - and if the behaviour is genuinely gone, the control goes in the same commit. Restoring
+    a feature to justify a leftover control is inventing one.
+
+Guarded by `scripts/stranded-control-test.mjs`, which pairs each FAST TRAQS label with the
+handler it wraps rather than banning the phrase — a ban passes the moment someone writes a
+different wrong label.
 
 ---
 ---
@@ -2197,8 +2239,22 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     **AND `JSON.stringify(new Map())` IS `"{}"` FOR EVERY MAP**, so the first version of the queue assertions compared two different sets of moves as equal. Results are compared as sorted entries now.
 
-405. [LOGGED] THE FAST TRAQS BUTTON IS A STRANDED CONTROL. Its tooltip, in two places, promises "FAST TRAQS — import or update jobs from a file". It opens a full-screen panel titled **TRAQS Cloud** that contains no write of any kind — no `setTasks`, no `updTask`, no `commitLanding` across its whole render block. Either the importer was removed and the button left behind, or it was never built and the tooltip describes an intention. Same family as #49 (a comment for a deleted function that read as a missing button) and #341 (a modal that could never render): a labelled affordance promising something the code does not do. The question to answer first is which of the two it is.
+405. **CORRECTED AND FIXED 2026-10-06 — THE ENTRY WAS WRONG ON BOTH COUNTS, AND THE REAL DEFECT IS THE OPPOSITE SHAPE.** It read: "THE FAST TRAQS BUTTON IS A STRANDED CONTROL … opens a full-screen panel titled TRAQS Cloud that contains no write of any kind … either the importer was removed and the button left behind, or it was never built."
 
+    **THE PANEL IS NOT STRANDED.** `bcModalState` renders TRAQS Cloud, which lists every job parked with `scheduledLater`, headed "Pending Scheduling — N jobs", and each row opens the scheduling wizard at step 2 for that job (`setModalStep(2)` + `setModal({ type: "edit" … })`). It is a working queue. The survey tested it for `setTasks`/`updTask`/`commitLanding` and found none — which is TRUE and WAS THE WRONG TEST. A navigation surface writes nothing by design; the wizard it opens does the writing. "Writes nothing" was read as "does nothing".
+
+    **AND FAST TRAQS IS FULLY BUILT.** `uploadModal` + `fastTraqsPhase` is a three-phase importer — intro, input, preview — with drag-and-drop, `FAST_TRAQS_MAX_FILE_MB`/`MAX_TOTAL_MB` limits, AI parsing into jobs/panels/ops, a reviewable preview with per-row checkboxes, and an apply step that creates jobs, people and clients and patches existing ones by job number. It is reachable today from the app rail under **Tools** (`:26513`), with a lightning-bolt icon.
+
+    **THE ACTUAL DEFECT IS A FALSE LABEL ON A WORKING BUTTON.** Two cloud-icon buttons — the Jobs toolbar and the Schedule toolbar — open TRAQS Cloud while their tooltip reads **"FAST TRAQS — import or update jobs from a file"**. Dated: `bae5483` ("Revamp 2-4/7") took an existing UNLABELLED cloud button (`<Btn … onClick={() => setBcModalState("open")}>`, no tooltip at all), wrapped it in a `<Tip>` and invented that label; the same commit's own header comment lists the toolbar as "Export, FAST TRAQS and + New Job". The author believed the cloud button was FAST TRAQS. It never was — it was the BC Jobs modal from `19cbfec`, later retitled TRAQS Cloud.
+
+    SO IT IS NOT THE #49/#419 FAMILY AT ALL. Those are controls that do nothing. **This is a control that does something real and tells you it does something else** — written from an assumption about a button's purpose rather than from reading its handler. That is the more dangerous half: a dead control disappoints once, a mislabelled one sends someone looking for file import in a scheduling queue.
+
+    THREE NAMES FOR ONE THING, noted not fixed: the state is `bcModalState` (BC Jobs), the panel header says "TRAQS Cloud", and its content is headed "Pending Scheduling".
+
+
+    **FIXED BY TELLING THE TRUTH, NOT BY BUILDING OR REMOVING ANYTHING.** Both tooltips now read "TRAQS Cloud — jobs parked for later scheduling". Trey's ruling: *"Don't add a FAST TRAQS entry point to the toolbars; it's on the rail and that's enough until someone asks for it. Record that the revamp author intended one, so if it comes up later the history is there."* **RECORDED: `bae5483`'s own header comment lists the toolbar as "Export, FAST TRAQS and + New Job" — the author meant a FAST TRAQS button to be there.** It is not, and putting one there is a product decision nobody has made.
+
+    THE RATCHET IS A PAIRING, NOT A BANNED STRING. `scripts/stranded-control-test.mjs` requires every `<Tip label="…FAST TRAQS…">` to wrap a handler that reaches `setUploadModal(true)` or `setFastTraqsPhase(`. Banning the phrase would pass the moment someone writes a DIFFERENT wrong label — and a mutant that did exactly that is in the run.
 406. [PROCESS — LOGGED AGAINST MYSELF] FIVE SURVEY FINDINGS EXISTED ONLY IN A CHAT TRANSCRIPT. The Jobs-surface sweep reported #393–#401; the consolidation commit wrote #393, #394, #395, #398 and #402 to this file and **#396, #397, #399, #400 and #401 were never written down at all**. They were found by `grep -c "^400\. "` returning 0 while trying to correct #400's title — the same "a zero result is when to check the sweep" rule (LESSONS #3) applied to the log rather than to the code. A finding that is reported but not logged is a finding that will be re-found: the survey's whole value is that the next pass starts from it. Entries are written when the finding is made, not when the fix is.
 
 407. DONE 2026-10-06 (#400 item 1). **A DURABLE RECORD OF WHICH AI TOOLS ACTUALLY FIRED.** The Jobs sweep could not answer "does anyone use Ask to write?" and said so rather than offering a proxy — and that question decides whether #400 item 2 is tidying or urgent. A confirmed AI run now tags the save it triggers with `X-Action-Source: ai:<tool>,<tool>`, and `tasks.js` records an `ai-action` row beside every other rule event.
@@ -2417,8 +2473,18 @@ Everything else was read at the cited line. Nothing was run against live data.
           line follows it, because that is where `before[idx]` alignment is read
 
     Five fixtures that proved nothing, in a suite written to prove exactly this. LESSONS #13's family again, and the reason mutation testing is not optional here.
-419. [LOGGED 2026-10-06, NOT FIXED] **THE MOBILE SETTINGS MODAL'S General / Organization TABS DO NOTHING.** Found while renaming the Account section. `settingsTab` is declared at `:5759` (`"main" | "org"`) and read in exactly one place — the tabs' OWN styling, to decide which of them is underlined. **Nothing below switches on it.** So both tabs render the same body; the control moves an underline and changes nothing else.
+419. **FIXED 2026-10-06 — REMOVED. THE MOBILE SETTINGS MODAL'S General / Organization TABS DID NOTHING.** Found while renaming the Account section. `settingsTab` is declared at `:5759` (`"main" | "org"`) and read in exactly one place — the tabs' OWN styling, to decide which of them is underlined. **Nothing below switches on it.** So both tabs render the same body; the control moves an underline and changes nothing else.
+
+    **DATED 2026-10-06: THEY USED TO WORK.** `19cbfec` introduced `settingsTab` with **three body reads** — it genuinely switched the mobile settings list between personal and organization. `8bf6666` still had three. **`04957e1` ("feat: move settings into the sidebar (collapsible tree)") took the count to ZERO and left the tab strip standing.** The rewrite replaced the tabbed body with a single list and did not remove the control that had driven it. Two references survive today: the `useState` and the tabs' own `onClick`/styling. The body branches on `prefOpen`, never on `settingsTab`, so both tabs render identical content.
 
     **THE PATTERN WORTH NAMING: a control looks like it works because the ONLY THING READING ITS STATE IS ITS OWN STYLING.** The underline moves, the label goes bold, the accent changes — every signal a working tab gives — and all of it is the tab describing itself. Nothing downstream consults it. That is why this kind survives review: the feedback loop is real, it is just closed. The test is not "does clicking it change anything on screen" but "does anything other than this control read this state".
 
     Third of the family, after #49 (a comment for a deleted function that read as a missing button) and #405 (the FAST TRAQS button opening a panel that writes nothing): **a labelled affordance promising something the code does not do.** It is why the Account rename stopped at the desktop rail — renaming a control that does nothing would make it more convincing, not more correct. Mobile settings are still the old modals, deferred with the rest of that surface.
+
+    **REMOVED, NOT RESTORED.** Trey: *"Restoring a split the current design doesn't have would be inventing a feature."* The strip and `settingsTab` are gone; the note left in their place carries the archaeology so the next person does not re-add them.
+
+    **AND THE DELETION SURFACED A TEST THAT COUNTED THEM**, which is R3 running in the other direction: `css-dead-test` asserted `.anim-tab` was applied at **three or more** sites and named the settings tabs as one. Two remain (MobileNav's bottom bar, the mobile Time Stamp admin row). The count is now EXACT in both directions rather than a floor, so it cannot drift quietly again — and the suite still checks the class has users at all, which is what `#rc9c3` is for.
+
+420. [LOGGED 2026-10-06, NOT RENAMED] **THREE NAMES FOR ONE THING.** The panel #405 is about is called `bcModalState` in state, **"TRAQS Cloud"** in its header, and **"Pending Scheduling"** in its content. The `bc` is from `19cbfec`, which introduced it as the "BC Jobs modal"; the header was retitled later and the content heading never matched either.
+
+    NOT RENAMED, deliberately. Trey: *"that's a naming pass and it would touch state, header and content separately."* Each of the three has a different blast radius — the state name is internal and safe, the header is what users call the feature, and the content heading describes what is IN it rather than what it IS, so they may not even want the same word. Logged so the next person reading `bcModalState` knows it is not an abbreviation they failed to recognise.

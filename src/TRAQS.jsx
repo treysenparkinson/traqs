@@ -5766,7 +5766,6 @@ Extraction rules:
   const [roleEditId, setRoleEditId] = useState(null); // index being edited
   const [roleEditVal, setRoleEditVal] = useState("");
   const [orgSettingsOpen, setOrgSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("main"); // "main" | "org"
   const [orgCodePanelOpen, setOrgCodePanelOpen] = useState(false);
   const [orgCodeInput, setOrgCodeInput] = useState("");
   const [orgCodeSaving, setOrgCodeSaving] = useState(false);
@@ -13131,7 +13130,15 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           </Tip>
         </>}
-        <Tip label="FAST TRAQS — import or update jobs from a file">
+        {/* #405. This read "FAST TRAQS — import or update jobs from a file", which
+            this button has never done. `bae5483` wrapped an UNLABELLED cloud button
+            in a Tip and invented that label from the toolbar's own header comment
+            ("Export, FAST TRAQS and + New Job") rather than from the handler, which
+            opens TRAQS Cloud — the queue of jobs parked by "Schedule Later". FAST
+            TRAQS is real and fully built; it lives on the app rail under Tools, and
+            the revamp author clearly meant it to be here too. Putting it here is a
+            product decision nobody has made, so the label tells the truth instead. */}
+        <Tip label="TRAQS Cloud — jobs parked for later scheduling">
           <button className="rv-pill ic" onClick={() => setBcModalState("open")}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </button>
@@ -15739,7 +15746,9 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7, marginRight: 5 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
-          <Tip label="FAST TRAQS — import or update jobs from a file"><button className="rv-pill ic" onClick={() => setBcModalState("open")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></button></Tip>
+          {/* #405, as on the Jobs toolbar: this button opens TRAQS Cloud, not the
+              importer. Same invented label, same commit. */}
+          <Tip label="TRAQS Cloud — jobs parked for later scheduling"><button className="rv-pill ic" onClick={() => setBcModalState("open")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></button></Tip>
           {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
         </div>
       </div>
@@ -22384,15 +22393,15 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => prefOpen ? setPrefOpen(false) : setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
           <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{prefOpen ? "Preferences" : "Settings"}</span>
         </div>
-        {!prefOpen && isAdmin && (
-          <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
-            {[{ id: "main", label: "General" }, { id: "org", label: "Organization" }].map(tab => (
-              <button key={tab.id} className="tq-noanim anim-tab" onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* #419. A General / Organization tab strip stood here and did NOTHING.
+            `19cbfec` gave `settingsTab` three body reads — it really did switch
+            this list between personal and organization. `04957e1` ("move settings
+            into the sidebar") replaced the body with ONE list and left the strip
+            standing, so both tabs rendered identical content and the only thing
+            reading the state was the tabs own styling: the underline moved, the
+            label went bold, and nothing else happened. Removed rather than
+            restored — the split no longer exists in the design, and rebuilding one
+            to justify a leftover control would be inventing a feature. RULE R3. */}
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
           {prefOpen ? <>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
