@@ -1248,6 +1248,13 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               // Derive the live status shown on each person card.
               // online = clocked in, no open lunch/break. lunch/break = on that.
               const getStatus = (person) => {
+                // #385. The server computes this now (`clockStatusOf`), because the
+                // public roster no longer ships `activeClockIn` — the pill needed one
+                // word and the field carried the session start, the whole event log
+                // and, through activeJobClock, which job someone is on. The local
+                // derivation stays for the AUTHENTICATED roster, which still has the
+                // record; it is the same four values by the same rules.
+                if (person.clockStatus) return person.clockStatus;
                 if (!person.activeClockIn) return "offline";
                 const events = person.activeClockIn.events || [];
                 const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
@@ -1827,7 +1834,17 @@ function AuthGate() {
     const roster = teamPeople.length > 0 ? teamPeople : (() => {
       try { return JSON.parse(persist.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
     })();
-    const inRoster = roster.some(p => p.email?.toLowerCase() === user.email?.toLowerCase());
+    // #385. MEMBERSHIP COMES FROM THE SERVER, not from scanning the roster for
+    // your own address. `teamPeople` may be the PUBLIC projection — fetched
+    // before sign-in and no longer carrying `email`, which is the whole point of
+    // the allow-list — and an email scan of it returns false for everybody, which
+    // would have bounced every worker to "not-in-team". /org-config already
+    // resolves this authoritatively behind requireOrgMember, so the client no
+    // longer decides membership from PII it should not have.
+    //
+    // `undefined` means /org-config has not answered yet; only an explicit false
+    // is a verdict, so the screen does not flash on a slow response.
+    const inRoster = orgConfig.isMember !== false;
     const rosterIsEmpty = roster.length === 0;
     // `isAdmin` is set by /org-config; while it's undefined we treat the
     // user as potentially-admin so the UI doesn't flicker.

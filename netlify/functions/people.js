@@ -4,6 +4,8 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
+import { publicPerson } from "./_utils/public-person.js";
+import { rateLimit, callerIp } from "./_utils/rate-limit.js";
 import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
@@ -155,6 +157,15 @@ export async function handler(event) {
     }
     const isMember = !!member;
     const isAdmin = !!member?.isAdmin;
+    // #385. Only the OPEN path is throttled. A signed-in client polls this
+    // endpoint and must never be refused on the kiosk's budget; an anonymous
+    // caller with nothing but an org code gets a ceiling, so the roster cannot be
+    // scraped at network speed. 30 reads a minute is far above a kiosk that
+    // refreshes every 5s with a few screens on one connection.
+    if (!isMember) {
+      const rl = rateLimit({ key: `people:${orgCodeFromHeader(event) || ""}:${callerIp(event)}`, limit: 30, windowMs: 60_000 });
+      if (!rl.ok) return { ...err(429, "Too many requests"), headers: { "Retry-After": String(rl.retryAfter) } };
+    }
     try {
       const data = (await readJson(s3Key)) ?? [];
       // Hide soft-deleted (tombstoned) people from normal readers; /sync does
@@ -171,8 +182,16 @@ export async function handler(event) {
           const withFlag = { ...rest, hasPin: !!pin };
           if (isAdmin) return { ...withFlag, pin: decryptPin(pin) ?? "" };
           if (isMember) return withFlag;
-          const { pushToken: _pt, timeOff: _to, ...pub } = withFlag;
-          return pub;
+          // #385. AN EXPLICIT PICK, not a deny-list. This used to be
+          // `const { pushToken: _pt, timeOff: _to, ...pub } = withFlag;` — drop
+          // three, return the rest — which fails OPEN: measured on the live org,
+          // anyone with the org code got email for all 18 people, payType for 10,
+          // adminPerms for 4, phone for 3 and live clock state. Those fields were
+          // not late arrivals the list never caught up with — adminPerms dates
+          // from the initial commit and payType from a month later, so all of
+          // them were already there when the deny-list was written. publicPerson
+          // names what may be SEEN, so a field is private until someone adds it.
+          return publicPerson(withFlag);
         });
       const res = json(200, safe);
       if (isMember) return res;

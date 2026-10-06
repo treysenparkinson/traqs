@@ -7,6 +7,7 @@ import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { isValidOrgCode, generateOrgCode } from "./_utils/orgcode.js";
 import { codeIndexKey } from "./_utils/orgindex.js";
+import { rateLimit, callerIp } from "./_utils/rate-limit.js";
 import { IDENTITY_PROVIDERS, providerForSub } from "./_utils/identity-provider.js";
 
 // isValidCode was a third copy of the org-code rule. It now comes from
@@ -28,6 +29,16 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     const code = event.queryStringParameters?.code;
     if (!isValidCode(code)) return err(400, "Missing or invalid org code");
+    // #385. This endpoint already returns only name/domain/connection, but it is
+    // the thing that tells an anonymous caller WHETHER A CODE IS REAL — and the
+    // comment above names the risk: "anyone who walked the 3-20 char code space".
+    // Unlimited, walking it is only a matter of time; limited, it is a matter of
+    // a great deal of it. Keyed on the caller rather than the code, because the
+    // attack is one caller trying many codes.
+    {
+      const rl = rateLimit({ key: `org:${callerIp(event)}`, limit: 20, windowMs: 60_000 });
+      if (!rl.ok) return { ...err(429, "Too many requests"), headers: { "Retry-After": String(rl.retryAfter) } };
+    }
     try {
       const config = await readJson(`orgs/${code}/config.json`);
       if (!config) return err(404, "Organization not found");
