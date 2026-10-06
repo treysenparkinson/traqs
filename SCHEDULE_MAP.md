@@ -1189,6 +1189,39 @@ Everything else was read at the cited line. Nothing was run against live data.
     Sibling of LESSONS #3 (a sweep that returns zero is when to check the sweep) — this is
     the case where the sweep returns zero and the zero looks like success.
 
+15. TO EXPLAIN A PAST WRITE, READ THE BUILD THAT MADE IT. One command, not run until three
+    hypotheses had died:
+
+        git log --format="%h %ad %s" --until=<the write's timestamp> -1
+
+    #402's overlapping pair was written at 2026-09-29T20:59:32Z. HEAD at that moment was
+    `e0e480d`, 46 minutes old. The reschedule run was then REWRITTEN three days later by
+    `77efb7d` (#344). The line that set the hour — `startHour: _autoStartH` — exists in the
+    build that made the write and does NOT exist in the working tree.
+
+    So three separate readings exonerated three separate functions, and all three readings
+    were CORRECT. `buildExpanded` really does not touch hours. `pickTeam` really returns no
+    hour. `nextFreeStart` really returns h8 and h12. They were correct about today and
+    irrelevant to the question, which was about a Tuesday nine days earlier.
+
+    THIS IS LESSONS #11 ALONG THE OTHER AXIS. #11 is "I measured the store and called it
+    the screen" — the wrong LAYER. This is the wrong MOMENT: reading the current source to
+    explain a historical event, in a repository that commits several times a day and had
+    eighteen commits between the write and the investigation.
+
+    THE CHECK, before any archaeology:
+      - date the event first, from the data (an S3 version timestamp, a rule-event `at`, a
+        moveLog entry);
+      - resolve the build with `git log --until`, and SAY which commit you are reading;
+      - read that revision — `git show <sha>:path` — not the working tree;
+      - and when the two differ, that difference is itself a finding: here it meant the
+        cause had already been removed by an unrelated rewrite, which changed what needed
+        fixing.
+
+    The tell that should have triggered it: a value with NO LITERAL ANYWHERE in the current
+    source. A grep for `15.5` across `src/` and `netlify/` returned nothing, and that was
+    read as "it must be derived" when it also meant "it may not be here at all".
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1960,6 +1993,27 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     So the hour is set somewhere neither of those reaches, and the source is not yet found. NO FIX HAS BEEN BUILT: the two defects above are real and independently justified, but they were ruled to be fixed together with the cause of the 15.5 or not at all, and the precondition is unmet.
 
+
+    **THE 15.5 IS EXPLAINED, AND THE REASON IT TOOK THREE DISPROVED HYPOTHESES IS THAT I WAS READING CODE THAT DID NOT EXIST YET.** The write is 2026-09-29T20:59:32Z. `git log --until` puts HEAD at `e0e480d` (2026-09-29 14:13 local), 46 minutes earlier. **The reschedule run was rewritten three days later by `77efb7d` (2026-10-02, "The run never aborts: per-op outcomes instead (#344)").** Every exoneration above — `buildExpanded`, `pickTeam`, the apply step — was read from the CURRENT source against a write made by a different build.
+
+    IN `e0e480d` THE AUTO-SCHEDULE WROTE THE HOUR, at what was then line 10160:
+
+        const _autoStartH = Math.max(
+          (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], slotStart) : workStartH,
+          _selfDayMaxH);
+        …
+        newSubs[pi].subs[oi] = { ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd, startHour: _autoStartH };
+        selfBusy[pid].push({ start: slotStart, end: finalEnd, startHour: _autoStartH, endHour: _autoEndH });
+
+    THAT LINE NO LONGER EXISTS. Today's apply step writes `{ ...sub, start: ss, end: se, team }` and sets no hour at all.
+
+    AND THE VALUE IS CHAINED, WHICH IS WHY NO LITERAL `15.5` EXISTS ANYWHERE. `_selfDayMaxH` is the greatest `endHour` among THIS RUN'S own earlier same-day placements, `_autoEndH` is computed from the op's hours and pushed into `selfBusy`, and the next op takes `Math.max(getNextStartHour(…), _selfDayMaxH)`. One op's computed end becomes the next op's start, so a single run lands a batch on one hour — twelve ops, four jobs, four people, 15.5. Derived, not a default, exactly as predicted; the prediction was right and the place to look for it was wrong.
+
+    WHAT THAT CHANGES. The 15.5 generator was removed incidentally by #344 on 2026-10-02, so **the cause of the stacking is already gone** and the ruling that the two remaining defects must be fixed "together with the cause or not at all" is satisfied without further work. Those two — the scheduler asking `free()` without a start hour, and its placement sitting outside `commitLanding`/`enforceNoOverlap` — are STILL LIVE in today's code and still unfixed.
+
+    RULED OUT ALONG THE WAY, each by reading rather than assuming: `buildExpanded` (resolves deps and expands quantities; never touches dates or hours), `pickTeam` (returns `{team, start, end}`, no hour), `saveTask`'s `nextFreeStart` seeding (only runs when `startHour == null`; returns h8 ×11 and h12 ×1 for these twelve, with their real spans), today's `getNextStartHour` (8 or 17 on that board, never 15.5), `timeclock.js:304` (writes a moveLog entry; all twelve have none), and iOS — `startHour` is not a modelled property there but rides in `JSONExtras`, captured on decode and re-emitted on encode, and its ONLY writer is `SimpleJob.makeJob`, which fires when a new simple job is created and never rewrites an existing op. A board scan found `endHour: 15.5` on three ops, none belonging to the four people involved, so the neighbour-endHour route is out too.
+
+    LESSON, AND IT IS A NEW ONE: **TO EXPLAIN A PAST WRITE, READ THE BUILD THAT MADE IT.** `git log --format=%h --until=<the write's timestamp> -1` is one command and it was not run until three hypotheses had died. Every one of those three was a correct reading of the wrong file. See LESSONS #15.
     ONE MEASUREMENT WORTH KEEPING for #403's sibling question (`saveTask` excluding the job being saved from its own obstacle set, `tasks.filter(j => j.id !== ed.id)`): across the twelve, `tst5cu0x3` is the **ONLY** op where excluding its own job changes `nextFreeStart`'s answer — job-EXCLUDED gives `2026-10-05 h8` (colliding with its sibling), job-INCLUDED gives `2026-10-07 h12` (clean). That is exactly the op that ended up overlapping. **But it is not established that this path ran**: the seeding only computes an hour when `startHour == null`, and these ops arrived at saveTask already carrying 15.5 from the planner, in which case `nextFreeStart` never executed. The exclusion is a real defect and is logged separately; its contribution HERE is unproven.
 
 400. **THE TITLE THIS WAS REPORTED UNDER WAS WRONG, AND IT IS WRITTEN DOWN CORRECTED.** Reported as "FAST TRAQS is a third and fourth assignment path". It is TWO SURFACES AND ONLY ONE WRITES. FAST TRAQS is the button labelled that (`bcModalState`) and it opens a panel titled TRAQS Cloud which writes nothing — see #405. The tool-calling surface is **Ask TRAQS** (`askOpen` / `executeConfirmedActions`). The XLSX and FileReader code feeds file CONTENTS into the Ask conversation; the writes still come back as tool calls.
