@@ -12,6 +12,7 @@ import { walkProductiveHours, personShareHours, productiveHoursBetween, splitWor
 import { overlapsWith, occupyingUnits } from "./overlapRules.js";
 import { unitDepartments, personDeptMatch } from "./scheduleRules.js";
 import { shopMs } from "./shopTime.js";
+import { leaveOn } from "./timeOff.js";
 
 const sid = (x) => String(x);
 const same = (a, b) => a != null && b != null && sid(a) === sid(b);
@@ -119,7 +120,7 @@ export function refuseDragMove(movers, ctx) {
   }
   for (const m of movers) {
     for (const pid of m.to.team || []) {
-      const hit = (ctx.timeOff?.(pid) || []).find(t => t.start <= m.to.end && t.end >= m.to.start);
+      const hit = leaveOn(ctx.timeOff?.(pid), m.to.start, m.to.end);
       if (hit) return { kind: "pto", id: m.id, title: title(m), personId: pid, timeOff: hit };
     }
   }

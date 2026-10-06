@@ -73,6 +73,12 @@ export async function fetchPeople(getToken, orgCode) {
   const headers = getToken ? await authReadHeaders(getToken, orgCode) : orgHeader(orgCode);
   const res = await fetch(`${BASE}/people`, { headers });
   if (!res.ok) throw new Error(`fetchPeople failed: ${res.status}`);
+  // The public projection (no timeOff, pushToken or PIN) is the kiosk's roster. A caller
+  // that sent a token asked for the whole team; adopting the reduced one and autosaving it
+  // is what erased everyone's timeOff in #349, so refuse it rather than pass it on.
+  if (getToken && res.headers?.get?.("X-People-Projection") === "public") {
+    throw new Error("fetchPeople failed: got the public roster projection for an authenticated request");
+  }
   return res.json();
 }
 

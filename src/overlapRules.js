@@ -32,6 +32,7 @@
 import { opDaySegments, personShareHours, capacityOf, buildDayWindows, walkProductiveHours, productiveClockHours } from "./statsMath.js";
 import { workCalendar } from "./scheduleRules.js";
 import { withOrgDefaults } from "./orgDefaults.js";
+import { leaveOn } from "./timeOff.js";
 
 const EPS = 1e-6;
 const nextDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
@@ -335,7 +336,7 @@ export function schedulerAvailability(tasks, ctx, { excludeJobId = null, exclude
   return {
     free(pid, s, e, startH = null) {
       const p = byId.get(String(pid));
-      if ((p?.timeOff || []).some(to => to.start <= (e || s) && to.end >= s)) return false;
+      if (leaveOn(p?.timeOff, s, e || s)) return false;
       return !overlapsWith(unitFor(pid, s, e, startH), base.concat(session), plain).length;
     },
     book(pid, s, e, startH = null) { session.push({ unit: unitFor(pid, s, e, startH) }); },

@@ -29,7 +29,13 @@ export const STUBS = {
   // _utils/update-json.js imports the same module by its sibling path.
   "./s3.js": S3_STUB,
   "./_utils/auth.js": `
-    export const requireOrgMember = async () => ({ ...globalThis.__AUTH });
+    // __AUTH_FAIL = { status, message } makes auth fail the way the real one does
+    // (expired token 401, rate-limited identity provider 503).
+    export const requireOrgMember = async () => {
+      const f = globalThis.__AUTH_FAIL;
+      if (f) throw new AuthError(f.status, f.message || "auth failed");
+      return { ...globalThis.__AUTH };
+    };
     // messages.js resolves the caller itself: token -> email -> people.json row.
     export const validateToken = async () => ({});
     export const emailForToken = async () => ({ email: globalThis.__AUTH?.email ?? null, transient: false });

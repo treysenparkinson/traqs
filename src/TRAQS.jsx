@@ -11,6 +11,7 @@ const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
+import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
@@ -6643,7 +6644,7 @@ Extraction rules:
         // Any workday inside one of this person's time-off ranges (PTO or UTO, set in the
         // schedule person editor) auto-highlights yellow so the accountant sees it without
         // having to click — manual cell colors in the designer still override (see blocksHtml).
-        const offEntry = (p.timeOff || []).find(to => ds >= to.start && ds <= to.end);
+        const offEntry = leaveOn(p.timeOff, ds);
         const isPto = !!offEntry && isWorkday;
         const ptoType = offEntry ? (offEntry.type || "PTO") : null;
         // Only PAID time off (PTO) auto-highlights yellow for the accountant; UNPAID
@@ -9056,7 +9057,7 @@ Extraction rules:
       const todayStr = TD;
       const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => {
         const person = people.find(x => x.id === pid); if (!person) return false;
-        const pOff = (person.timeOff || []).some(to => todayStr >= to.start && todayStr <= to.end); if (pOff) return false;
+        const pOff = !!leaveOn(person.timeOff, todayStr); if (pOff) return false;
         // A person's share of each op, spread over its working days — hpd is the team's total.
         let h = 0; tasks.forEach(task => { (task.subs || []).forEach(pnl => { (pnl.subs || []).forEach(o => { if ((o.team || []).map(String).includes(String(pid)) && todayStr >= o.start && todayStr <= o.end) h += personShareHours(o.hpd, (o.team || []).length, productiveHoursPerDay) / Math.max(1, getWorkingDayDuration(o.start, o.end, orgSettings.workDays)); }); }); });
         return h > capacityOf(person, productiveHoursPerDay);
@@ -9107,8 +9108,8 @@ Extraction rules:
   const clientsById = useMemo(() => byStrId(clients), [clients]); // eslint-disable-line react-hooks/exhaustive-deps
   const tasksById = useMemo(() => byStrId(tasks), [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
   const personOf = useCallback((id) => (id == null ? null : peopleById.get(String(id)) || null), [peopleById]);
-  const isOff = useCallback((pid, date) => { const p = personByIdKey.get(idKey(pid)); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [personByIdKey]);
-  const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
+  const isOff = useCallback((pid, date) => { const p = personByIdKey.get(idKey(pid)); if (!p) return false; return !!leaveOn(p.timeOff, date); }, [personByIdKey]);
+  const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = leaveOn(p.timeOff, date); return to ? to.reason : null; }, [people]);
   // Every assignment that contributes booked hours, grouped by person: one pass over the
   // whole job tree per tasks-change, in place of a full walk of it on every bookedHrs call.
   //
@@ -9357,7 +9358,7 @@ Extraction rules:
       const over = capacityWarnings(withCand, people, overlapCtx, { personIds: [check.personId], days: candDays })[0];
       if (over) conflicts.push({ warnOnly: true, person: person.name, personColor: T.accent, opTitle: `Over capacity (${over.load}h / ${over.cap}h)`,
         panelTitle: check.panelTitle || "", jobTitle: check.opTitle || "", start: over.day, end: over.day, load: over.load, cap: over.cap });
-      for (const to of (person.timeOff || [])) {
+      for (const to of leaveEntries(person.timeOff)) {
         if (to.start <= check.end && to.end >= check.start) {
           conflicts.push({ person: person.name, personColor: T.accent, opTitle: "Time Off", panelTitle: to.reason || to.type || "PTO", jobTitle: "", start: to.start, end: to.end, isPto: true });
         }
@@ -14873,8 +14874,9 @@ ${jobsCtx || "No jobs found."}`;
       // job, phase and operation, and each one was building a Date and formatting it
       // -- per node, per person row, per render.
       const _today = TD;
+      // Indexed over the raw list: toIdx is what the PTO drag/edit handlers address.
       if (person) (person.timeOff || []).forEach((to, i) => {
-        if (to.end < _winS || to.start > _winE) return;
+        if (!countsAsLeave(to) || to.end < _winS || to.start > _winE) return;
         const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
         bars.push({ type: "pto", id: "pto-" + pid + "-" + i, start: to.start, end: to.end, title: to.reason || (to.type || "PTO"), color: ptoColor, task: null, subs: [], hasSubs: false, personId: pid, toIdx: i, fullStart: to.start, fullEnd: to.end, ptoType: to.type || "PTO" });
       });
@@ -15506,7 +15508,7 @@ ${jobsCtx || "No jobs found."}`;
                   }
                   const p = row.person;
                   const pOff = isOff(p.id, tStart);
-                  const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
+                  const offType = pOff ? (leaveOn(p.timeOff, tStart)||{}).type||"PTO" : null;
                   const offR = pOff ? getOffReason(p.id, tStart) : null;
                   const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
                   // Where each bar sits today: statsMath.dayViewBlocks — the shared cursor for Business,
@@ -15950,7 +15952,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={placingTask ? `Place "${placingTask.title}" on ${p.name} · ${day}` : (pOff ? `${offType}: ${offR}` : "")}
+                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? (leaveOn(p.timeOff, day) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={placingTask ? `Place "${placingTask.title}" on ${p.name} · ${day}` : (pOff ? `${offType}: ${offR}` : "")}
                   onClick={placingTask ? (e) => { e.stopPropagation(); e.currentTarget.style.boxShadow = "none"; placeTaskAt(p.id, day); } : undefined}
                   onMouseEnter={placingTask ? (e) => { e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } : undefined}
                   onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
@@ -18602,7 +18604,7 @@ ${jobsCtx || "No jobs found."}`;
           return { ...e, jobTitle: sess[0]?.jobTitle || null, opTitle: sess[0]?.opTitle || null, open: !e.clockOut };
         }),
     ];
-    const upcomingPto = (P.timeOff || []).filter(t => t.end >= TD).sort((a, b) => String(a.start).localeCompare(String(b.start)))[0] || null;
+    const upcomingPto = leaveEntries(P.timeOff).filter(t => t.end >= TD).sort((a, b) => String(a.start).localeCompare(String(b.start)))[0] || null;
     const monthStart = toDS(new Date(today.getFullYear(), today.getMonth(), 1));
     const monthWorkDays = []; { let d = monthStart; while (d <= TD) { if (isWorkDay(d)) monthWorkDays.push(d); d = addD(d, 1); } }
     const presentDays = new Set(timeclock.filter(e => String(e.personId) === String(P.id) && !e.eventType && e.date >= monthStart && e.date <= TD && (e.hours || 0) > 0).map(e => e.date));

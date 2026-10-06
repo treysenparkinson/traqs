@@ -152,7 +152,9 @@ const build = (code, deps) => new Function("scope", `with (scope) { return (${co
   has: (_, k) => typeof k === "string" && k !== "globalThis",
   get: (t, k) => { if (k === Symbol.unscopables) return undefined; if (k in t) return t[k]; if (k in globalThis) return globalThis[k]; throw new Error("missing dep: " + String(k)); },
 }));
-const webDeps = { ...O, overlapCtx: ctx, isOpLocked: (o) => !!o?.locked, toDS: () => TODAY, onTeam: (t, p) => (t || []).map(String).includes(String(p)),
+// The shared leave rule the conflict check now reads time off through (#349).
+const TO = await import(new URL("../src/timeOff.js", import.meta.url).href);
+const webDeps = { ...O, ...TO, overlapCtx: ctx, isOpLocked: (o) => !!o?.locked, toDS: () => TODAY, onTeam: (t, p) => (t || []).map(String).includes(String(p)),
   sameId: (a, b) => a != null && b != null && String(a) === String(b),
   billingTier: "business", people: [{ id: 7 }, { id: 8 }], T: { accent: "#000" }, isOff: () => false, fm: (d) => d, productiveHoursPerDay: ctx.productiveHoursPerDay,
   orgSettings: SETTINGS, workStartH: 8, workEndH: 17, capacityOf: (p, d) => d,

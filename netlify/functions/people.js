@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
+import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
@@ -61,6 +62,46 @@ export function serverOwnedPersonFields(stored) {
   };
 }
 
+// A MISSING FIELD IS NOT A CLEARED FIELD. A roster POST is the whole array, and a record
+// that arrives without a `timeOff` key says nothing about time off — it is a client that
+// never had the field, not one that emptied it. The public roster GET leaves timeOff out,
+// and an admin app that loaded that roster after a failed auth posted it back as
+// complete: one write on 2026-07-21 and another on 07-31 removed every timeOff entry on
+// the team, Heston's approved PTO among them (#349). Clearing is `timeOff: []`, said
+// explicitly; absence keeps what is stored.
+//
+// Entries carrying a `reqId` belong to the server. timeoff.js writes one on approve and
+// removes or rewrites it on cancel, undo and edit — the web's person editor routes its
+// changes to linked entries through those endpoints too (savePerson). So a roster POST
+// can neither drop, edit nor invent one: a linked entry the client left out or changed
+// comes back as stored, and a reqId the server never wrote is dropped. A copy without its
+// reqId (iOS's TimeOffEntry has no such field, so every iOS roster save strips it) is
+// recognised by its range and gets its reqId back instead of becoming a second entry.
+// Entries without a reqId are the admin's own and pass through as sent.
+export function mergeTimeOff(incoming, stored) {
+  if (!Object.prototype.hasOwnProperty.call(incoming, "timeOff")) {
+    return stored && "timeOff" in stored ? { ...incoming, timeOff: stored.timeOff } : incoming;
+  }
+  const linked = (Array.isArray(stored?.timeOff) ? stored.timeOff : []).filter(t => t && t.reqId);
+  const byReq = new Map(linked.map(t => [t.reqId, t]));
+  const sameRange = (a, b) => a.start === b.start && a.end === b.end && (a.type || "PTO") === (b.type || "PTO");
+  const placed = new Set();
+  const out = [];
+  for (const t of Array.isArray(incoming.timeOff) ? incoming.timeOff : []) {
+    if (!t) continue;
+    if (t.reqId) {
+      const own = byReq.get(t.reqId);
+      if (own && !placed.has(own.reqId)) { out.push(own); placed.add(own.reqId); }
+      continue;
+    }
+    const copy = linked.find(s => !placed.has(s.reqId) && sameRange(s, t));
+    if (copy) { out.push(copy); placed.add(copy.reqId); continue; }
+    out.push(t);
+  }
+  for (const own of linked) if (!placed.has(own.reqId)) out.push(own);
+  return { ...incoming, timeOff: out };
+}
+
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
 // without this the admin "Live status" break timer has nothing to count from.
@@ -99,8 +140,19 @@ export async function handler(event) {
   //     harvest push tokens or employees' time-off PII. The kiosk only needs
   //     name/color/role/department/status/email, which remain.
   if (event.httpMethod === "GET") {
+    // Only a caller that sent NO token is the kiosk. One that sent a token and failed
+    // auth gets the failure, never the public projection: an admin app whose GET hit a
+    // rate-limited /userinfo (a 429 turned into a 401, fixed in 22458c4) used to be
+    // handed the reduced roster with a 200, adopt it as the whole team, and autosave it
+    // back — wiping every push token and every person's timeOff in one write (#349). A
+    // downgrade the caller cannot see is how both of those went. The projection is also
+    // marked (X-People-Projection: public) so a client that did ask for the full roster
+    // can refuse one; fetchPeople does.
+    const hasToken = !!(event.headers?.authorization || event.headers?.Authorization);
     let member = null;
-    try { member = await requireOrgMember(event); } catch { /* unauthenticated kiosk */ }
+    try { member = await requireOrgMember(event); } catch (e) {
+      if (hasToken) return err(e.statusCode || 401, e.message);
+    }
     const isMember = !!member;
     const isAdmin = !!member?.isAdmin;
     try {
@@ -122,7 +174,9 @@ export async function handler(event) {
           const { pushToken: _pt, timeOff: _to, ...pub } = withFlag;
           return pub;
         });
-      return json(200, safe);
+      const res = json(200, safe);
+      if (isMember) return res;
+      return { ...res, headers: { ...(res.headers || {}), "X-People-Projection": "public", "Access-Control-Expose-Headers": "X-People-Projection" } };
     } catch (e) {
       console.error("people GET error:", e);
       return err(500, "Failed to read people");
@@ -139,96 +193,105 @@ export async function handler(event) {
       if (incoming.length === 0) return err(400, "Refusing to overwrite people with empty array");
 
       // Check for userRole changes — only admins may change them.
-      const existing = (await readJson(s3Key)) ?? [];
-      const existingMap = new Map(existing.map(p => [p.id, p]));
-      const callerId = member?.personId != null ? String(member.personId) : null;
-      const hasRoleChange = incoming.some(p => {
-        const old = existingMap.get(p.id);
-        // New person being added as admin, or existing person's role changing.
-        return old ? old.userRole !== p.userRole : p.userRole === "admin";
-      });
+      // One read-modify-write against the stored copy, retried if anything else wrote
+      // people.json in between — timeoff.js approving a request, a PATCH, a clock-in.
+      // A plain read-then-write here put back whatever this POST had read, so an
+      // approval landing inside the window was erased by the very next autosave.
+      const result = await updateJson(s3Key, (stored) => {
+        const existing = stored ?? [];
+        const existingMap = new Map(existing.map(p => [p.id, p]));
+        const callerId = member?.personId != null ? String(member.personId) : null;
+        const hasRoleChange = incoming.some(p => {
+          const old = existingMap.get(p.id);
+          // New person being added as admin, or existing person's role changing.
+          return old ? old.userRole !== p.userRole : p.userRole === "admin";
+        });
 
-      if (hasRoleChange && !can(member, "manageTeam")) {
-        return err(403, "Only admins can change user roles");
-      }
-
-      // Preserve existing PINs for records that don't supply a new one, and
-      // anchor a break-start time when a break is active but missing one (e.g.
-      // iOS sets activeBreak without persisting startedAt) so admin timers stay
-      // accurate. An existing startedAt is always preserved — never reset.
-      const merged = incoming.map(p => {
-        const stored = existingMap.get(p.id);
-        // `hasPin` is a server-derived read flag — never persist it back.
-        const { hasPin: _hp, ...pIn } = p;
-        let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
-        // Clock/break state and the push token are SERVER-AUTHORITATIVE — only the
-        // timeclock functions (clockIn/clockOut/jobClockIn/jobClockOut/breakBegin/
-        // breakClear/admin*) and the granular PATCH may set them. A general people
-        // POST must never carry them back, or a client holding a stale roster
-        // clobbers a clock-out, break-end or token registration that happened
-        // elsewhere. Always keep whatever the server currently stores — see
-        // serverOwnedPersonFields for what each one broke.
-        if (stored) {
-          np = { ...np, ...serverOwnedPersonFields(stored) };
+        if (hasRoleChange && !can(member, "manageTeam")) {
+          return { abort: err(403, "Only admins can change user roles") };
         }
-        // Anchor a startedAt on the break we just pinned. Runs AFTER the pin, so
-        // it can only ever repair the stored break — never adopt an incoming one.
-        np = withBreakStart(np, stored);
-        // Non-admins may only edit SAFE fields (name/email/phone/color/image/
-        // pushToken) on their OWN record. Other people's records are preserved
-        // verbatim, and escalation-sensitive fields on their own record are
-        // pinned to the stored value. Admins bypass this.
-        if (!can(member, "manageTeam") && stored) {
-          const isSelf = callerId != null && String(p.id) === callerId;
-          if (!isSelf) {
-            np = { ...stored };
-          } else {
-            for (const k of PROTECTED_PERSON_FIELDS) {
-              if (k in stored) np[k] = stored[k];
-              else delete np[k];
+
+        // Preserve existing PINs for records that don't supply a new one, and
+        // anchor a break-start time when a break is active but missing one (e.g.
+        // iOS sets activeBreak without persisting startedAt) so admin timers stay
+        // accurate. An existing startedAt is always preserved — never reset.
+        const merged = incoming.map(p => {
+          const stored = existingMap.get(p.id);
+          // `hasPin` is a server-derived read flag — never persist it back.
+          const { hasPin: _hp, ...pIn } = p;
+          let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
+          // Clock/break state and the push token are SERVER-AUTHORITATIVE — only the
+          // timeclock functions (clockIn/clockOut/jobClockIn/jobClockOut/breakBegin/
+          // breakClear/admin*) and the granular PATCH may set them. A general people
+          // POST must never carry them back, or a client holding a stale roster
+          // clobbers a clock-out, break-end or token registration that happened
+          // elsewhere. Always keep whatever the server currently stores — see
+          // serverOwnedPersonFields for what each one broke.
+          if (stored) {
+            np = { ...np, ...serverOwnedPersonFields(stored) };
+          }
+          np = mergeTimeOff(np, stored);
+          // Anchor a startedAt on the break we just pinned. Runs AFTER the pin, so
+          // it can only ever repair the stored break — never adopt an incoming one.
+          np = withBreakStart(np, stored);
+          // Non-admins may only edit SAFE fields (name/email/phone/color/image/
+          // pushToken) on their OWN record. Other people's records are preserved
+          // verbatim, and escalation-sensitive fields on their own record are
+          // pinned to the stored value. Admins bypass this.
+          if (!can(member, "manageTeam") && stored) {
+            const isSelf = callerId != null && String(p.id) === callerId;
+            if (!isSelf) {
+              np = { ...stored };
+            } else {
+              for (const k of PROTECTED_PERSON_FIELDS) {
+                if (k in stored) np[k] = stored[k];
+                else delete np[k];
+              }
             }
           }
-        }
-        // Keep the desktop's canonical `department` in sync with `role` (the two
-        // are one field; iOS only stores/encodes `role`). Fill it from role when
-        // absent so an admin's role edit propagates and department isn't dropped.
-        if (np.role != null && np.department == null) np.department = np.role;
-        // Store PINs reversibly encrypted. encryptPin is idempotent (leaves an
-        // already-encrypted value as-is), so a newly-typed plaintext PIN gets
-        // encrypted and any legacy plaintext PIN preserved above is upgraded in
-        // place on this write. Legacy one-way hashes are left untouched until
-        // re-entered.
-        if (np.pin) np = { ...np, pin: encryptPin(np.pin) };
-        return np;
-      });
+          // Keep the desktop's canonical `department` in sync with `role` (the two
+          // are one field; iOS only stores/encodes `role`). Fill it from role when
+          // absent so an admin's role edit propagates and department isn't dropped.
+          if (np.role != null && np.department == null) np.department = np.role;
+          // Store PINs reversibly encrypted. encryptPin is idempotent (leaves an
+          // already-encrypted value as-is), so a newly-typed plaintext PIN gets
+          // encrypted and any legacy plaintext PIN preserved above is upgraded in
+          // place on this write. Legacy one-way hashes are left untouched until
+          // re-entered.
+          if (np.pin) np = { ...np, pin: encryptPin(np.pin) };
+          return np;
+        });
 
-      // Reconcile deletions: any existing person absent from the incoming roster
-      // becomes a tombstone (kept in the array) so delta-sync clients evict them.
-      // Runs only on a non-empty roster — the empty-array guard above already
-      // refuses an empty POST, so this can never mass-tombstone the whole team.
-      // Strip the PIN when tombstoning a person: a removed employee's PIN must
-      // not linger at rest, and (belt-and-suspenders with timeclock's live-only
-      // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
-      const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
-      // Non-admins can't create people — drop any incoming record with no stored
-      // counterpart. (They still send the full roster, so existing rows aren't
-      // tombstoned by this.)
-      //
-      // Removing someone is the same: it needs manageTeam. Every stored person
-      // missing from the array used to be tombstoned whoever sent it, so any
-      // member could delete a colleague — or, by POSTing just their own row,
-      // the whole team. For anyone without manageTeam a missing row is kept.
-      let safeMerged = merged;
-      if (!can(member, "manageTeam")) {
-        const incomingIds = new Set(merged.map(p => String(p.id)));
-        safeMerged = [
-          ...merged.filter(p => existingMap.has(p.id)),
-          ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
-        ];
-      }
-      const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
-      const stamped = stampArray(reconciled, existing);
-      await writeJson(s3Key, stamped);
+        // Reconcile deletions: any existing person absent from the incoming roster
+        // becomes a tombstone (kept in the array) so delta-sync clients evict them.
+        // Runs only on a non-empty roster — the empty-array guard above already
+        // refuses an empty POST, so this can never mass-tombstone the whole team.
+        // Strip the PIN when tombstoning a person: a removed employee's PIN must
+        // not linger at rest, and (belt-and-suspenders with timeclock's live-only
+        // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
+        const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
+        // Non-admins can't create people — drop any incoming record with no stored
+        // counterpart. (They still send the full roster, so existing rows aren't
+        // tombstoned by this.)
+        //
+        // Removing someone is the same: it needs manageTeam. Every stored person
+        // missing from the array used to be tombstoned whoever sent it, so any
+        // member could delete a colleague — or, by POSTing just their own row,
+        // the whole team. For anyone without manageTeam a missing row is kept.
+        let safeMerged = merged;
+        if (!can(member, "manageTeam")) {
+          const incomingIds = new Set(merged.map(p => String(p.id)));
+          safeMerged = [
+            ...merged.filter(p => existingMap.has(p.id)),
+            ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
+          ];
+        }
+        const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
+        const stamped = stampArray(reconciled, existing);
+        return { value: stamped, reconciled, existing };
+      });
+      if (result && "abort" in result) return result.abort;
+      const { value: stamped, reconciled, existing } = result;
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).
       await sendSilentPush(member.orgCode, { entity: "people" });
