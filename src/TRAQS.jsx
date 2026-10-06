@@ -13,7 +13,8 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
-import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
+import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart } from "./overlapRules.js";
+import { movesSchedule } from "./settle.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -3034,38 +3035,47 @@ const isAssigned = (n) => !!(n && (n.team || []).length > 0);
 // so it is safe to run after every date change, including ones that arrive from
 // the Schedule's own push flow.
 const reflowPhaseOps = (ops, opts) => {
-  const dated = (ops || []).filter(o => o && !o.deletedAt && isDated(o));
+  // ONLY LIVE, FUTURE WORK TAKES PART (#404 C, #50).
+  //
+  // The queue rule below used to ask NOTHING — not status, not `today`, not the
+  // shared overlap rule — so it did not merely move finished work, it RE-DATED
+  // HISTORY. Measured on Matrix 2026-10-06: 31 live ops, every one unassigned and
+  // entirely in the past, inside six jobs, five of them Finished. Saving a RENAME
+  // on one of them walked its ops forward by up to 45 calendar days.
+  //
+  // `takesPart` is the predicate every other surface already asks (overlapsWith,
+  // occupyingUnits, clearOverlaps): not tombstoned, not Finished, not wholly behind
+  // us. It reads only `ctx.today`, so it needs no overlap context and therefore no
+  // tier — re-dating finished work is not a paid feature, and on Basic
+  // `enforceNoOverlap` does nothing at all, which makes this the only guard there.
+  //
+  // It tests the END, so an op that STARTED last week and runs into next week is
+  // live and still holds its place.
+  const dated = (ops || []).filter(o => o && isDated(o) && takesPart(o, { today: opts?.today ?? null }));
   if (dated.length < 2) return null;
-  // Assigned ops are sequenced on the shared overlap rule (src/overlapRules.js): an op moves
-  // later only while it really overlaps an earlier one sharing an assignee — two same-day ops
-  // that don't touch stay put — and a locked op never moves. Unassigned ops have no one to
-  // overlap and keep their place in the queue after everything placed before them. Without
-  // an overlap context (Basic tier) assigned ops are left alone.
-  const ctx = opts?.overlap || null;
   const order = [...dated].sort((a, b) => String(a.start).localeCompare(String(b.start)));
-  // Nothing is pre-placed any more: op.locked is retired (ruling 3), and it was
-  // the only thing that ever seeded this list. reflow now starts with an empty
-  // obstacle set and places every dated op, which is what "a clocked-out op
-  // moves freely, including one already worked on" means here.
-  const placed = [];
+  // WHAT THIS DOES NOT DO ANY MORE (#404 B): it used to push ASSIGNED ops later,
+  // up to 260 working days, whenever the shared rule said they overlapped. That was
+  // a second answer to a question already settled — a landing that overlaps is
+  // REFUSED (#398, ruled), visibly and recoverably, not silently relocated without
+  // so much as a moveLog entry (#52). The two mechanisms disagreed on every op they
+  // touched: of 32 ops flagged across Matrix's board, they agreed on NONE. The push
+  // contributed 0 of the 31 moves measured there, so deleting it costs nothing that
+  // was ever observed, and `enforceNoOverlap` is the one rule left.
+  //
+  // An assigned op is still an OBSTACLE: it occupies the phase's timeline, so
+  // unassigned work queues behind it. It simply never moves on this path.
   let placedEnd = null;
   const moves = new Map();
   for (const op of order) {
     let cur = op;
-    {
-      if (isAssigned(op)) {
-        if (ctx) {
-          for (let n = 1; n <= 260 && overlapsWith(cur, placed, ctx).length; n++) {
-            cur = { ...op, start: shiftWorkingDays(op.start, n, ctx), end: shiftWorkingDays(op.end, n, ctx) };
-          }
-        }
-      } else if (placedEnd && cur.start <= placedEnd) {
-        const len = diffBD(op.start, op.end, opts);
-        const start = addBD(placedEnd, 1, opts);
-        cur = { ...op, start, end: addBD(start, len, opts) };
-      }
-      if (cur.start !== op.start || cur.end !== op.end) moves.set(op.id, { start: cur.start, end: cur.end });
-      placed.push({ unit: cur });
+    // Unassigned work has nobody to negotiate with, so its only claim to a slot is
+    // its position in the queue: it follows everything already placed before it.
+    if (!isAssigned(op) && placedEnd && cur.start <= placedEnd) {
+      const len = diffBD(op.start, op.end, opts);
+      const start = addBD(placedEnd, 1, opts);
+      cur = { ...op, start, end: addBD(start, len, opts) };
+      moves.set(op.id, { start: cur.start, end: cur.end });
     }
     if (!placedEnd || cur.end > placedEnd) placedEnd = cur.end;
   }
@@ -10088,26 +10098,19 @@ Extraction rules:
 
 
 
-  // Recalculate panel bounds from ops, recalc job bounds
-  const recalcBounds = (taskList, movedBy) => {
-    return taskList.map(job => {
-      let panels = (job.subs || []).map(panel => {
-        const ops = (panel.subs || []);
-        if (ops.length === 0) return panel;
-        const earliest = ops.reduce((a, b) => a.start < b.start ? a : b).start;
-        const latest = ops.reduce((a, b) => a.end > b.end ? a : b).end;
-        if (earliest === panel.start && latest === panel.end) return panel;
-        return { ...panel, start: earliest, end: latest };
-      });
-      // Recalc job bounds from panels
-      if (panels.length > 0) {
-        const jStart = panels.reduce((a, b) => a.start < b.start ? a : b).start;
-        const jEnd = panels.reduce((a, b) => a.end > b.end ? a : b).end;
-        return { ...job, start: jStart, end: jEnd, subs: panels };
-      }
-      return { ...job, subs: panels };
-    });
-  };
+  // ONE ROLLUP, NOT TWO (#404 A, #84).
+  //
+  // This used to reduce over `panel.subs` itself, and it was ACTIVELY WRONG rather
+  // than merely a duplicate: `"" < "2026-06-25"` is TRUE, so a single undated child
+  // won the `earliest` reduce and the parent came back { start: null, end: null };
+  // and a tombstoned op dated 2020 dragged the panel's start back six years.
+  // `rollUpJobDates` — reflowJob's rollup, which already skipped undated and
+  // deleted children — is the one that was right, so this is now a spelling of it.
+  //
+  // THE NAME STAYS, deliberately. Nine call sites read `recalcBounds`, and changing
+  // them one at a time is how one gets left behind; changing the body moves all
+  // nine together and leaves a diff anyone can audit. `movedBy` was never read.
+  const recalcBounds = (taskList, _movedBy) => (taskList || []).map(rollUpJobDates);
 
   // State for push confirmation modal
 
@@ -10233,15 +10236,28 @@ Extraction rules:
         }
       }
     }
-    // Only a date change can put a job out of sequence, so a status or title
-    // edit must not trigger a reflow -- it would quietly move tasks the user
-    // never touched.
-    const datesMoved = Object.prototype.hasOwnProperty.call(upd, "start")
-      || Object.prototype.hasOwnProperty.call(upd, "end")
-      || Object.prototype.hasOwnProperty.call(upd, "team");
+    // Only a date change can put a job out of sequence, so a status or title edit
+    // must not trigger a reflow -- it would quietly move tasks the user never
+    // touched. THAT WAS THE INTENT; THE TEST DID NOT IMPLEMENT IT (#404). It asked
+    // whether the KEYS were present, and both surviving callers send them
+    // unconditionally: saveEditJob passes a whole node, and the Edit Job modal
+    // passes a literal carrying `start: computedStart, end: computedEnd`. So a
+    // RENAME settled the board, and nobody would ever connect a renamed job to nine
+    // of its ops moving five days -- which is why this went unseen.
+    //
+    // movesSchedule compares the VALUES across the whole patched subtree. The
+    // subtree matters: the Edit Job modal's edits arrive inside `subs` while the
+    // job's own start/end are recomputed from them, so a shallow compare would stop
+    // the parents rolling up. An id we cannot find reads as moved, because settling
+    // once too often is a no-op and skipping leaves a parent out of step.
+    const _storedNode = findTaskNode(id);
+    const datesMoved = !_storedNode || movesSchedule(_storedNode, { ..._storedNode, ...upd });
     // schedOpts is the org's own working days + holidays, the same options every
-    // other business-day calculation in the app already runs on.
-    const settle = (t) => (datesMoved ? reflowJob(t, { ...schedOpts, overlap: billingTier === "business" ? overlapCtx : null }) : t);
+    // other business-day calculation in the app already runs on. `today` is what
+    // the queue rule's takesPart gate reads. NO TIER BRANCH: the overlap push this
+    // used to carry is gone (#404 B), so nothing here is a paid feature any more --
+    // and the gate matters MOST on Basic, where enforceNoOverlap does nothing.
+    const settle = (t) => (datesMoved ? reflowJob(t, { ...schedOpts, today: shopDay() }) : t);
     setTasks(p => p.map(t => {
     if (pid) {
       // Level 2: updating an operation (Wire/Cut/Layout) — moves independently, no chaining

@@ -203,12 +203,19 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
     const same = [op("A", { start: MON, end: MON, startHour: 8, hpd: 2 }), op("B", { start: MON, end: MON, startHour: 13, hpd: 2 })];
     let r; try { r = reflow(same, { overlap: ctx }); } catch (e) { r = e.message; }
     ok("reflow: two same-day ops that don't touch stay put", r, null);
-    const lockedPair = [op("A", { start: MON, end: MON, startHour: 8, hpd: 4 }), op("L", { start: MON, end: MON, startHour: 9, hpd: 4, locked: true })];
-    let r2; try { r2 = reflow(lockedPair, { overlap: ctx }); } catch (e) { r2 = e.message; }
-    // reflow seeded its obstacle list from locked ops alone; with the flag gone
-    // it starts empty and places every dated op, which is what "a clocked-out op
-    // moves freely" means on this path.
-    ok("reflow: a stray locked flag does not exempt an op", r2 instanceof Map ? r2.has("L") : r2, true);
+    // REWRITTEN 2026-10-06 (#404 B). This used to assert that a stray `locked` flag
+    // did not exempt an op from reflow's own overlap PUSH. That push is gone: an
+    // overlap is answered once, by REFUSAL (#398, ruled), and a second mechanism
+    // that silently relocated assigned work without a moveLog was the duplicate.
+    // Measured on Matrix, the two disagreed on every op they touched — 0 agreements
+    // out of 32 — and the push accounted for 0 of the 31 moves reflow actually made.
+    //
+    // So the assertion is now the new rule, not the old one with the answer flipped:
+    // reflow moves NO assigned op, overlapping or not, flagged or not. The two
+    // blocks below are where a real clash is caught, and they still catch it.
+    const clash = [op("A", { start: MON, end: MON, startHour: 8, hpd: 4 }), op("L", { start: MON, end: MON, startHour: 9, hpd: 4, locked: true })];
+    let r2; try { r2 = reflow(clash, { overlap: ctx }); } catch (e) { r2 = e.message; }
+    ok("reflow: a real overlap on one person is left for the refusal, not pushed", r2, null);
   }
   // Root cause 7: the week/month ghost and drop both go through dragMove.refuseDragMove,
   // which asks the shared rule (overlapsWith) for every mover.

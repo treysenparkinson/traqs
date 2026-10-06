@@ -1222,6 +1222,32 @@ Everything else was read at the cited line. Nothing was run against live data.
     source. A grep for `15.5` across `src/` and `netlify/` returned nothing, and that was
     read as "it must be derived" when it also meant "it may not be here at all".
 
+16. A SUITE THAT CANNOT FIND THE CODE UNDER TEST MUST ABORT, NOT REPORT. #404 renamed one
+    parameter — `(taskList, movedBy)` became `(taskList, _movedBy)` — and the slice anchor
+    missed. The section was written defensively:
+
+        const recalcBounds = src ? build(src, deps) : null;
+        if (recalcBounds && rollUpJobDates) { ...ten assertions... }
+
+    So the ten assertions did not run, nothing said so above a single FAIL line, and the
+    suite printed `45 passed`. A guard written to keep the suite from crashing had instead
+    kept it from testing, and the pass count read exactly as it does when everything works.
+
+    THIS IS LESSONS #13 ONE LAYER OUT. #13 is an assertion that cannot fail. This is an
+    assertion that never RUNS — same consequence, but worse, because #13 at least leaves a
+    line in the output to be read sceptically. A skipped block leaves nothing.
+
+    THE RULE: a missing anchor is a HARNESS failure, not a test failure. `process.exit(2)`
+    with the anchor text printed, so the next person pastes the new spelling in. Never a
+    `?:` fallback to null and never an `if (fn)` guard around the assertions — if the slice
+    is optional, so is everything it was going to prove.
+
+    THE SAME RUN PRODUCED A SECOND ONE OF THESE, worth the same suspicion: these suites
+    compare with `JSON.stringify`, and **`JSON.stringify(new Map())` is `"{}"` for every
+    Map**. Two different sets of moves compared equal. Any assertion over a Map, a Set, a
+    `Date` or anything else without a JSON form is green by default until it is converted —
+    here, to sorted entries.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1273,9 +1299,9 @@ Everything else was read at the cited line. Nothing was run against live data.
 47. Three split implementations disagree on moveLog, id scheme, team division and guard (J:9709, 18665, 12589).
 48. Splits copy `team` to a new op, likely firing a spurious "assigned" push [inferred].
 49. RESOLVED 2026-10-02 BY REMOVING THE CONCEPT, not by adding the button. The entry reads "there is no UI to unlock an op; `toggleLock` is dead" — and `toggleLock` was dead because the function had been deleted long before, leaving only its comment ("// Toggle lock on an operation") stranded in the file, which is what made it look like a missing button. Asked what `op.locked` was actually for before changing anything: applying the grep-the-write-as-well-as-the-read check from LESSONS #7, it had ~30 reads and EXACTLY FOUR WRITES, all four in the split path (`statsMath.splitWorkedOp`, dragMove's keep half twice, the Split Job modal). It meant one thing: THE ALREADY-WORKED REMNANT OF A SPLIT. There was no UI to set it and none to clear it, and `statsMath` already treated `locked || workedHoursShown > 0` as one category — so it was derivable from worked hours in the only case that produced it. RULED: the only real lock is an ACTIVE CLOCK; a clocked-out op moves freely, including one already worked on. So `op.locked` pinned precisely the ops that should move. RETIRED: the split no longer stamps it, `clearOverlaps` and `planPushes` no longer check it, the server's `lock` rule is deleted (the `activeClock` rule, which reads the PERSON's activeJobClock, is the real lock and is untouched), and the client's reads are gone. Nine test assertions across six suites were re-pointed rather than deleted, so a stray `locked` on older stored data cannot quietly become load-bearing again.
-50. `reflowPhaseOps` moves locked and Finished ops (J:3461–3487).
-51. `reflowPhaseOps` forbids two same-person ops on one day even when their hours don't overlap (J:3461–3487).
-52. `reflowJob` and `enforceNoOverlap` move ops without a `moveLog` entry (J:3513, 9774).
+50. **FIXED 2026-10-06 (#404 C). CORRECTED FIRST — THE LIVE HALF WAS WORSE THAN THE ENTRY SAID.** `locked` is retired (ruling 3) and the ASSIGNED branch is clean: it asks `overlapsWith`, whose `takesPart` excludes Finished, tombstoned and wholly-past units, so a Finished assigned op is exempt (measured: exempt). **The UNASSIGNED branch asks nothing.** `else if (placedEnd && cur.start <= placedEnd)` consults no status, no `today` and no overlap rule at all — it serialises on queue position alone. Measured on fixtures: an unassigned Finished op IS moved; two unassigned ops dated 2026-01-05 ARE re-dated forward. **That is not "moves Finished ops", it is "re-dates history"** — and it is the whole of #404's measured damage: 31 live ops, every one unassigned and entirely in the past. The queue rule now asks `takesPart` like everything else, and the 31 are 0. See #404 C.
+51. **FIXED — measured 2026-10-06.** Two same-person ops on one day whose hours do not touch now stay put (`reflowPhaseOps` → `overlapsWith` → `blocksOverlap`, half-open, hour-precise), and a real clash still moves. Both asserted in `overlap-test.mjs` and re-measured in #404's probe. Corroborated on live data: of 31 ops `reflowJob` moves on Matrix's board, **0 come from the assigned-overlap branch**.
+52. **FIXED 2026-10-06 (#404 B) BY DELETING THE UNLOGGED MOVER. MEASURED FIRST — LIVE ON ONE PATH, UNREACHABLE ON THE OTHER.** Neither mover writes a `moveLog` entry: `reflowPhaseOps` produces `{ start, end }` and nothing else, and `clearOverlaps` produces `{ ...unit, start, end }`. But all **5** `enforceNoOverlap` call sites destructure `{ moved, refused }` and **0 keep `.tasks`** — it is used as a PROBE and its shifted copy is thrown away, so `commitLanding` refuses instead of committing an unlogged move. `reflowJob`'s half was the live one, and it is gone: the only thing it moved without a log was assigned work it had no business moving, and the queue rule it keeps now touches nothing on Matrix's board. See #404 B.
 53. `enforceNoOverlap` computes every shift against the pre-shift list (J:9786–9807).
 54. Ops `enforceNoOverlap` refuses stay overlapping with only a `console.warn` (J:9786–9807).
 55. `opInterval` reads `durationH`, which the app never writes, so single-day ops without `endHour` are zero-width (S:1003).
@@ -1325,10 +1351,10 @@ Everything else was read at the cited line. Nothing was run against live data.
 78. `weekdaySegments`, `countWorkingDays` and `addWorkingDays` never skip holidays (J:578–620).
 79. CORRECTED 2026-10-04: holidays ARE shaded. The grid header and the person rows shade every day where `!isWorkDay(day)` (J:15569 and J:15822 at f0490ce; J:16319/16576 on the snapshot this was found on), and since root cause 6 a bare `isWorkDay(day)` reads the org calendar, holidays included. WAS: Holidays are never shaded in the grid or headers (J:17332, 17617).
 80. Bars likely paint across a holiday column and come up one column short [inferred].
-81. Opts-less `addBD`/`diffBD` appear in `buildSessionSnapshot`, `placeTaskAt`, the pending drop, `findNextSlot`, `reflowPhaseOps` length, the tooltip and `clampUnlocked` (J:10083, 10638, 10657, 10325, 3467, 19561, 18219).
+81. Opts-less `addBD`/`diffBD` appear in `buildSessionSnapshot`, `placeTaskAt`, the pending drop, `findNextSlot`, the tooltip and `clampUnlocked` (J:10083, 10638, 10657, 10325, 19561, 18219). **`reflowPhaseOps` struck from this list 2026-10-06, verified not inferred:** all three of its calls pass `opts` (`diffBD(op.start, op.end, opts)`, `addBD(placedEnd, 1, opts)`, `addBD(start, len, opts)`), and `updTask` hands it `{ ...schedOpts, overlap }`, so it runs on the org calendar. The other six sites were NOT re-checked in this pass and remain as written.
 82. The `addBD`/`nextBD` loops have no bound and hang on an empty work week (J:625–626).
 83. `walkProductiveHours` relies on sorted dead windows without sorting them (J:776).
-84. `recalcBounds` doesn't skip undated or deleted nodes, unlike `rollUpJobDates` (J:10291 vs J:3491).
+84. **FIXED 2026-10-06 (#404 A) — AND THREE PARENTS ON MATRIX'S BOARD ARE WRONG RIGHT NOW.** Not "could be": measured. **1 panel and 2 jobs carry stored bounds that do not match their children, and all three are a BLANK START** — `Brigham GCC #3` stored `["", "2026-09-24"]` where its children say `["2026-06-25", "2026-09-24"]`; `ddfasdfadsf` stored `["", "2026-09-30"]` against `["2026-09-10", "2026-09-30"]`; and its `Phase 2` the same. A job with no start is a job with no bar. The new rollup repairs all three the next time either is saved, which is the whole of the parent-date delta the fix measures (22 shifts became 3, and those 3 ARE these repairs). WAS: `recalcBounds` reduces over `panel.subs` unfiltered, and `"" < "2026-06-25"` is TRUE, so one undated child wins the `earliest` reduce and the parent comes back `{ start: null, end: null }` — measured on a two-op fixture, and on Matrix 3 live nodes already carry a bound the two rollups disagree about. A tombstoned op dated 2020 likewise drags the panel's start back to 2020. `rollUpJobDates` skips both. **2 live panels** hold an undated op and **0** hold a tombstoned one, so the reachable blast radius today is small — but `recalcBounds` is the rollup on every consolidated commit path and `rollUpJobDates` is the one on `updTask`'s, which is half of #404.
 85. `updTask` panel moves shift by calendar `addD` (J:10562).
 86. Import `shiftRangeForward` uses calendar days (S:769).
 87. Unfinished past-due untouched work disappears from the schedule entirely (J:16548, 16574, 16597).
@@ -1397,7 +1423,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 150. Stale roster snapshots from settings overwrite concurrent `timeOff` approvals (J:28519–28597).
 151. `timeoff.js` writes people.json without a fresh re-read (`fn/timeoff.js:429–432`) [inferred].
 152. `placeTaskAt` is gated by moveJobs but overwrites `team`, which needs reassign (J:10639).
-153. `placeTaskAt` and `handlePendingItemDrop` skip overlap, PTO, past, lock and department checks (J:10624–10673).
+153. **HALF FIXED — corrected in place 2026-10-06.** `placeTaskAt` was the fifth assignment writer found during #394/#398's consolidation and now goes through `commitDates`, so it gets the whole refusal chain, the overlap backstop and a `moveLog` entry. **`handlePendingItemDrop` does NOT** — it is still a bare `setTasks` that writes `start`, `end` and a merged `team` with no refusal chain, no backstop and no log (it ADDS to the team rather than replacing, which is why it was never folded in with the others). It is the last writer of schedule fields outside the two shared commits. Logged as **#414** in its own right so it is not re-found a third time.
 154. The pending-tray drop changes `status`, which needs editJobs (J:10664).
 155. The pending tray ignores the item's `requiredDepartment` (J:35129).
 156. The department rule isn't enforced on drag reassign, day-view reassign, placing, the tray, simple edit, the op editor picker or planAssign (J:18596, 10679, 10639, 10664, 26267, 35461, 31984).
@@ -2088,7 +2114,55 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     RE-POINTED, NOT RELAXED: `save-skip-test`'s "still reports saved" assertion matched `setSaveStatus("saved"); return;` as ADJACENT lines, and the save verdict now sits between them. A no-op save IS a successful save and the chat path needs telling so; the assertion states the intent and gained a second one for the verdict itself.
 
-404. [LOGGED, NOT BUILT] A SIXTH WAY OF SETTLING THE SCHEDULE. `updTask` runs its own `settle` → `reflowJob(t, { overlap: business ? overlapCtx : null })` whenever dates move, which is a DIFFERENT mechanism from the `recalcBounds` + `enforceNoOverlap` the consolidated commits use (#394/#398). So a date written through `updTask` settles the board by one rule and a date written through `commitDates` settles it by another. This is the four-schedulers shape one layer down — not a defect anyone has reported, and it wants its own pass with its own measurement rather than being folded into a consolidation.
+404. **FIXED 2026-10-06 — 31 SILENT MOVES TO 0. A SIXTH WAY OF SETTLING THE SCHEDULE, AND IT RE-DATED HISTORY.** `updTask` runs its own `settle` → `reflowJob(t, { ...schedOpts, overlap: business ? overlapCtx : null })` whenever `start`, `end` or `team` is in the patch; the consolidated commits (#394/#398) use `recalcBounds` + `enforceNoOverlap` instead. The entry said "not a defect anyone has reported". **It is one.** Measured on Matrix's live board, 2026-10-06:
+
+        reflowJob on the board AS IT STANDS, Business   31 ops moved, 22 parent dates shifted
+        ...of those, from the assigned-overlap push      0
+        ...from the UNASSIGNED QUEUE rule               31
+        ...entirely in the PAST                         31  (all 31)
+        ...Finished                                      0
+        the same run on BASIC tier (overlap: null)      31  — identical
+        enforceNoOverlap over every dated op             1 moved, 0 refused
+        ops the two AGREE on                             0 of 32
+
+    **THE TWO MECHANISMS DISAGREE ON EVERY OP THEY TOUCH.** Not a near-miss: the intersection is empty. `reflowPhaseOps` sees only ops INSIDE ONE PHASE; `clearOverlaps` sees the whole board. So they cannot see the same conflicts even in principle.
+
+    WHAT ACTUALLY MOVES. Six live jobs, five of them **Finished**, holding unassigned `Not Started` ops dated in the past. Saving the Edit Job modal on any of them walks those ops forward by the queue rule — `1998 - Wildwood CP` and `402026 - Lloydminster` by **45 calendar days** (2026-09-14 → 2026-11-12), `402006 - MMD` by 30, `402040` (9 ops) by 5, `402042` (9 ops) by 2, `402028 - Flat Creek` by 3. No `moveLog` (#52), no toast, no confirm. The user asked to rename a finished job.
+
+    THE TRIGGER IS WIDER THAN "A DATE EDIT". `datesMoved` is a `hasOwnProperty` test, and both surviving callers send the keys unconditionally: `saveEditJob` passes `updTask(withIds.id, withIds, parentId)` — a WHOLE NODE, which always has `start`/`end`/`team` — and the Edit Job modal passes a literal with `start: computedStart, end: computedEnd`. **A title-only edit settles the board.** The remaining callers reaching the settle path are the two AI tools (`update_job`, `update_operation`) when they supply a date; the Excel/CSV import's `patch` cannot (its tool schema offers only `dueDate`, `poNumber`, `status`, `notes` — no `additionalProperties: false`, so bounded but [inferred]); and `commitCellEdit` no longer can, because #398 routed `start`/`end` to `commitDates` and #393 routed `team` to `commitAssign`. Its `key === "team"` permission branch is now dead.
+
+    THE TIER GATE IS A THIRD BEHAVIOUR AND IT DOES NOT MATTER HERE. On Basic, `enforceNoOverlap` returns early and does NOTHING, while `reflowJob` still runs its unassigned queue rule — so Basic has a settle mechanism that Business's own backstop does not. Measured: identical 31 moves on both tiers, because the assigned branch contributes nothing on this board.
+
+    **WHICH IS CORRECT — three answers, not one.** They are not a duplicate pair.
+
+    1. THE ROLLUP: `rollUpJobDates` is correct, `recalcBounds` is the historical duplicate and is actively wrong (#84). Unify on `rollUpJobDates`.
+    2. THE OVERLAP RESPONSE: refusal is correct and already ruled so (#398, accepted). `reflowPhaseOps`' silent push is the duplicate. It contributes 0 moves on Matrix, so deleting it costs nothing measurable.
+    3. THE UNASSIGNED QUEUE RULE: answers a question **nothing else in the app answers** — keeping unassigned work in chronological order within a phase. Its intent is defensible; its implementation ignores `status`, ignores `today` and ignores the shared overlap rule, which is the whole of the measured damage. This one needs a ruling, not a merge.
+
+    `#50`, `#51` and `#52` were checked against master in the same pass and are corrected in place: #51 fixed, #52 live on `reflowJob` and unreachable on `enforceNoOverlap`, #50 half fixed with the live half worse than the entry said.
+
+    ─── WHAT WAS BUILT, AND WHAT IT MEASURES AT NOW ───
+
+        ops silently moved on Matrix's board      31  ->  0
+        parent dates shifted                      22  ->  3  (all three are REPAIRS, see #84)
+
+    **A. ONE ROLLUP.** `recalcBounds` keeps its name and its nine call sites; its body is now `(taskList || []).map(rollUpJobDates)`. Changing the body moves all nine together — renaming them one at a time is how one gets left behind — and it leaves a diff anyone can audit. `movedBy` was never read by it.
+
+    **B. THE PUSH IS GONE.** An overlap is answered ONCE, by refusal (#398, ruled). The silent relocation — up to 260 working days, no `moveLog`, no toast — contributed 0 of the 31 moves measured, so deleting it costs nothing anyone ever saw. An assigned op is still an OBSTACLE: unassigned work queues behind it. It simply never moves on this path.
+
+    **C. THE QUEUE RULE IS KEPT, WITH THE RIGHT PREDICATE.** Trey's ruling: *"60 of 109 dated ops are unassigned — the question it answers isn't nothing, and I'd rather keep a defensible rule with a correct predicate than remove it and find out in three months what it was for."* It is now gated on `takesPart`, the predicate `overlapsWith`, `occupyingUnits` and `clearOverlaps` already ask: not tombstoned, not Finished, not wholly behind us. That alone takes the damage from 31 to 0. **`takesPart` reads only `ctx.today`, so it needs no overlap context and therefore no tier** — re-dating finished work is not a paid feature, and on Basic `enforceNoOverlap` does nothing at all, which makes this the only guard there. The third behaviour is gone with it: the settle no longer branches on `billingTier`.
+
+    **AND THE TRIGGER, WHICH WAS NOT OPTIONAL.** Trey: *"That's the part that made this invisible — nobody would connect a renamed job to nine ops moving five days."* `datesMoved` was a `hasOwnProperty` test, so a title-only edit settled the board. It is now `movesSchedule(stored, { ...stored, ...upd })` (`src/settle.js`), which compares the VALUES across the whole patched subtree.
+
+    **VALUE COMPARISON, NOT SCOPING — and the reason is measurable.** Scoping the settle to the touched node would NOT have fixed this: a title-only save through the Edit Job modal touches the whole job either way, because the patch carries `start`, `end` AND `subs`. The subtree matters for the same reason — the modal's edits arrive inside `subs` while the job's own `start`/`end` are recomputed from them, so a shallow compare would have stopped the parents rolling up. An id that cannot be found reads as moved: settling once too often is a no-op, and skipping leaves a parent out of step. The scoping question is real and separate — see #415.
+
+    TESTED red-first, `scripts/settle-unify-test.mjs`, 59 assertions, wired (79 suites). **21 mutants, 21 caught** — after two repairs that are themselves the finding, below.
+
+    **ONE EXISTING ASSERTION WAS REWRITTEN, NOT DELETED.** `overlap-test`'s "a stray locked flag does not exempt an op" tested that `locked` did not exempt an op from the push that B deletes. It now asserts the new rule — reflow moves NO assigned op, flagged or not — rather than the old one with its answer flipped.
+
+    **A RENAMED PARAMETER DELETED TEN ASSERTIONS AND THE SUITE STILL REPORTED A PASS COUNT.** `const recalcBounds = (taskList, movedBy)` became `_movedBy`, the slice anchor missed, and section A's `if (recalcBounds && rollUpJobDates)` guard skipped every assertion in it silently. A missing anchor now ABORTS the suite: a suite that cannot find the code under test has not tested it, and saying so quietly is worse than saying nothing. Same family as LESSONS #13 — the failure is an assertion that cannot fail.
+
+    **AND `JSON.stringify(new Map())` IS `"{}"` FOR EVERY MAP**, so the first version of the queue assertions compared two different sets of moves as equal. Results are compared as sorted entries now.
 
 405. [LOGGED] THE FAST TRAQS BUTTON IS A STRANDED CONTROL. Its tooltip, in two places, promises "FAST TRAQS — import or update jobs from a file". It opens a full-screen panel titled **TRAQS Cloud** that contains no write of any kind — no `setTasks`, no `updTask`, no `commitLanding` across its whole render block. Either the importer was removed and the button left behind, or it was never built and the tooltip describes an intention. Same family as #49 (a comment for a deleted function that read as a missing button) and #341 (a modal that could never render): a labelled affordance promising something the code does not do. The question to answer first is which of the two it is.
 
@@ -2172,8 +2246,20 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     The marker follows two conventions already here: run-local scratch prefixed `_` and stripped before S3 (`_outcome`, `_placed`), and iOS's `hpdPresence.wasAbsent` — "Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so encode leaves the key off again."
 
-    TESTED red-first, `scripts/derived-defaults-test.mjs`, 31 assertions, wired (81 suites). NINE MUTANTS, NINE CAUGHT — after a repair that is itself the finding: **the two most important mutants SURVIVED the first version.** Removing `stripDerived` from the tasks payload, and from the people payload, both read as green, because the assertion was `/stripDerived\(/` over the whole body and passed as long as EITHER call site remained. Each is named separately now. Same shape as #410's count pattern and #389's guard condition, and the third time this session that an assertion matched a NAME where it needed to match a STATEMENT.
+    TESTED red-first, `scripts/derived-defaults-test.mjs`, 31 assertions, wired (78 suites — this entry said 81, which was a miscount; `check-suites-wired` counts `scripts/*-test.mjs` and reported 78 at `c1c36e9`). NINE MUTANTS, NINE CAUGHT — after a repair that is itself the finding: **the two most important mutants SURVIVED the first version.** Removing `stripDerived` from the tasks payload, and from the people payload, both read as green, because the assertion was `/stripDerived\(/` over the whole body and passed as long as EITHER call site remained. Each is named separately now. Same shape as #410's count pattern and #389's guard condition, and the third time this session that an assertion matched a NAME where it needed to match a STATEMENT.
 
     RE-POINTED, NOT RELAXED: `save-rollback-test` compiles the real `doSave` body in a sandbox that auto-stubs unknown identifiers with a function returning UNDEFINED — so `stripDerived` stubbed out made `dedupedTasks` undefined and failed 21 assertions that have nothing to do with this change. The helper is a pure function, so the harness imports the real one.
 
 413. [LOGGED, NOT MEASURED] **IS `department` REDUNDANT RATHER THAN DERIVED?** Every one of the 18 live people has `department === role`, and #412 stopped the normaliser filling it — but that leaves the question of whether anything ever writes `department` INDEPENDENTLY of `role`. If nothing does, the field is not a derived default at all; it is a second name for `role`, and the answer is a schema change rather than a normaliser change. Needs its own measurement: every write site of `department` across the web, the functions and iOS, and whether any of them sets it to something `role` is not.
+
+414. [LOGGED 2026-10-06, NOT BUILT] **`handlePendingItemDrop` IS THE LAST SCHEDULE-FIELD WRITER OUTSIDE THE SHARED COMMITS.** Found while measuring #404; split out of #153 rather than folded into that pass, on Trey's ruling. The pending-tray drop is a bare `setTasks` that writes `start`, `end` and a merged `team` — **no refusal chain** (no live-clock, locked, record, department, time-off, past or overlap check), **no `enforceNoOverlap` backstop**, and **no `moveLog` entry**. It also sets `status: "Not Started" -> "Pending"`, which nothing else does.
+
+    **IT IS NOT FOLDED IN BECAUSE OF A PRODUCT DIFFERENCE, NOT BECAUSE IT WAS MISSED.** It **ADDS** to the team where `commitDates` **REPLACES**, and that is the point of the tray: the pending list is where SEVERAL PEOPLE PILE ONTO ONE ITEM, so a second drop is meant to leave the first person on the task. `placeTaskAt` is the opposite — there the drop IS the decision, whoever's row you dropped on is the assignee, and merging would make a second drop wrong. Routing this through the shared commit unchanged would therefore be a SILENT PRODUCT CHANGE: it would start throwing the first person off every item in the tray. Whoever takes this answers the merge-vs-replace question first, with Trey, and only then wires it up — the rest of the refusal chain, the backstop and the log can all be had without touching the merge.
+
+    It also ignores the item's `requiredDepartment` (#155) and computes its span from `hpd` alone with an opts-less `addBD` (#81), so the department lock and the org calendar are both absent on this one path. Same treatment as #398 when it is taken, after the merge-vs-replace question is settled.
+
+415. [LOGGED 2026-10-06, NOT BUILT] **THE SETTLE HAS NO NOTION OF WHAT THE EDIT TOUCHED.** `reflowJob(t, opts)` settles EVERY phase of a job, while `enforceNoOverlap(list, touchedIds)` — the mechanism on every other commit path — settles only what moved. #404 fixed the TRIGGER (a title-only edit no longer settles at all) but not the SCOPE: once something really does move, every phase of that job is still reordered, including ops nobody went near.
+
+    WHY IT WAS RECORDED RATHER THAN ATTEMPTED. Trey: *"You're right that the queue rule is relative to siblings so it isn't a drop-in, and that's a reason to record it rather than attempt it here."* The queue rule's whole meaning is an op's position among its siblings — there is no "just this op" version of it, because moving one op is exactly what changes where the next one may sit. Scoping it means deciding what a phase's queue means when only part of the phase is in play, which is a design question, not a refactor.
+
+    The measured urgency is currently nil: after #404 C the settle moves 0 ops on Matrix's board, so there is nothing for the wrong scope to move. That will change the moment unassigned work is scheduled into the future, which is what the queue rule is FOR. Worth holding until then rather than guessing the rule now.
