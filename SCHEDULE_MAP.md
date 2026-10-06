@@ -1640,7 +1640,17 @@ Everything else was read at the cited line. Nothing was run against live data.
 352. D2 — three op-duration formulas. Latent: 0 of 1,073 ops diverge.
 353. D3 — two working-day calendars: timeclock.js hardcodes Mon–Fri and ignores holidays. Plus three identical private `nextDay` helpers.
 354. D4 — five sites compute the working-day length, with three different guards.
-355. D5 — three membership idioms and 9 raw `.includes(pid)`; 12 of 1,197 live memberships are number-typed.
+355. **CORRECTED 2026-10-06 — "12 OF 1,197 LIVE MEMBERSHIPS" WAS MEASURED WRONG, AND IT IS THE FOURTH INSTANCE OF LESSONS #11.** The 12 is right. "Live" is not. Re-measured on Matrix:
+
+        memberships, every level, stored:   1041   — 1029 string, 12 number
+        memberships on LIVE nodes:           161   — 161 string, ZERO number
+        what the CLIENT receives:            161   — all strings
+
+    All twelve number-typed memberships carry the value `99` and sit inside THREE JOB-LEVEL TOMBSTONES from 2026-07-03 (titles `"f"`, `"asdf"`, `"f"` — test data). `GET /tasks` returns `filterLive(data)`, so those jobs never reach a client at all. The original count walked the stored file and called the result live, which is the same error as #347, #357 and #377. **This entry predates LESSONS #11**, which is why it is corrected rather than held against anyone — but it is the fourth time, and the lesson exists because of the first three.
+
+    AND THE REAL HAZARD IS SOMEWHERE ELSE. Every one of the 24 stored person ids is a STRING — but two of them are `"99"` (Treysen) and `"100"` (Max), both live admins, while the other 22 are `t…` ids. The drift is impossible for `"t0gnvtljt"` and entirely possible for `"99"`: it is the only shape that survives a round-trip through anything numeric. The twelve tombstoned `99`s are what that looked like the last time it happened.
+
+    RULED 2026-10-06: DO NOT RE-KEY. A migration touches every membership, every `moveLog.movedBy`, every rule-event `by`, and iOS's stored state, to fix two ids that are currently strings and behaving correctly. Enforce the string-ness instead — see #410.
 356. D6 — 130 traversals of tasks, 2 of which guard `deletedAt`; 49 deleted jobs hold 536 dated, teamed, unfinished ops that are read as live.
 357. `measure-plan-gaps.mjs` was committed with the D6 bug; two runs over the same window disagree by 60 h.
 358. [found in iOS chunk A, not investigated] OverlapRuleTests.finishedWorkDoesNotTakePart fails on unmodified master (30f792b) — the only red test in the iOS unit suite.
@@ -2117,3 +2127,29 @@ Everything else was read at the cited line. Nothing was run against live data.
     FIXED in `669f7ee` with the #402 work: `isAvailLocal(pid, s, eDate, sh)` and `isAvail(pid, s, eDate, sh)` forward the hour, and all SIX call sites pass `_opH`, read off the op being placed. Tested in `scripts/scheduler-hour-test.mjs`, whose first section proves the argument changes the answer before asserting anything about the code — on a fixture with one op at 08:00, `free(…, 8)` is false, `free(…, 14)` is true, and the no-hour form returns one answer for both.
 
     WHAT TO WATCH: this makes the scheduler pack tighter. If anyone reports that auto-scheduled work now lands sooner than they expect, this is why, and it is working as intended — the previous dates were padded by a question the oracle could not answer precisely.
+
+410. DONE 2026-10-06. **A MEMBERSHIP COMPARISON IS NOW A BUILD ASSERTION, NOT NINE HAND-EDITS.** `scripts/_membership-lint.mjs` + `membership-lint-test.mjs`, wired (80 suites).
+
+    THE HAZARD IS SILENCE. `(op.team || []).includes(pid)` against a number-typed id does not throw — it returns false, the op falls through to the department pool or the counter reads zero, and the result is INDISTINGUISHABLE FROM THE BEHAVIOUR BEING FIXED.
+
+    IT HAS BITTEN TWICE INSIDE OTHER FIXES IN THIS CAMPAIGN, which is the whole argument for a build rule over hand-editing: **both were written by someone who had just read the rule.** #340's manual-assignment check (`(op.team || []).includes(pp.id)` — the entry's own words: "indistinguishable from the scheduler ignoring the assignment, which is the bug being fixed") and #345's even-load counter (`(pnl.team || []).includes(pid)`, making the load read zero while the fix was explicitly about counting load correctly). Both are the suite's RED PROOF, verbatim from the entry and from the diff that removed it.
+
+    A RATCHET, NOT A CLEAN ZERO, on Treysen's ruling. Nine sites stand in `TRAQS.jsx` and all nine are LATENT — zero live memberships are number-typed — so editing them is churn with no measurable effect. The baseline is frozen at nine; an INCREASE fails with the file and line, and a DECREASE also fails, asking for the baseline to be lowered. That second half is what stops the number going stale.
+
+    SCOPED TO `team` DELIBERATELY. A blanket ban on `.includes(` would flag hundreds of legitimate string and array uses and would be switched off within a week — LESSONS #4, a guard nobody can live with is a guard that gets disabled rather than believed.
+
+    FOUR MUTANTS, FOUR CAUGHT: a tenth site added in `TRAQS.jsx`, a first site added in a file with a zero baseline, the pattern narrowed so the `|| []` form stops matching, and comment-stripping removed so the rule's own documentation becomes a violation of itself. **TWO RESULTS CHANGED THE CODE.** A `NORMALISED` guard excluding `.map(String)` chains was proved DEAD — removing it changed no assertion, because the pattern already requires `.includes(` to sit directly on `team` — so it is gone rather than left as a second mechanism to drift. And a broken-regex mutant CRASHED instead of failing, on `membershipViolations(c340)[0].member`; optional chaining now makes it an assertion, because a crash says the code broke rather than that the property is false.
+
+    KNOWN GAP, recorded rather than papered over: the HALF-normalised `(op.team || []).map(String).includes(pid)` — stringified team, raw member — is a real defect and is NOT caught. Catching it needs the member expression analysed rather than matched, which is a parser and not a grep.
+
+411. **THE ID CLUSTER IS MEASURED AND LATENT — WHICH IS NOT THE SAME AS FIXED, AND THE DIFFERENCE IS INVISIBLE UNTIL THE DATA CHANGES.** #205, #206, #207, #208 and #324 all STAND AS WRITTEN. Not one of them is reachable with today's data, and the reasons differ:
+
+      - **#205, #206, #324** (the clock paths — stranded-clock auto-end, server `jobClockIn`/`jobClockOut`, and the strict-equality credit on the money path): `activeJobClock` is ABSENT ON ALL 24 PEOPLE. There is no live input at all, so none of these has anything to compare.
+      - **#207** (strict comparisons across scheduling): the scheduling paths read live data, and all 161 live memberships plus all 1460 node ids are strings.
+      - **#208** (the op editor writes team ids as strings): writing strings is now the CORRECT direction, since every one of the 24 person ids is a string. Arguably already resolved by the data rather than by a fix.
+
+    IOS IS A LAUNDRY, NOT A SOURCE. `decodeFlexID`, `decodeFlexIDIfPresent` and `decodeFlexIDs` all normalise Int → String on decode, and `team` encodes as `[String]`. It CONVERTS numbers to strings; it cannot produce them. And no `Number(id)` / `parseInt(id)` coercion exists anywhere in the web client.
+
+    SO THE ANSWER TO "IS ENFORCED STRING-NESS SUFFICIENT?" IS YES, WITH ONE RESERVATION. Nothing in the web, the functions or iOS currently coerces an id to a number; the lint (#410) stops the comparison side regressing; and the two numeric-looking ids are strings today. The reservation is that NOTHING ASSERTS THE WRITE SIDE — no guard stops a future client POSTing `team: [99]`, and the server does not normalise it on the way in. That is the gap worth closing next if this cluster is ever reopened: a normaliser in `tasks.js` that stringifies membership ids on write would make the question unanswerable rather than merely currently-answered.
+
+    #209 MOVED OUT OF THIS CLUSTER on Treysen's ruling: traversals that treat any `subs` as children regardless of `deletedAt` are a COUNTING defect, and belong with the rollup work rather than here. Its presence in the id cluster was an accident of both touching the same lines.
