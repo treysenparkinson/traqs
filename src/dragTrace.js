@@ -43,15 +43,24 @@ export const resetSeq = () => { seq = 0; };
  *  console keeps it inspectable rather than stringifying it. */
 export function trace(step, data) {
   if (!traceOn()) return;
+  // STRINGIFIED, not passed as an object. DevTools collapses a logged object to
+  // its first few keys and "…", and copying the console then yields the
+  // collapsed form — which cost a round: the one line that mattered had to be
+  // expanded by hand and the rest were unreadable. A flat string copies whole.
+  let body;
+  try { body = JSON.stringify(data ?? {}); }
+  catch { body = String(data); }
   // eslint-disable-next-line no-console
-  console.log(`[drag ${String(++seq).padStart(3, "0")}] ${step}`, data ?? {});
+  console.log(`[drag ${String(++seq).padStart(3, "0")}] ${step} ${body}`);
 }
 
 /** UNGATED, one line, mousedown only. If this is absent from the console the
  *  handler never ran and nothing below it can be believed. */
 export function crumb(step, data) {
+  let body;
+  try { body = JSON.stringify(data ?? {}); } catch { body = String(data); }
   // eslint-disable-next-line no-console
-  console.log(`[drag:crumb] ${step}`, data ?? {});
+  console.log(`[drag:crumb] ${step} ${body}`);
 }
 
 /** The scheduling fields of one op, found anywhere in the job tree. Returns a

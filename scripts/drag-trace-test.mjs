@@ -81,8 +81,17 @@ console.log("\n3. EVERY POINT IS ON THE PATH — the failure #379's tracer had")
   ok("the mouseup handler was located", onU.length > 500, true);
   ok("doSaveOnce was located", doSave.length > 500, true);
 
-  // 1 — mousedown. Outside onM/onU, in the handler that installs them.
+  // 1 — mousedown. Outside onM/onU, in the handler that installs them, and
+  // BELOW the painted origin so it can print the stored and painted positions
+  // together. The first run had to infer the painted one from ghostStart and a
+  // day offset; a gap that explains the whole symptom should not need inferring.
   ok("1 mousedown is present", /dragCrumb\("mousedown"/.test(CODE), true);
+  ok("...and prints the PAINTED origin beside the stored one",
+    /dragTrace\("1 mousedown — STORED vs PAINTED"/.test(CODE), true);
+  ok("...including the gap between them on the drag's own axis",
+    /paintedVsStoredH/.test(CODE), true);
+  ok("...and is below _origColOffset, or those values do not exist yet",
+    CODE.indexOf("const _origColOffset = totalWorkH > 0") < CODE.indexOf('dragTrace("1 mousedown'), true);
   ok("...and is UNGATED, so \"did it fire at all\" is answerable", /crumb as dragCrumb/.test(CODE), true);
   ok("...and is NOT inside the mousemove handler", /dragCrumb\("mousedown"/.test(onM), false);
   ok("...and registers the op the later points print", /dragTrackOp\(bar\.task\?\.id\)/.test(CODE), true);

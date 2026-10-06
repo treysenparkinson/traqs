@@ -16487,11 +16487,6 @@ ${jobsCtx || "No jobs found."}`;
                     const _renderNoAtGrab = traceRenderNoRef.current;
                     const _barsAtGrab = getPersonBars;
                     dragCrumb("mousedown", { op: String(bar.task?.id ?? ""), title: bar.task?.title || "", traceOn: dragTraceOn() });
-                    dragTrace("1 mousedown — what is STORED for this op", {
-                      ...dragOpRow(latestTasksRef.current, bar.task?.id),
-                      grabClientX: e.clientX, grabClientY: e.clientY,
-                      tMode, liveCW: null,
-                    });
                     const _barClientRect = e.currentTarget?.getBoundingClientRect();
                     const _grabPx = _barClientRect ? Math.max(0, e.clientX - _barClientRect.left) : 0;
                     const _barRect = e.currentTarget?.getBoundingClientRect();
@@ -16529,6 +16524,32 @@ ${jobsCtx || "No jobs found."}`;
                     // it — otherwise an already-hour-positioned bar snaps to a day that disagrees with
                     // where its left edge (and the ghost) actually is.
                     const _origColOffset = totalWorkH > 0 ? _dragOffsetH / totalWorkH : 0;
+                    // ── TRACE 1/8, moved BELOW the painted origin so it can print both
+                    // positions. The first run showed why that matters: the drag is
+                    // anchored on where the bar is PAINTED (_dragBaseStart/_dragBaseHour),
+                    // while the commit writes an ABSOLUTE start — and on that drag the
+                    // painted origin was a day and six and a half working hours behind the
+                    // stored one. `paintedVsStoredH` is that gap, on the same axis the
+                    // drag's arithmetic uses; when it is non-zero, a drag SHORTER than the
+                    // gap commits a value at or before the one already stored, and the bar
+                    // does not move. (#391)
+                    {
+                      const _storedRow = dragOpRow(latestTasksRef.current, bar.task?.id);
+                      const _axisOf = (d, h) => {
+                        try { return diffBDSigned(_dragBaseStart, d, barBDOpts) * totalWorkH + ((h ?? workStartH) - workStartH); }
+                        catch { return null; }
+                      };
+                      dragTrace("1 mousedown — STORED vs PAINTED", {
+                        ..._storedRow,
+                        paintedDay: _paintedDay, paintedHour: _paintedHour,
+                        dragBaseStart: _dragBaseStart, dragBaseHour: _dragBaseHour,
+                        origColOffset: _origColOffset,
+                        isPartiallyWorked: !!_dragWS.isPartiallyWorked,
+                        dragBarHpd: _dragBarHpd, teamSize: _dragTeamSz,
+                        paintedVsStoredH: _axisOf(_storedRow.start, _storedRow.startHour),
+                        grabClientX: e.clientX, grabClientY: e.clientY, tMode,
+                      });
+                    }
                     const origPerson = p.id;
                     // Dep group — collect all bars in the same dependency chain
                     const depGroupIds = getDepGroup(bar.task.id, tasks);
