@@ -1463,7 +1463,14 @@ export const walkProductiveHours = (startH, prodHours, cfg) => {
     }
     if (left <= CLOCK_EPS) break;
     const tail = workEndH - clock;
-    if (left <= tail + CLOCK_EPS) { clock += left; left = 0; break; }
+    // #389. CLAMPED TO workEndH. The CLOCK_EPS tolerance is here so a sub-minute
+    // overrun does not spill a sliver onto tomorrow, and that is right — but
+    // `clock += left` then settled the clock PAST quitting time while still
+    // reporting days: 1. Measured: 7.5166h from 08:00 on an 08:00–17:00 day gave
+    // endHour 17.0166, and since `columns` is (clock − firstStart) / dayLen the
+    // bar drew 1.0011 columns instead of 1.0. The tolerance was never the bug;
+    // letting it move the clock outside the day was.
+    if (left <= tail + CLOCK_EPS) { clock = Math.min(clock + left, workEndH); left = 0; break; }
     left -= tail;
     days++; clock = workStartH;
   }
@@ -1471,6 +1478,60 @@ export const walkProductiveHours = (startH, prodHours, cfg) => {
     ? (clock - firstStart) / dayLen
     : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
   return { days, endHour: clock, columns: Math.max(0, columns) };
+};
+
+// Productive hours between `h` and the end of the working day, stepping over the dead
+// windows (#389). The question a drop has to answer before it is allowed to land: IS
+// THERE ANY WORK TIME LEFT TODAY? Zero means the op cannot start here at all and the
+// forward walk will roll it to the next working day.
+//
+// Sorted, unlike the forward walk. That walk's own comment records what order-sensitivity
+// costs — "walking forward 6 productive hours from 08:00 gives 14.75 with the windows
+// ascending and 14.50 with them descending" — and warns it is unprotected. A function
+// whose entire job is to decide whether a drop is legal must not inherit that.
+export const productiveHoursLeftInDay = (h, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  let clock = Math.min(Math.max(h, workStartH), workEndH);
+  let left = 0;
+  for (const w of [...deadWindows].sort((a, b) => a.start - b.start)) {
+    const wEnd = w.start + w.dur;
+    if (wEnd <= clock) continue;            // behind us
+    if (w.start >= workEndH) break;         // after hours
+    if (w.start > clock) left += w.start - clock;
+    clock = Math.max(clock, wEnd);
+  }
+  return left + Math.max(0, workEndH - clock);
+};
+
+// The latest legal start hour at or before `hour` — the last `step` slot that still has
+// work time in it (#389).
+//
+// WHY THIS EXISTS. The drag derived its intra-day hour as
+//
+//     _colFrac = Math.min(0.9999, …)                                  ← clamped BEFORE
+//     dropHour = Math.round((workStartH + _colFrac * totalWorkH) * 2) / 2   ← rounded AFTER
+//
+// and the rounding defeated the clamp: on an 08:00–17:00 day anything from _colFrac
+// ≈ 0.972 up rounded to 17.0, which is quitting time. The forward walk then found
+// tail === 0 and rolled the whole op to the next working day at 08:00. Trey: "it snaps
+// back, but ONLY when you drag it to 8am for the start and 5pm for the end" — both ends
+// of that are this one event, seen from each side. The 0.9999 clamp had the right idea
+// and the wrong operand: the HOUR has to be clamped, not the fraction.
+//
+// Stepped rather than computed as `workEndH - step`, because the dead windows decide
+// where the day really ends: with lunch at 16:00–17:00, 16:30 has no work time in it
+// either and the last legal start is 15:30.
+export const clampStartHour = (hour, cfg, step = 0.5) => {
+  const { workStartH, workEndH } = cfg;
+  let h = Math.min(Math.max(hour, workStartH), workEndH);
+  for (let g = 0; g < 5000; g++) {
+    if (productiveHoursLeftInDay(h, cfg) > CLOCK_EPS) return h;
+    if (h <= workStartH) break;
+    h = Math.max(workStartH, h - step);
+  }
+  // buildDayWindows never leaves a day with under an hour of work in it, so this is
+  // unreachable in practice; returning the day's start is the harmless direction.
+  return workStartH;
 };
 
 // The same walk, backwards: given the moment work FINISHED and a duration in productive

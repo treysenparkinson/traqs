@@ -1685,3 +1685,30 @@ Everything else was read at the cited line. Nothing was run against live data.
     RE-POINTED, NOT RELAXED: `save-rollback-test.mjs` and `save-stamp-test.mjs` both anchor on the save body by its declaration, which the rename moved. Both now anchor on `const doSaveOnce = useCallback(async () => {`; everything they assert lives in the body, which is still one function. The build caught this itself (`anchor not found in TRAQS.jsx`) — exit code 2, not a silent green, which is what #376's work was for.
 
     `npm run build` green, exit 0, 70 suites, and the clock-shift harness reruns all 70 at now + 2 days, now + 400 days and 2098-06-15.
+
+389. FIXED 2026-10-06. THE DRAG COULD PLACE AN OP ON QUITTING TIME, AND QUITTING TIME HAS NO HOURS IN IT. Trey, after #387 and #388 had removed the save races: "it still snaps back, but ONLY when you drag it to 8am for the start and 5pm for the end. ONLY on those times though." Both ends of that are ONE event seen from each side, and he confirmed the prediction before the fix was built: "it lands on a day starting at 8am."
+
+    THE MECHANISM. `onM` derived the intra-day hour as `_colFrac = Math.min(0.9999, …)` and then `dropHour = Math.round((workStartH + _colFrac * totalWorkH) * 2) / 2`. THE CLAMP IS APPLIED TO THE FRACTION AND THE ROUNDING HAPPENS AFTER IT, so the rounding defeats the clamp. Measured across one column on Matrix's 08:00–17:00 day:
+
+        colFrac   raw hour   dropHour   walk(days, endHour)
+        0.0000     8.000       8.0      days 1, end 11.25
+        0.5000    12.500      12.5      days 1, end 16.25
+        0.9444    16.500      16.5      days 2, end 10.75
+        0.9900    16.910      17.0      days 2, end 11.25   <-- quitting time
+        0.9999    16.999      17.0      days 2, end 11.25   <-- quitting time
+
+    Anything from `_colFrac ≈ 0.972` up — raw hour ≥ 16.75 — rounds UP to 17.0. `walkProductiveHours` clamps the clock to `workEndH`, finds `tail === 0`, and rolls the WHOLE op to the next working day at 08:00. The ghost drew it where the cursor was, because the ghost reads the same `dropHour`; only the commit walks it. That is why it read as a snap rather than as a refusal, and why no error appeared: nothing was refused, the op was placed exactly where the arithmetic said.
+
+    THE FIX IS A CHOKE POINT, NOT FOUR PATCHES. `clampStartHour(hour, cfg, step)` in `statsMath.js` returns the latest `step` slot at or before `hour` that still has work time in it, and the drag calls it ONCE — after every way `dropHour` is derived (the column fraction, the weekend shift, the end-of-day magnet, the dependency snap) and before the plan is built from it. `_phiInv` in the dependency snap carries its own `Math.round(… * 2) / 2` and could reach 17.0 by the same route, so a clamp at any one derivation site would have been the 0.9999 bug again in a new place.
+
+    STEPPED, NOT `workEndH - step`, because the DEAD WINDOWS decide where the day really ends: with lunch at 16:00–17:00 there is no work time at 16:30 either and the last legal start is 15:30. Its helper `productiveHoursLeftInDay` SORTS the windows before walking them — the forward walk's own comment records that order-sensitivity gives 14.75 ascending and 14.50 descending for the same question and warns that it is unprotected, and a function whose entire job is to decide whether a drop is legal must not inherit that.
+
+    THE SECOND BOUNDARY, fixed in the same pass. `CLOCK_EPS` is a full MINUTE, and `left <= tail + CLOCK_EPS` let the clock settle PAST `workEndH` while still reporting `days: 1`: 7.5166h from 08:00 gave `endHour 17.0166`, and since `columns` is `(clock − firstStart) / dayLen` the bar drew 1.0011 columns instead of 1.0. Now `clock = Math.min(clock + left, workEndH)`. The tolerance is unchanged and was never the bug — a sub-minute overrun must still not spill a sliver onto tomorrow; letting it move the clock outside the day was.
+
+    TESTED red-first, `scripts/day-boundary-test.mjs`, 34 assertions, wired (71 suites). Section 1 is THE PROPERTY, swept rather than sampled: all 1000 cursor positions across a column must produce a start hour that leaves work time in the day, and the latest reachable start must still be 16:30 — a clamp that parked everything at 08:00 would satisfy the first half and be useless. Section 2 is the red proof, the table above. Four mutants, four caught: clamp written as `workEndH − 0.5` (2 red), the `endHour` clamp reverted (2), the sort dropped from `productiveHoursLeftInDay` (1), and `if (false)` on the wiring (1).
+
+    AND THE WIRING ASSERTION CAUGHT ITSELF FIRST. Its initial form matched `dropHour = clampStartHour(…)` alone, and the mutant `if (false) dropHour = clampStartHour(…)` SAILED THROUGH IT — a line present, correct-reading, and never executed. The guard is part of the assertion now. LESSONS #1 in the suite written to apply it; the only reason it did not ship that way is that the mutant was run.
+
+    IS THIS #383? PROBABLY NOT, AND THE BRIDGE WAS TESTED RATHER THAN ARGUED. #383 is "a SECOND bar moves to the cursor when a drag is dropped". The candidate unification was that a rolled-over op renders a degenerate piece on the original day plus the real bar on the next one, which would read as two bars — #70 is literally "cursor-anchored head collapses to zero width". Ran `opDaySegments` for a 17:00 start and for a LEGAL 16:30 start: both produce two segments. The segment count does not discriminate, because any two-day op renders as two segments and that is ordinary. The directions also disagree: #389 moves the DRAGGED bar AWAY from the cursor, while #383 reports a bar ARRIVING at it. Recorded as likely separate, not proven separate; #383 remains uninvestigated.
+
+    `npm run build` green, exit 0, 71 suites, all three shifted clocks.

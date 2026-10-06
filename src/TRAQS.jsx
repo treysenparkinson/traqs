@@ -28,7 +28,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -16770,6 +16770,24 @@ ${jobsCtx || "No jobs found."}`;
                         }
                       }
                       if (snapS === null) return;
+                      // #389. THE LAST LEGAL START HOUR, after every way dropHour was derived
+                      // above — the column fraction, the weekend shift, the end-of-day magnet
+                      // and the dependency snap — and before anything is built from it.
+                      //
+                      // The half-hour rounding defeated the `Math.min(0.9999, …)` clamp on the
+                      // column fraction: on an 08:00–17:00 day anything from _colFrac ≈ 0.972 up
+                      // (raw hour ≥ 16.75) rounded to 17.0, which is quitting time with no work
+                      // time in it, so walkProductiveHours rolled the whole op to the NEXT
+                      // working day at 08:00. Trey: "it snaps back, but ONLY when you drag it to
+                      // 8am for the start and 5pm for the end" — both ends of that are this one
+                      // event seen from each side, and he confirmed it "lands on a day starting
+                      // at 8am". The ghost drew it where the cursor was because the ghost reads
+                      // the same dropHour; only the commit walked it.
+                      //
+                      // Clamped HERE rather than at the four derivation sites: one choke point
+                      // in front of the plan cannot be half-applied, and _phiInv's own
+                      // `Math.round(… * 2) / 2` in the dependency snap could reach 17.0 too.
+                      if (dropHour !== null) dropHour = clampStartHour(dropHour, dayWindowCfg);
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       // THE landing (dragMove.js): the grabbed bar and every member, each at its
