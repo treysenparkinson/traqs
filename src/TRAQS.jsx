@@ -28,7 +28,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -16322,7 +16322,16 @@ ${jobsCtx || "No jobs found."}`;
                   // width (a few px), leaving a sliver and an apparent gap that
                   // heals as soon as the true end is panned into view.
                   const _endsInView = _segsEnd <= tEnd;
-                  const firstBarSeg = barSegs[0] || { start: _layoutStart, end: _layoutEnd };
+                  // #69. When the WHOLE layout range is non-working — a cursor-anchored
+                  // op on a Saturday, where the anchor is today and today is the weekend —
+                  // weekdaySegments correctly returns nothing, and the old fallback
+                  // (`barSegs[0] || { start: _layoutStart, … }`) put the raw Saturday
+                  // straight back and painted the bar on a column nobody works. Measured:
+                  // left edge 71.429% on a Mon..Sun window, squarely in Saturday.
+                  // segmentsForBar rolls the start to the next working day instead, which
+                  // is what the rest of the schedule does with a non-working date.
+                  const _barSegsDrawn = segmentsForBar(barSegs, _layoutStart, _layoutEnd, (ds) => nextBD(ds, _barBDOpts));
+                  const firstBarSeg = _barSegsDrawn[0] || { start: _layoutStart, end: _layoutEnd };
                   // Anchor on the first segment's start, not _layoutStart. Segments
                   // only ever cover working days, so when the start itself lands on a
                   // weekend or holiday the two differ — and anchoring on _layoutStart
@@ -16345,7 +16354,7 @@ ${jobsCtx || "No jobs found."}`;
                   // work-start there.
                   // THE bar geometry (statsMath.barSegmentsPct) — the same function every drag
                   // ghost draws with, so a ghost is exactly this bar (root cause 7 C).
-                  const _geoArgs = { segs: barSegs.length ? barSegs : [firstBarSeg], layoutStart: _layoutStart, tStart, nDays, startHour: _barStartH, budgetPct: _wBudget, endsInView: _endsInView, workStartH, totalWorkH };
+                  const _geoArgs = { segs: _barSegsDrawn.length ? _barSegsDrawn : [firstBarSeg], layoutStart: _layoutStart, tStart, nDays, startHour: _barStartH, budgetPct: _wBudget, endsInView: _endsInView, workStartH, totalWorkH };
                   const _xNum = barSegmentsPct({ ..._geoArgs, endHour: workEndH })[0].leftPct;
                   const x = _xNum + "%";
                   // No 0.5% min floor — it would expand the first segment past _segRightPct (the column's right edge),

@@ -1856,6 +1856,29 @@ export function suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay }) {
  * Every piece is capped at its own columns; the piece holding the end is sized by the end
  * hour. Returns [{ start, end, leftPct, widthPct, isLastSeg }].
  */
+// The segment list a bar is actually drawn from (#69).
+//
+// `weekdaySegments` only ever emits WORKING days, so a bar whose whole layout
+// range is non-working — a cursor-anchored op on a Saturday, where the anchor is
+// today and today is the weekend — correctly yields NOTHING. The render's
+// fallback was `barSegs[0] || { start: _layoutStart, end: _layoutEnd }`, which
+// put the raw Saturday straight back and painted the bar on a column nobody
+// works. Measured: left edge 71.429% on a Mon..Sun window, squarely in Saturday.
+//
+// The guard beside it — anchor on the first segment's start, not on layoutStart —
+// is correct and is why this never showed when segments EXIST. It simply had
+// nothing to work with when the list was empty. Rolling the start forward to the
+// next working day is what the rest of the schedule does with a non-working date
+// (`nextBD` at every drag), and it makes the fallback obey the same rule as the
+// list it stands in for.
+export function segmentsForBar(segs, layoutStart, layoutEnd, nextWorkDay) {
+  if (Array.isArray(segs) && segs.length) return segs;
+  if (!layoutStart || typeof nextWorkDay !== "function") return [];
+  const start = nextWorkDay(layoutStart) || layoutStart;
+  const end = layoutEnd && layoutEnd > start ? layoutEnd : start;
+  return [{ start, end }];
+}
+
 export function barSegmentsPct({ segs, layoutStart, tStart, nDays, startHour, endHour, budgetPct, endsInView, workStartH, totalWorkH, firstWantedPct = null }) {
   const out = [];
   if (!segs || !segs.length || !(nDays > 0)) return out;
@@ -1863,7 +1886,35 @@ export function barSegmentsPct({ segs, layoutStart, tStart, nDays, startHour, en
   const one = 100 / nDays;
   const span = Math.max(0.0001, totalWorkH);
   const s0 = segs[0];
-  const left0 = dd(tStart, s0.start) * one + (s0.start === layoutStart ? ((startHour - workStartH) / span) * one : 0);
+  // #70. THE HOUR OFFSET IS A FRACTION OF ONE COLUMN AND IS BOUNDED TO IT.
+  //
+  // `startHour` arrives raw, and for a cursor-anchored bar it is
+  // `shopHour(Date.now())` — the wall clock, 0..24, never clamped. Unbounded, the
+  // offset exceeded a whole column the moment the clock passed quitting time and
+  // the bar's left edge walked into TOMORROW'S column: on Matrix's calendar, with
+  // Wednesday at 28.571%..42.857%, 18:00 drew at 44.444% and 22:00 at 50.794%.
+  // The segment list it is measured against is clamped to working days, so the
+  // two disagreed about which day the bar was on.
+  //
+  // NOTE WHAT THIS IS NOT. #70 recorded the symptom as "collapses to zero width",
+  // which is false at every hour — `walkProductiveHours` clamps the start into
+  // the day, so a late start is still a multi-day walk and right0 stays ahead of
+  // left0. Measured width is 5.1587% from 06:00 to 23:59. The defect was always
+  // horizontal displacement.
+  // Bounded to ONE column. At exactly quitting time the offset is a full column
+  // and the edge lands on the boundary — that is not an error, because the right
+  // edge of Wednesday and the left edge of Thursday are the same instant. What
+  // was wrong was going PAST it: at 18:00 the offset was 1.11 columns and at
+  // 22:00 it was 1.56, so the bar was drawn a third of the way into a day it had
+  // no claim on while its segment list still said Wednesday.
+  // One clamp, on the hour. A second clamp on the fraction was here and was
+  // REDUNDANT — hourIn is already bounded to [workStartH, workStartH + span], so
+  // the quotient is already in [0, 1] — and mutation testing proved it: removing
+  // it changed no assertion. Two clamps for one bound is a place for them to
+  // drift apart later, so the arithmetic says it once.
+  const hourIn = Math.min(Math.max(startHour ?? workStartH, workStartH), workStartH + span);
+  const frac = (hourIn - workStartH) / span;
+  const left0 = dd(tStart, s0.start) * one + (s0.start === layoutStart ? frac * one : 0);
   const right0 = (dd(tStart, s0.end) + 1) * one;
   const w0 = Math.max(0, Math.min(firstWantedPct ?? budgetPct, right0 - left0));
   out.push({ start: s0.start, end: s0.end, leftPct: left0, widthPct: w0, isLastSeg: segs.length === 1 && !!endsInView });

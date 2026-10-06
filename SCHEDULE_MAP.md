@@ -1157,8 +1157,29 @@ Everything else was read at the cited line. Nothing was run against live data.
 66. `rowPushHours` needs sorted input, enforced only by the caller (S:182, J:17531).
 67. `hasActiveSession` is passed to `rowPushHours` and ignored (J:17577, S:932).
 68. Two row-push mechanisms coexist (`overrunPushH` and `rowPushHours`) (J:17497, 17552).
-69. Cursor-anchored bars aren't clamped to work hours or work days (J:17932–17940).
-70. After close, a cursor-anchored head collapses to zero width [inferred].
+69. FIXED 2026-10-06, AND MEASURED FIRST — the entry was `[inferred]`, read from code and never observed. A cursor-anchored bar DOES paint on a non-working day, but not for the reason this entry implied. `weekdaySegments` is correct: for a Saturday-to-Saturday range it returns NOTHING. The render's fallback put the raw Saturday back — `const firstBarSeg = barSegs[0] || { start: _layoutStart, end: _layoutEnd }` and `segs: barSegs.length ? barSegs : [firstBarSeg]`. Reproduced headlessly on Matrix's calendar with a Mon..Sun window: left edge **71.429%**, squarely in Saturday's column, at every hour tried.
+
+    THE GUARD BESIDE IT WAS NEVER WRONG. "Anchor on the first segment's start, not `_layoutStart`" works whenever segments EXIST, which is why this never showed in the ordinary weekend case — Trey's own observation, that anchored bars flow around weekends correctly, is accurate. It simply had nothing to work with when the list was empty.
+
+    `segmentsForBar(segs, layoutStart, layoutEnd, nextWorkDay)` in `statsMath.js` now rolls an empty list forward to the next working day, which is what `nextBD` does for a non-working date everywhere else in the schedule. The bar then begins at the start of that day, with no hour offset, because the roll has already placed it — the rule the render already stated for a start landing on a weekend.
+
+    REACHABILITY, since this is why it went unseen for so long: it needs the board OPEN ON A NON-WORKING DAY with an anchored op. Matrix works Mon–Fri. Same root as #70 — see there.
+70. **CORRECTED AND FIXED 2026-10-06. THE STATED SYMPTOM WAS FALSE.** This entry read "After close, a cursor-anchored head collapses to zero width [inferred]". IT DOES NOT COLLAPSE, at any hour: measured width is 5.1587% from 06:00 to 23:59 on Matrix's calendar. The trigger ("after close") is right; the symptom is not.
+
+    HOW THE FALSE SYMPTOM NEARLY GOT CONFIRMED, recorded because it is the shape of several entries struck this week. Reading `barSegmentsPct` in isolation, `w0 = Math.max(0, Math.min(budget, right0 - left0))` with an unbounded `left0` obviously collapses to zero once the offset exceeds a column — I predicted exactly that before measuring. It never happens, because `walkProductiveHours` CLAMPS the start into the day UPSTREAM (`clock = Math.min(Math.max(startH, workStartH), workEndH)`), so a late start still produces a multi-day walk, the first segment spans two days, and `right0` stays ahead of `left0`. A clamp in one function preventing the consequence a neighbouring function's arithmetic predicts is exactly why reading is not measuring.
+
+    THE REAL SYMPTOM IS HORIZONTAL DISPLACEMENT. `startHour` reaches `barSegmentsPct` raw, and for an anchored bar it is `shopHour(Date.now())` — the wall clock, 0..24, never clamped (`shopTime.js:108`). The offset `((startHour − workStartH) / totalWorkH)` is therefore unbounded while the segment list it is measured against is clamped to working days, so past quitting time the left edge walks into the NEXT column. Measured, Wednesday's column being 28.571%..42.857%:
+
+        12:00 -> 34.921  (Wed)        18:00 -> 44.444  (THU)
+        17:00 -> 42.857  (Wed edge)   22:00 -> 50.794  (THU)
+
+    The offset is now bounded to ONE column. 17:00 lands exactly on the boundary and that is NOT corrected — the right edge of Wednesday and the left edge of Thursday are the same instant, and an assertion demanding "Wednesday" there would have been fitting the test to the code. What was wrong was going past it: 1.11 columns at 18:00, 1.56 at 22:00.
+
+    ONE DEFECT, TWO FACES, with #69: an unbounded hour offset against a clamped segment list. #69 is the segment list losing its clamp (the empty-list fallback); #70 is the offset losing its bound. **#70's after-5pm displacement is reachable any evening**, unlike #69, which needs a weekend.
+
+    TESTED red-first, `scripts/bar-geometry-test.mjs`, 33 assertions, wired (75 suites). Six mutants, six caught, each by an assertion rather than a crash. THREE RESULTS FROM THE MUTATION RUN CHANGED THE CODE OR THE SUITE: a second clamp on the fraction was REDUNDANT (hourIn already bounds the quotient) and removing it changed no assertion, so the arithmetic now says it once; a fixture using placeholder strings made one mutant CRASH inside the calendar instead of failing, and a crash says the code broke rather than that the property is false, so it uses real dates; and the wiring assertion matched `/segmentsForBar/`, which the import line satisfies alone, so a mutant that deleted the CALL and kept the import sailed through — the same shape as the `if (false)` mutant that survived #389's wiring assertion.
+
+    AND THE PROBE'S OWN LABEL HELPER INVENTED A FINDING BEFORE THE SUITE EXISTED. A bare `Math.floor(pct / one)` reported a bar sitting EXACTLY on Wednesday's left edge as being in Tuesday, because `28.571 / 14.2857` evaluates to `1.9999999999999998`. It was caught by reading the table rather than by anything structural; `columnOf` in the suite carries the epsilon and says why, because a measurement helper that rounds the wrong way at a boundary invents findings at exactly the boundaries under test.
 71. `_visualEnd` ignores the push (J:16477–16499).
 72. `TD`/`NOW` are frozen at module load (J:474).
 73. The drawn now line uses `TD` while bar dividers use `new Date()` (J:19490 vs J:17772).
