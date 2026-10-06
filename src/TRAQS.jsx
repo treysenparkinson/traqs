@@ -39,6 +39,7 @@ import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, 
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDates as payPeriodAtOffsetFromDates } from "./payPeriod.js";
 import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
+import { serializeRuns } from "./saveQueue.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -8003,7 +8004,9 @@ Extraction rules:
   useEffect(() => { orgCodeRef.current = orgCode; }, [orgCode]);
   useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
-  const doSave = useCallback(async () => {
+  // ONE RUN OF THE SAVE. Call `doSave` below, not this — it is wrapped so two
+  // saves can never overlap (#388).
+  const doSaveOnce = useCallback(async () => {
     try {
       // Hard gate: if the initial S3 load has not resolved successfully,
       // refuse to save. Otherwise the initial useState([]) values (or any
@@ -8249,6 +8252,29 @@ Extraction rules:
       setSaveStatus("unsaved");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // #388. SAVES ARE SERIALISED. Everything calls this; nothing calls doSaveOnce.
+  //
+  // doSave adopts the server's `lastModifiedAt` when the response ARRIVES, so a
+  // save started before the previous one's response lands carries the stamp from
+  // before it and is correctly refused as stale. Nothing stopped that: the ~22
+  // explicit call sites each fire `setTimeout(() => doSaveRef.current(), 0)`
+  // right after a `setTasks`, so two drags inside one round trip overlapped by
+  // construction. On 2026-10-06 that was twenty task-conflict records in a day,
+  // ALL caller 99 — one client conflicting with itself, staleness −455ms to
+  // −664ms rather than the hours a genuinely stale tab shows. #387 made the
+  // client recover from the refusal; this removes the cause.
+  //
+  // A burst of drags coalesces into ONE follow-up save rather than one per drag,
+  // because each run sends the whole tree as it stands when it starts — two
+  // queued saves would send the same thing twice. A failed run still runs the
+  // follow-up, or an edit made during a failed round trip is dropped with
+  // nothing left to re-arm it: the debounce was cancelled when that save began.
+  //
+  // useMemo with a stable dep, so the queue's `running`/`dirty` state belongs to
+  // the component for its whole life. Rebuilding it per render would hand every
+  // render a fresh, empty queue and serialise nothing.
+  const doSave = useMemo(() => serializeRuns(doSaveOnce), [doSaveOnce]);
 
   // Replace local tasks/people/clients with the server's copy after a rejected
   // save (see doSave). Installed exactly as the poll installs server data —

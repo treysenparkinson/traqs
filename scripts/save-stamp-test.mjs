@@ -260,7 +260,8 @@ console.log("\n7. The client half — doSave adopts before it returns, and cance
   // Scoped by brace-free landmarks rather than searched file-wide: an earlier
   // suite in this campaign matched a second call site 17,000 lines away and
   // reported a fix that was not there.
-  const a = SRC.indexOf("const doSave = useCallback(async () => {");
+  // `doSaveOnce` since #388 — `doSave` is now the serialised wrapper around it.
+  const a = SRC.indexOf("const doSaveOnce = useCallback(async () => {");
   const b = SRC.indexOf("const rollbackToServer = async () => {", a);
   const DOSAVE = (a >= 0 && b > a) ? SRC.slice(a, b) : "";
   ok("doSave's body was located", DOSAVE.length > 1000, true);

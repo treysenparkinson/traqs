@@ -39,7 +39,11 @@ function slice(anchor, { optional = false } = {}) {
 }
 const BUSY = "const busy = () =>";
 const src = {
-  doSave: slice("const doSave = useCallback(async () => {"),
+  // The save body was renamed to `doSaveOnce` by #388: `doSave` is now the
+  // serialised wrapper around it (useMemo + serializeRuns), so the old anchor
+  // no longer names a function body. Everything this suite checks lives in the
+  // body, which is this one.
+  doSave: slice("const doSaveOnce = useCallback(async () => {"),
   rollback: slice("const rollbackToServer = async () => {", { optional: true }),
   refetch: slice("const refetch = async () => {"),
   applySlice: slice("const applySlice = async (entity) => {"),
