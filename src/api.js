@@ -50,15 +50,19 @@ export async function fetchTasks(getToken, orgCode) {
   return res.json(); // returns [] if empty
 }
 
-export async function saveTasks(tasks, getToken, orgCode) {
+export async function saveTasks(tasks, getToken, orgCode, actionSource) {
   if (!Array.isArray(tasks)) {
     console.warn("saveTasks blocked — not an array", tasks);
     return { ok: true };
   }
   const headers = await authHeaders(getToken, orgCode);
+  // #400 item 1. WHO TRIGGERED THIS SAVE, when it was not a person's own hand.
+  // Only ever set for a confirmed AI tool run (`ai:<tool>,<tool>`), and the
+  // server caps and sanitises it before it reaches the durable log. Omitted
+  // entirely when absent, so an ordinary save is byte-identical to before.
   const res = await fetch(`${BASE}/tasks`, {
     method: "POST",
-    headers,
+    headers: { ...headers, ...(actionSource ? { "X-Action-Source": actionSource } : {}) },
     body: JSON.stringify(tasks),
   });
   if (!res.ok) throw await saveError("saveTasks", res.status, res);

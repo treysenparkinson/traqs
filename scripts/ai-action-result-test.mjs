@@ -143,6 +143,23 @@ console.log("\n8. The chat path uses it, and awaits the save first");
     /outcomes\[tu\.id\] = changed \? OUTCOME_APPLIED : OUTCOME_NOCHANGE;/.test(body), true);
   ok("...and the id-matching handlers check before mutating",
     (body.match(/changed = (jobExists|nodeExists)\(/g) || []).length, 4);
+
+  // #400 item 3. THE FIVE LEGACY HANDLERS ARE GONE. They were not in AI_TOOLS,
+  // so the model was never offered them and could not emit them — unreachable
+  // from the declared schema, and five more writers for the next survey to find,
+  // four of them bypassing updTask with a raw setTasks.
+  const WHOLE = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  for (const name of ["update_task_status", "reschedule_task", "assign_person", "remove_person", "create_task"]) {
+    ok(`the legacy handler ${name} is gone`, new RegExp(`case "${name}"`).test(WHOLE), false);
+  }
+  // And the declared schema is what decides reachability, so assert the two
+  // agree: every executed case must be a tool the model is actually offered.
+  const declared = (WHOLE.match(/\{ name: "([a-z_]+)", description:/g) || [])
+    .map(m => m.replace(/.*name: "([a-z_]+)".*/, "$1")).sort();
+  const executed = [...new Set((body.match(/case "([a-z_]+)":/g) || [])
+    .map(m => m.replace(/case "([a-z_]+)":/, "$1")))].sort();
+  ok("every executable tool is one the model is offered", executed.filter(n => !declared.includes(n)), []);
+  ok("...and the six declared tools all have an executor", declared.filter(n => !executed.includes(n)), []);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

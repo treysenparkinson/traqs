@@ -292,6 +292,25 @@ export async function handler(event) {
           rule: v.rule, opId: v.id, jobId: v.jobId, detail: v.detail, value: v.value ?? null, bound: v.bound ?? null,
         });
       }
+      // #400 item 1. WHICH AI TOOLS TRIGGERED THIS SAVE, if any.
+      //
+      // The Jobs sweep could not answer "does anyone use Ask to write?" — there
+      // is no durable record of AI tool execution anywhere, and an AI write
+      // reaches here indistinguishable from any other save. That question
+      // decides whether routing those handlers onto the shared commits is
+      // tidying or urgent, so the cheap half ships first and gets read in a week.
+      //
+      // CLIENT INPUT, TREATED AS SUCH: it lands in a durable file the whole org
+      // reads, so it is capped and stripped of line breaks. A client that can
+      // write an unbounded string here can fill S3 one save at a time, and a row
+      // carrying a newline stops being one row.
+      //
+      // IT RECORDS AND NEVER REFUSES. Telemetry that can fail a save is worse
+      // than no telemetry.
+      const actionSource = String(event.headers?.["x-action-source"] || event.headers?.["X-Action-Source"] || "");
+      if (actionSource.startsWith("ai:")) {
+        durable.push({ tag: "ai-action", tools: actionSource.slice(3).replace(/[\r\n]+/g, " ").slice(0, 200) });
+      }
       await recordRuleEvents(orgCode, durable, who);
       if ("abort" in result) return result.abort;
 

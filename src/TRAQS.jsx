@@ -5008,6 +5008,11 @@ Extraction rules:
   // doSaveOnce below. Read by executeConfirmedActions, which used to tell the
   // assistant "Action applied successfully." whatever happened.
   const lastSaveResultRef = useRef(null);
+  // #400 item 1. The tools a confirmed AI run just applied, read by the NEXT
+  // save and sent as X-Action-Source so the durable log can answer "does anyone
+  // use Ask to write?". Cleared immediately after that save, or every later
+  // save in the session would be attributed to the assistant.
+  const aiActionRef = useRef(null);
 
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
@@ -8107,7 +8112,7 @@ Extraction rules:
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`
         + ` | slices: ${Object.entries(changedSlice).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}`);
       const results = await Promise.allSettled([
-        changedSlice.tasks ? saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
+        changedSlice.tasks ? saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current, aiActionRef.current) : Promise.resolve(null),
         changedSlice.people ? savePeople(people, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
         // POST /clients needs manageClients even when nothing changed, and this ran on
         // every autosave — so every save by a worker or restricted admin failed here.
@@ -10692,12 +10697,6 @@ ${jobsCtx || "No jobs found."}`;
         ].filter(Boolean);
         return `Update op "${op?.title || input.operation_id}": ${changes.join(", ")}`;
       }
-      // Legacy names kept for backward compat
-      case "update_task_status": { const t = allItems.find(x => x.id === input.task_id) || tasks.find(x => x.id === input.task_id); return `Set "${t?.title || input.task_id}" → ${input.status}`; }
-      case "reschedule_task": { const t = tasks.find(x => x.id === input.task_id); return `Reschedule "${t?.title || input.task_id}" to ${input.start || "?"}${input.end ? ` – ${input.end}` : ""}`; }
-      case "assign_person": { const t = allItems.find(x => x.id === input.task_id); return `Add ${people.find(x => x.id === input.person_id)?.name || input.person_id} to "${t?.title || input.task_id}"`; }
-      case "remove_person": { const t = allItems.find(x => x.id === input.task_id); return `Remove ${people.find(x => x.id === input.person_id)?.name || input.person_id} from "${t?.title || input.task_id}"`; }
-      case "create_task": return `Create job "${input.title}" (${input.start} – ${input.end})`;
       default: return name;
     }
   };
@@ -10753,12 +10752,6 @@ ${jobsCtx || "No jobs found."}`;
           if (changed) updTask(input.operation_id, opUpd, input.panel_id);
           break;
         }
-        // Legacy tool names (backward compat)
-        case "update_task_status": updTask(input.task_id, { status: input.status }); break;
-        case "reschedule_task":    updTask(input.task_id, { ...(input.start && { start: input.start }), ...(input.end && { end: input.end }) }); break;
-        case "assign_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t)); break;
-        case "remove_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t)); break;
-        case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 0, notes: "", customOps: [] }]); break;
       }
       outcomes[tu.id] = changed ? OUTCOME_APPLIED : OUTCOME_NOCHANGE;
     }
@@ -10776,7 +10769,12 @@ ${jobsCtx || "No jobs found."}`;
     // generous way, which is the right direction here: the write is on its way,
     // and claiming failure would be its own false report.
     lastSaveResultRef.current = null;
+    aiActionRef.current = `ai:${toolUses.map(t => t.name).join(",")}`;
     await doSaveRef.current();
+    // CLEARED IN A finally-shaped position: if the save throws, an uncleared ref
+    // would tag every later save in the session as an AI write, which is a worse
+    // lie than the missing record this exists to fix.
+    aiActionRef.current = null;
     const saveResult = lastSaveResultRef.current;
     const toolResults = toolResultsFor(toolUses, outcomes, saveResult);
     const toolResultMsg = { role: "user", content: toolResults };

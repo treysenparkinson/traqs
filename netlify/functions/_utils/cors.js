@@ -3,7 +3,7 @@
 // ALLOWED_ORIGIN in Netlify env to override (e.g. for a preview deploy).
 export const CORS = {
   "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "https://traqs.matrixsystems.com",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code, X-Action-Source",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
 };
 

@@ -12,6 +12,54 @@ Survey only. Nothing was changed and nothing is proposed.
 
 ---
 
+## RULES FOR USING THIS FILE
+
+These are not lessons. A lesson is something to have learned; these are things to DO,
+and they are at the top because they govern every entry below.
+
+### R1. THE ENTRY IS WRITTEN WHEN THE FINDING IS MADE — in the same turn, before the fix
+is proposed, and before anyone asks for one.
+
+Not when the fix lands. Not when the commit is written. A finding that lives only in a chat
+transcript is a finding that will be re-found, and the survey's entire value is that the next
+pass starts from it instead of from nothing.
+
+**THIS HAS NOW COST THIS CAMPAIGN TWICE.**
+
+  - **#348–#357 were lost** because they were added on a machine that never pushed. Ten
+    entries, gone, re-derived later at full cost.
+  - **#396, #397, #399, #400 and #401 were never written at all** (#406). The Jobs-surface
+    sweep REPORTED nine findings in chat and LOGGED FOUR. It was caught only because
+    `grep -c "^400\. "` returned 0 while trying to correct #400's title — LESSONS #3 (a zero
+    result is when to check the sweep) applied to the log rather than to the code.
+
+A SURVEY THAT REPORTS NINE AND LOGS FOUR HAS DONE LESS THAN HALF ITS JOB. The four that
+were written were the four that got fixed, which is exactly backwards: the ones worth
+writing down hardest are the ones NOT being fixed today, because those are the ones nobody
+will remember.
+
+In practice:
+
+  - number findings as they are made, from the current highest, and write them before
+    proposing anything;
+  - write the ones marked `[inferred]`, `[latent]` and `[not investigated]` TOO — those are
+    the ones a later pass most needs, and several have been struck after measurement,
+    which is itself the record working;
+  - carry the measurement INTO the entry. "Zero ops with a crew of 2+" is what makes #396
+    latent rather than live, and without it the next reader re-measures;
+  - and after writing, CHECK THE FILE — `grep -c "^<n>\. "` for each number reported. The
+    write is not the record; the file is.
+
+### R2. AN ENTRY THAT TURNS OUT TO BE WRONG IS CORRECTED IN PLACE, SAYING SO PLAINLY.
+
+Not rewritten to look like it always said the right thing, and not quietly deleted. #377,
+#378, #379, #389 and #70 all carry their own retractions, and the retraction is usually the
+more useful half — it records the measurement that disproved the claim, which is what stops
+the next reader making it again.
+
+---
+---
+
 ## 0. Surfaces: what is live and what is dead
 
 | Surface | Function | Status |
@@ -1934,3 +1982,17 @@ Everything else was read at the cited line. Nothing was run against live data.
 405. [LOGGED] THE FAST TRAQS BUTTON IS A STRANDED CONTROL. Its tooltip, in two places, promises "FAST TRAQS — import or update jobs from a file". It opens a full-screen panel titled **TRAQS Cloud** that contains no write of any kind — no `setTasks`, no `updTask`, no `commitLanding` across its whole render block. Either the importer was removed and the button left behind, or it was never built and the tooltip describes an intention. Same family as #49 (a comment for a deleted function that read as a missing button) and #341 (a modal that could never render): a labelled affordance promising something the code does not do. The question to answer first is which of the two it is.
 
 406. [PROCESS — LOGGED AGAINST MYSELF] FIVE SURVEY FINDINGS EXISTED ONLY IN A CHAT TRANSCRIPT. The Jobs-surface sweep reported #393–#401; the consolidation commit wrote #393, #394, #395, #398 and #402 to this file and **#396, #397, #399, #400 and #401 were never written down at all**. They were found by `grep -c "^400\. "` returning 0 while trying to correct #400's title — the same "a zero result is when to check the sweep" rule (LESSONS #3) applied to the log rather than to the code. A finding that is reported but not logged is a finding that will be re-found: the survey's whole value is that the next pass starts from it. Entries are written when the finding is made, not when the fix is.
+
+407. DONE 2026-10-06 (#400 item 1). **A DURABLE RECORD OF WHICH AI TOOLS ACTUALLY FIRED.** The Jobs sweep could not answer "does anyone use Ask to write?" and said so rather than offering a proxy — and that question decides whether #400 item 2 is tidying or urgent. A confirmed AI run now tags the save it triggers with `X-Action-Source: ai:<tool>,<tool>`, and `tasks.js` records an `ai-action` row beside every other rule event.
+
+    THE CARRIER IS A HEADER ON THE SAVE, not a new endpoint and not a client write to the log. The durable log has one writer for a reason, and the client has already been shown not to be trustworthy about its own outcomes — #403 was exactly that.
+
+    CLIENT INPUT, TREATED AS SUCH. The value lands in a file the whole org reads, so it is capped at 200 characters and stripped of line breaks: unbounded, a client fills S3 one save at a time; with a newline, one row stops being one row. **IT RECORDS AND NEVER REFUSES** — telemetry that can fail a save is worse than no telemetry, which is the whole reason this ships before item 2 rather than with it.
+
+    THE REF IS CLEARED IMMEDIATELY AFTER THE SAVE. Left set, every later save in the session would be attributed to the assistant — a worse lie than the missing record this exists to fix.
+
+    TO READ IT: `node scripts/read-rule-events.mjs --org MTX2026TRAQS --tag ai-action`. Zero rows after a week means item 2 is tidying.
+
+408. DONE 2026-10-06 (#400 item 3). **THE FIVE LEGACY AI HANDLERS ARE DELETED** — `update_task_status`, `reschedule_task`, `assign_person`, `remove_person`, `create_task`, in both the preview-label switch and the executor switch. They were never in `AI_TOOLS`, so the model was never offered them and could not emit them: unreachable from the declared schema, and five more writers for the next survey to find, four of them bypassing `updTask` with a raw `setTasks`.
+
+    AND THE TWO LISTS ARE NOW PINNED TO EACH OTHER. The suite asserts that every executable `case` is a tool the model is actually offered, and that every declared tool has an executor — so a handler for a tool nobody can request cannot be added back without the build saying so, and a declared tool with no executor (which would fail silently at run time) cannot either. Reachability is a property of the PAIR, and it was previously asserted on neither half.
