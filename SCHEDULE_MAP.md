@@ -2529,3 +2529,63 @@ Everything else was read at the cited line. Nothing was run against live data.
 420. [LOGGED 2026-10-06, NOT RENAMED] **THREE NAMES FOR ONE THING.** The panel #405 is about is called `bcModalState` in state, **"TRAQS Cloud"** in its header, and **"Pending Scheduling"** in its content. The `bc` is from `19cbfec`, which introduced it as the "BC Jobs modal"; the header was retitled later and the content heading never matched either.
 
     NOT RENAMED, deliberately. Trey: *"that's a naming pass and it would touch state, header and content separately."* Each of the three has a different blast radius — the state name is internal and safe, the header is what users call the feature, and the content heading describes what is IN it rather than what it IS, so they may not even want the same word. Logged so the next person reading `bcModalState` knows it is not an abbreviation they failed to recognise.
+
+## SETTINGS BY TIER — surveyed 2026-10-06, nothing changed
+
+Never audited before. The question was which settings exist per tier, which do nothing on which tier, and whether tier is read consistently.
+
+**THE USEFUL NEGATIVE RESULT, AND IT SHOULD BE VISIBLE WHENEVER SOMEONE ASKS WHAT BUSINESS IS: NINE OF THE TWELVE BUSINESS FEATURES ARE ENFORCED BY NOTHING.** Most tier gates in this app are theatre — not broken, not a defect, just not load-bearing. **A product finding, not a defect**, and the one worth carrying out of this audit: if Business is sold on twelve things and three of them are real, the gap is a pricing and packaging question long before it is an engineering one.
+
+**WHAT IS ACTUALLY ENFORCED.** `tiers-test` lists twelve Business features and marks NINE of them NOT_ENFORCED by anything in the product — jobs/panels/ops, PO and job numbers, the job clock, job analytics, Gantt, departments and row grouping, automatic scheduling, Microsoft SSO and priority support. **Three are really enforced: Clients, Approval templates, and the email-domain allowlist.** Every judgement below is against those three, because a gate on an unenforced feature would be theatre and a missing gate on one is the only kind that costs anything.
+
+**THE DESKTOP SETTINGS SURFACE IS CONSISTENT.** Across all eight sections there are exactly TWO tier gates, and they are the two enforced features that have a settings control:
+
+        SETTINGS_ORG_CHILDREN   filters out "Approval templates" on Basic (nav only)
+        renderSettingsOrgGeneral gates the "Sign-in domain" row on Business
+
+    Clients is the third, and it has no settings section — it is filtered from the app nav instead (`billingTier === "business" || !['tasks','analytics','clients'].includes(v.id)`). So **no setting controls an enforced Business feature without a gate**, and the answer to "which settings do nothing on which tier" is NONE: the ungated ones (Departments, Schedule preferences, Time Clock, Customization, Identity) control features that are not gated either, so they do exactly what they say on both tiers.
+
+**TIER IS READ CONSISTENTLY.** 37 reads of `billingTier` in TRAQS.jsx, every one a comparison against `"business"` — 28 `===`, 9 `!==` — and **nothing tests `"basic"` positively**, which is what would break first if a third tier appeared. `TIERS = ["basic", "business"]` server-side. `settings.js` has no tier check and needs none: it writes only `orgSettings`/`workDays`, nothing tier-gated. `org.js` DOES check the tier on the domain and identity-provider writes (`:341`, `:401`), so `api.js`'s claim that "the server checks the tier too, because hiding a control is a suggestion" is ACCURATE — checked, because a comment asserting a server-side guard is exactly the kind this campaign has found to be wrong.
+
+Three defects fall out of it.
+
+421. **FIXED 2026-10-06 — THE SETTINGS NAV DECIDED THE TIER BEFORE THE TIER WAS KNOWN.** `billingTier` initialises to `localStorage.getItem("tq_tier_" + orgCode) || "basic"` and is corrected when `fetchBilling` resolves. `billingLoaded` exists for exactly this and is read in **ONE** place in the file (`:14521`, the schedule's default view mode). `SETTINGS_ORG_CHILDREN` is not one of them.
+
+    So on a Business org's FIRST load in a browser with no cached tier, the settings nav is built from `"basic"` and **"Approval templates" is absent**, then appears when the fetch lands. Not inferred — structural, and the same window applies to every other `billingTier` read that runs before the fetch. The cache makes it a first-visit-only symptom, which is why nobody has reported it and why it will keep not being reported.
+
+    **TREY'S RULING, which is the whole fix:** *"Show the Business set while the tier is unknown, then remove what doesn't apply once it loads. A missing row that appears is confusing; a present row that vanishes at least shows something happened, and the enforced features all have server checks behind them so nothing is given away by rendering a nav entry for a second. Gate on `billingLoaded` for the REMOVAL, not the render."*
+
+    `src/tierVisibility.js` says it once — `businessOnlyVisible(tier, loaded)` returns true while the tier is unknown, so **the gate can only ever TAKE AWAY**. Both navs read it: the settings nav's approval-templates filter and the app nav's `tasks`/`analytics`/`clients` filter, which had the identical bug and is fixed in the same pass rather than left to be re-found as the other half of a two-surfaces defect.
+
+    **THE SIGN-IN DOMAIN ROW IS DELIBERATELY NOT CHANGED**, and the suite asserts it stays strict. A nav entry that vanishes costs nothing; that row sits in a section with a draft and an explicit Save, so showing it and taking it away a moment later could drop something half-typed. An editable field is not a nav entry.
+
+    The ruling leans on the server being the real boundary, so the suite asserts that too rather than assuming it: `org.js` checks the tier on BOTH the domain and identity-provider writes, and `clients.js` requires `manageClients` on write.
+
+422. [LOGGED 2026-10-06, DELIBERATELY NOT FIXED — ONE-WAY AND UNREACHABLE WITHOUT A HAND-EDITED BILLING RECORD] **A SIGN-IN DOMAIN OUTLIVES THE TIER THAT SET IT, AND THERE IS NO UI LEFT TO CLEAR IT.** The "Sign-in domain" row renders only on Business. The ENFORCEMENT, in `App.jsx`, has no tier check at all: `if (!orgConfig.domain) return;` and then a straight comparison against the signing-in user's email domain.
+
+    So an org that goes Business → Basic with a domain set keeps the allowlist in force and loses the only control that can see or clear it. Anyone whose email is off-domain hits `domain-error` with no in-app remedy.
+
+    **REACHABILITY, honestly: there is no in-app downgrade.** `billing.js` POST only records interest (`requestedTier`), and its own comment says "the tier is never changed here — an endpoint that could" was deliberately not built; provisioning is manual. So this needs a hand-edited billing record.
+
+    **WHAT MAKES IT A TRAP RATHER THAN A GAP: the ENFORCEMENT has no tier check while the CONTROL does, so the two can only ever diverge in the direction that locks people out.** If the enforcement were the gated half, a downgrade would quietly stop applying a restriction nobody could see — annoying, recoverable. Gated this way, a downgrade keeps the restriction and removes the remedy. The asymmetry is the defect; the missing downgrade path is only what makes it rare.
+
+423. **FIXED 2026-10-06 (STOPGAP) — THE MOBILE SETTINGS MODAL HAD NO TIER GATES AT ALL, AND EXPOSES TWO OF THE THREE ENFORCED BUSINESS FEATURES THE DESKTOP HIDES.** Zero `billingTier` references in the whole list.
+
+        Clients                 NO GATE AT ALL — no can(), no tier. Opens renderClients(),
+                                the same full Clients page the desktop nav removes on Basic.
+        Sign Off Preferences    can("orgSettings") only. Opens the signOffTemplates editor,
+                                which IS "Approval templates" — the desktop filters it on Basic.
+
+    Two surfaces, one feature, different answers — the shape that has produced the worst defects in this campaign (four schedulers, seven overlap definitions, five assignment writers). Here it is not a disagreement about behaviour but about ENTITLEMENT, which is worse in one specific way: the desktop gate is what makes the sold boundary real, and mobile quietly gives it away.
+
+    The Clients one is the sharper half — it is not merely ungated by tier, it is ungated by PERMISSION too, so a worker on Basic reaches the client list from Settings. Whether the data is protected is a separate question the server answers (`clients.js` checks `manageClients` on write); the exposure here is the read.
+
+    Mobile settings are still the old modals, deferred with the rest of that surface — which is how this survived. A deferred surface is not an unenforced one.
+
+    **FIXED AS A STOPGAP 2026-10-06, AND THE MOBILE REBUILD STILL OWES THIS SURFACE A PROPER PASS.** Trey's reasoning for not waiting: *"The rebuild is the real answer and it's behind a roster that's 11-19 weeks out; leaving an entitlement hole open that long for tidiness is the wrong trade."* Both entries are now behind `businessOnlyVisible(billingTier, billingLoaded)`, matching the desktop navs.
+
+    **ONE INSTRUCTION WAS NOT CARRIED OUT, AND THIS IS THE REASON.** The ask was "gate Clients and Sign Off Preferences on mobile to match desktop, AND add the `can()` check Clients is missing entirely". Measured: **the desktop nav has no permission filter on Clients either.** `views` is filtered by tier alone (`:11098`); viewing clients needs no permission, and `manageClients` gates the WRITES — client-side buttons and `clients.js` alike. So adding a `can()` here would have made mobile STRICTER than desktop, fixing a two-surfaces bug by creating a new one pointing the other way. Clients is gated on the tier only; the `can()` is one line if Trey wants viewing restricted, but that is a change to the product on BOTH surfaces, not a mobile fix.
+
+    Sign Off keeps its `can("orgSettings")` and gains the tier gate in front of it, and `web-gates-test`'s literal was updated to pin BOTH so neither can be dropped without the other being noticed.
+
+    TESTED red-first, `scripts/settings-tier-test.mjs`, 28 assertions, wired (84 suites). 14 mutants, 14 caught — after one SKIPPED on an anchor that matched twice, because `(billing.tier || "basic") !== "business"` is identical at both org.js sites. Anchoring on the error message below each gate made them distinct, and both now have their own mutant.

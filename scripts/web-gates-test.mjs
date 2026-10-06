@@ -94,7 +94,11 @@ check("PTO bar drag/resize needs manageTeam", SRC, { has: ['if (!can(isPto ? "ma
 check("User Permissions needs manageTeam", SRC, { has: ["{canManageTeam && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true);"] });
 check("Mobile client add/edit need manageClients", SRC, { not: ['{can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>\n        <button onClick={() => openClientEdit(', '{can("editJobs") && <button onClick={() => openClientEdit({ ...c })}'] });
 check("Mobile Scheduling / Sign Off / Departments settings need orgSettings", SRC, { has: ['{can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }}',
-  '{can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }}', '{can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }}'] });
+  // Sign Off carries a TIER gate in front of the permission since #423 — the
+  // signOffTemplates editor is "Approval templates", which the desktop nav filters
+  // out on Basic. The permission is unchanged; this literal pins both, so neither
+  // can be dropped without the other being noticed.
+  '{businessOnlyVisible(billingTier, billingLoaded) && can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }}', '{can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }}'] });
 check("Mobile org-code panel hidden like the desktop's", SRC, { has: ["{ORG_CODE_RENAME_ENABLED && isAdmin && <button onClick={() => { setOrgCodeInput("] });
 check("FAST TRAQS import filters by manageTeam / manageClients", SRC, { has: ["if (keptNewPeople.length && canManageTeam) setPeople(", 'if (keptNewClients.length && can("manageClients")) setClients('] });
 check("Time-off Approve/Deny buttons need approveTimeOff", SRC, { has: ['{can("approveTimeOff") && toPending && (denying'], not: ["{isAdmin && toPending && (denying"] });

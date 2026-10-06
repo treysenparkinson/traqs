@@ -15,6 +15,7 @@ import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
+import { businessOnlyVisible } from "./tierVisibility.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -11095,7 +11096,11 @@ ${jobsCtx || "No jobs found."}`;
   // Jobs, Analytics and Clients are Business-only. Basic keeps the array
   // otherwise identical to Business — filtered here rather than left out
   // above, so nothing else that maps over `views` needs its own tier check.
-  ].filter(v => billingTier === "business" || !["tasks", "analytics", "clients"].includes(v.id));
+  // #421. An UNKNOWN tier shows the Business set and the gate only ever takes
+  // away — see src/tierVisibility.js. This read `billingTier` directly, and that
+  // is the localStorage cache or "basic" until fetchBilling answers, so a Business
+  // org's first load in a fresh browser was missing these entries until it landed.
+  ].filter(v => businessOnlyVisible(billingTier, billingLoaded) || !["tasks", "analytics", "clients"].includes(v.id));
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
   // Context-menu placement, decided from the menu's MEASURED height rather than
   // a guess: the item list varies with type and permissions, so no constant is
@@ -22417,7 +22422,13 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>}
-            {can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            {/* #423. STOPGAP, and the mobile rebuild still owes this surface a
+                proper pass. This had can("orgSettings") and NO tier gate, while the
+                desktop nav filters the same editor out on Basic — `signOffTemplates`
+                IS "Approval templates", one of only three Business features the
+                product actually enforces. Two surfaces, one feature, different
+                answers about ENTITLEMENT. */}
+            {businessOnlyVisible(billingTier, billingLoaded) && can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
@@ -22447,14 +22458,21 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>}
-          <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          {/* #423. STOPGAP. This entry had NO GATE OF ANY KIND — no can(), no
+              tier — and opens renderClients(), the same full Clients page the
+              desktop nav removes on Basic. Gated on the tier to MATCH DESKTOP.
+              Deliberately NOT also behind can(): the desktop nav has no permission
+              filter either (viewing clients needs none; `manageClients` gates the
+              writes, client-side and in clients.js), so adding one here would fix
+              a two-surfaces bug by creating a new one in the other direction. */}
+          {businessOnlyVisible(billingTier, billingLoaded) && <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Clients</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{clients.length} client{clients.length !== 1 ? "s" : ""}</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-          </button>
+          </button>}
           {ORG_CODE_RENAME_ENABLED && isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             <div style={{ flex: 1 }}>
@@ -25472,7 +25490,8 @@ ${jobsCtx || "No jobs found."}`;
   // Approval Queue Templates is Business-only on Basic. renderSettingsBody's
   // "org-approval-templates" case and renderSettingsApprovalTemplates stay —
   // Business still routes there, this only removes the nav entry.
-  ].filter(c => billingTier === "business" || c.key !== "org-approval-templates");
+  // #421, as on the app nav: unknown tier shows, and only a LOADED Basic removes.
+  ].filter(c => businessOnlyVisible(billingTier, billingLoaded) || c.key !== "org-approval-templates");
   // Under the page title: "Group · Page", as the section nav names them.
   // `title` is what the unsaved-changes dialog calls the section.
   const settingsSectionMeta = {
