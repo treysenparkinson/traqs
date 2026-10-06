@@ -28,7 +28,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -16297,16 +16297,32 @@ ${jobsCtx || "No jobs found."}`;
                   // separate them -- a move made at paint time cannot cascade. The push keys on this
                   // row's own work now, so it covers that case and packs the result.
                   const _atCursor = bar.type === "task" && !!cursorAnchored[bar.id];
-                  if (_atCursor) {
-                    const _curDay = TD;
-                    const _shiftBD = diffBD(bar.start, _curDay, _barBDOpts);
-                    _layoutStart = _curDay;
+                  const _nowForBar = new Date();
+                  // #383/#392. THE ANCHOR MAY NEVER PAINT A BAR EARLIER THAN ITS DATA.
+                  // This block used to set `_layoutStart = TD` and the hour below to
+                  // `shopHour(now)` UNCONDITIONALLY for an anchored bar, so an op
+                  // scheduled for TOMORROW was drawn at TODAY's wall clock — measured on
+                  // Trey's bar as 6.17 working hours backwards. The drag anchors on the
+                  // painted origin (#25), so the landing computed to exactly the stored
+                  // value, the commit was a no-op, and the next render pinned the bar
+                  // back: no drop could move it. cursorAnchorStart takes the LATER of the
+                  // cursor and the op's own position, which is the "only ever forward"
+                  // rule rowPushHours already states for the push.
+                  const _anchored = _atCursor
+                    ? cursorAnchorStart({
+                        scheduledStart: bar.start, scheduledHour: _baseStartH,
+                        cursorDay: TD, cursorHour: shopHour(_nowForBar.getTime()),
+                        cfg: { workStartH, totalWorkH, diffBD: (a, b) => diffBDSigned(a, b, _barBDOpts) },
+                      })
+                    : null;
+                  if (_anchored) {
+                    const _shiftBD = diffBD(bar.start, _anchored.day, _barBDOpts);
+                    _layoutStart = _anchored.day;
                     _layoutEnd = _shiftBD !== 0 ? addBD(bar.end, _shiftBD, _barBDOpts) : bar.end;
                   }
-                  const _nowForBar = new Date();
                   if (_rpv) { _layoutStart = _rpv.start; _layoutEnd = _rpv.end; }
-                  const _barStartH = _rpv ? _rpv.startHour : _atCursor
-                    ? shopHour(_nowForBar.getTime())
+                  const _barStartH = _rpv ? _rpv.startHour : _anchored
+                    ? _anchored.hour
                     : (_pushH > 0 ? _pushedStartH : _baseStartH);
                   // The single source of truth for this bar's length. Walking the day and
                   // stepping over only the lunch/breaks the work actually reaches replaces

@@ -925,6 +925,43 @@ export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = fals
     : Math.max(0, elapsedToCursorH);
   return Math.max(0.25, behind + ahead);
 }
+// Where a cursor-anchored bar is PAINTED: the later of the cursor and the op's own
+// scheduled position, never the earlier (#383/#392).
+//
+// `rowPushHours` states this rule for the PUSH — "Only ever forward: this moves a bar OFF
+// idle time, it never drags one backwards into the past" — and the PAINT did not hold it.
+// `_layoutStart = TD` and `_barStartH = shopHour(now)` were set unconditionally for any
+// anchored op, so an op scheduled for TOMORROW was drawn at TODAY's wall clock. Measured on
+// Trey's bar: stored 2026-10-07 08:00, painted 2026-10-06 10:50, a gap of 6.17 working
+// hours.
+//
+// THAT GAP IS WHY NO DROP COULD MOVE IT. The drag anchors on the painted origin (#25,
+// deliberately), so a cursor movement of +6.17 working hours landed exactly on the stored
+// value: the commit wrote what was already there and the next render pinned the bar back.
+// Four layers of investigation read as correct because each was doing what it was told; the
+// screen was the only thing lying.
+//
+// Guarded here rather than at the two paint lines so the rule is one tested function instead
+// of two conditions in a 30,000-line render, and so the fix holds whichever branch set the
+// anchor — by the arithmetic in rowPushHours an op ahead of the cursor cannot be anchored at
+// all, and Trey's was.
+export function cursorAnchorStart({ scheduledStart, scheduledHour, cursorDay, cursorHour, cfg }) {
+  const { workStartH = 0, totalWorkH = 1, diffBD } = cfg || {};
+  if (!cursorDay) return { day: scheduledStart, hour: scheduledHour };
+  if (!scheduledStart || typeof diffBD !== "function") return { day: cursorDay, hour: cursorHour };
+  // Measured from the SCHEDULED POSITION, hour included — not from the scheduled day at
+  // workStartH. Without the scheduledHour term a cursor at 09:00 reads as "ahead of" a bar
+  // scheduled for 13:00 the same day, and the anchor drags it four hours backwards: the very
+  // thing this exists to stop, in miniature.
+  const ahead = (d, h) =>
+    diffBD(scheduledStart, d) * totalWorkH + ((h ?? workStartH) - (scheduledHour ?? workStartH));
+  // Ties keep the schedule: equal positions describe the same instant, and preferring the
+  // stored value means the paint agrees with the data whenever it can.
+  return ahead(cursorDay, cursorHour) > 0
+    ? { day: cursorDay, hour: cursorHour }
+    : { day: scheduledStart, hour: scheduledHour };
+}
+
 export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   // Ops whose push comes from the CURSOR rather than from a collision. Their left edge is not
   // a quantity of hours to add back onto a clock -- it is a known instant, and the caller
@@ -1038,7 +1075,15 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
       push = idleTarget - sp;
       // Anchored only when it lands ON the cursor. A worked op lands short of it, and the
       // render places that from the push like any other rather than snapping it to now.
-      if (ownWorked <= 0) atCursor.add(String(op.id));
+      //
+      // `sp < nowProd` is explicit rather than implied (#383/#392). It follows from the
+      // enclosing condition — idleTarget − sp > push ≥ 0 with ownWorked 0 means sp < nowProd
+      // — and Trey's bar was anchored anyway, scheduled a day AHEAD of the cursor. Rather
+      // than leave the invariant resting on an inference that the evidence contradicts, the
+      // thing the anchor actually means is now stated where it is decided. If this term ever
+      // changes an outcome, the premise was wrong somewhere upstream and that is worth
+      // knowing; the paint is guarded by cursorAnchorStart either way.
+      if (ownWorked <= 0 && sp < nowProd) atCursor.add(String(op.id));
     }
     // The `op.locked` zeroing that stood here is gone with the flag (ruling 3).
     // DELETED RATHER THAN FOLDED INTO `worked > 0`, deliberately: folding would
