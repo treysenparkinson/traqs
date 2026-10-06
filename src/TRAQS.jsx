@@ -40,9 +40,6 @@ import { localDay, resolveTimeZone } from "./localDay.js";
 import { getPayPeriodFromDates as payPeriodFromDates, getPayPeriodAtOffsetFromDates as payPeriodAtOffsetFromDates } from "./payPeriod.js";
 import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
 import { serializeRuns } from "./saveQueue.js";
-// TEMPORARY (#391 investigation) — remove with the trace points once the
-// remaining snap-back is found. See src/dragTrace.js.
-import { trace as dragTrace, crumb as dragCrumb, trackOp as dragTrackOp, trackedOp as dragTrackedOp, opRow as dragOpRow, resetSeq as dragResetSeq, traceOn as dragTraceOn } from "./dragTrace.js";
 import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -8101,9 +8098,6 @@ Extraction rules:
       }
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`
         + ` | slices: ${Object.entries(changedSlice).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}`);
-      // ── TRACE 7/8: the POST. What the payload carries for the dragged op —
-      // read out of `dedupedTasks`, the array actually being sent.
-      dragTrace("7 POST — what the payload carries for this op", dragOpRow(dedupedTasks, dragTrackedOp()));
       const results = await Promise.allSettled([
         changedSlice.tasks ? saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
         changedSlice.people ? savePeople(people, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
@@ -8138,13 +8132,6 @@ Extraction rules:
         return;
       }
       lastSaveTime.current = Date.now();
-      // ── TRACE 8/8: the response. Accepted, refused, and the stamp the server
-      // wrote — the last place the value can change before the next render.
-      dragTrace("8 response — accepted / conflicts / stamps", {
-        conflicts: results[0].value?.conflicts ?? null,
-        stamps: results[0].value?.stamps ?? null,
-        failures: failures.length,
-      });
       // #337. ADOPT THE STAMPS THE SAVE JUST RETURNED.
       //
       // Until this existed the three response bodies were read for `conflicts`
@@ -8965,15 +8952,6 @@ Extraction rules:
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
-  // TEMPORARY (#391 investigation). The LIVE render's getPersonBars and the
-  // `tasks` it closed over, refreshed every render. Point 6 of the drag trace
-  // called the getPersonBars captured in the mouseup closure — which is the
-  // PRE-DRAG render's — so it could only ever have reported pre-drag dates. That
-  // is a property of the instrument, not of the app, and these two refs are what
-  // tell the two apart. Remove with the trace.
-  const traceLiveBarsRef = useRef(null);
-  const traceRenderTasksRef = useRef(null);
-  const traceRenderNoRef = useRef(0);
   const isDraggingRef = useRef(false);
   const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
   const appTooltipTimer = useRef(null);
@@ -15192,13 +15170,6 @@ ${jobsCtx || "No jobs found."}`;
       }
       return bars;
     };
-    // TEMPORARY (#391 investigation). Publish THIS render's getPersonBars and the
-    // `tasks` it closed over, so the drag trace can call the live one rather than
-    // the one its mouseup closure captured before the drag began. Remove with the
-    // trace.
-    traceLiveBarsRef.current = getPersonBars;
-    traceRenderTasksRef.current = tasks;
-    traceRenderNoRef.current += 1;
     // Build flat row list with subtask expansion. Person rows always get pushed (with a
     // `hidden` flag when their dept is collapsed) so we can animate their height instead of
     // popping them in/out of the DOM.
@@ -16490,19 +16461,6 @@ ${jobsCtx || "No jobs found."}`;
                     e.preventDefault();
                     e.stopPropagation();
                     let sx = e.clientX; const sy = e.clientY;
-                    // ── TRACE 1/8: mousedown. UNGATED crumb first, so "did the handler
-                    // run at all" is answerable before the flag is even set — the last
-                    // tracer printed nothing and there was no way to tell whether it was
-                    // the flag, the path, or the build. (#391 investigation)
-                    dragResetSeq();
-                    dragTrackOp(bar.task?.id);
-                    // The `tasks` THIS render closed over, and this render's number.
-                    // Point 6 compares them against the live ones to say whether it is
-                    // reading a stale closure or the real renderer. (#391)
-                    const _tasksAtGrab = tasks;
-                    const _renderNoAtGrab = traceRenderNoRef.current;
-                    const _barsAtGrab = getPersonBars;
-                    dragCrumb("mousedown", { op: String(bar.task?.id ?? ""), title: bar.task?.title || "", traceOn: dragTraceOn() });
                     const _barClientRect = e.currentTarget?.getBoundingClientRect();
                     const _grabPx = _barClientRect ? Math.max(0, e.clientX - _barClientRect.left) : 0;
                     const _barRect = e.currentTarget?.getBoundingClientRect();
@@ -16540,32 +16498,6 @@ ${jobsCtx || "No jobs found."}`;
                     // it — otherwise an already-hour-positioned bar snaps to a day that disagrees with
                     // where its left edge (and the ghost) actually is.
                     const _origColOffset = totalWorkH > 0 ? _dragOffsetH / totalWorkH : 0;
-                    // ── TRACE 1/8, moved BELOW the painted origin so it can print both
-                    // positions. The first run showed why that matters: the drag is
-                    // anchored on where the bar is PAINTED (_dragBaseStart/_dragBaseHour),
-                    // while the commit writes an ABSOLUTE start — and on that drag the
-                    // painted origin was a day and six and a half working hours behind the
-                    // stored one. `paintedVsStoredH` is that gap, on the same axis the
-                    // drag's arithmetic uses; when it is non-zero, a drag SHORTER than the
-                    // gap commits a value at or before the one already stored, and the bar
-                    // does not move. (#391)
-                    {
-                      const _storedRow = dragOpRow(latestTasksRef.current, bar.task?.id);
-                      const _axisOf = (d, h) => {
-                        try { return diffBDSigned(_dragBaseStart, d, barBDOpts) * totalWorkH + ((h ?? workStartH) - workStartH); }
-                        catch { return null; }
-                      };
-                      dragTrace("1 mousedown — STORED vs PAINTED", {
-                        ..._storedRow,
-                        paintedDay: _paintedDay, paintedHour: _paintedHour,
-                        dragBaseStart: _dragBaseStart, dragBaseHour: _dragBaseHour,
-                        origColOffset: _origColOffset,
-                        isPartiallyWorked: !!_dragWS.isPartiallyWorked,
-                        dragBarHpd: _dragBarHpd, teamSize: _dragTeamSz,
-                        paintedVsStoredH: _axisOf(_storedRow.start, _storedRow.startHour),
-                        grabClientX: e.clientX, grabClientY: e.clientY, tMode,
-                      });
-                    }
                     const origPerson = p.id;
                     // Dep group — collect all bars in the same dependency chain
                     const depGroupIds = getDepGroup(bar.task.id, tasks);
@@ -16928,16 +16860,6 @@ ${jobsCtx || "No jobs found."}`;
                       }
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      // ── TRACE 2/8: mousemove. The cursor, the one rounded position, and
-                      // what the ghost is about to be told to draw — the last of these
-                      // lines before mouseup is the landing the user is aiming at.
-                      dragTrace("2 mousemove — cursor to landing", {
-                        pxDx, contVal: pxDx / liveCW + _origColOffset, origColOffset: _origColOffset,
-                        liveCW, totalWorkH,
-                        dayOffset: dx, dropHour,
-                        ghostStart: snapS, ghostEnd: snapE, ghostStartHour: _ghostDH,
-                        targetPid: String(targetPid ?? ""), hasOverlap, beforeNow,
-                      });
                       teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo, beforeNow };
                       // Bars that should visually move + fade together with the dragged bar:
                       // multi-select members, plus dep-group members when the group is locked.
@@ -16984,18 +16906,6 @@ ${jobsCtx || "No jobs found."}`;
                       // make room (ruling, root cause 7).
                       const _plan = _planAt(effStart, finalHour, dropPerson);
                       const _refusal = _refuse(_plan);
-                      // ── TRACE 3/8: mouseup. The landing the drop actually computed, and
-                      // whether anything refused it. Compare `landing` here against
-                      // `ghost*` on the last line 2 — if they differ, the drop disagrees
-                      // with what the user was shown.
-                      dragTrace("3 mouseup — final landing and refusals", {
-                        effStart, finalHour, dropPerson: String(dropPerson ?? ""), isReassign,
-                        landingStart: _plan[0]?.to?.start, landingEnd: _plan[0]?.to?.end,
-                        landingStartHour: _plan[0]?.to?.startHour,
-                        movers: _plan.length,
-                        refusal: _refusal ? _refusal.kind : null,
-                        depSiblingRefusal: !!teamDragLiveRef.current?.overlapInfo?.isDepSibling,
-                      });
                       if (_refusal) { _refused(_refusal); return; }
                       const _g = _plan[0];
                       // ── Auto-split on drag-end for partially-worked ops ──
@@ -17030,55 +16940,11 @@ ${jobsCtx || "No jobs found."}`;
                       const { moved: _bumped, refused: _stuck } = enforceNoOverlap(_build(tasks), _moverIds);
                       if (_bumped.length || _stuck.length) {
                         console.warn("[schedule-drag] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
-                        dragTrace("4 REFUSED by the no-overlap guard — nothing is committed",
-                          { bumped: _bumped, stuck: _stuck });
                         _refused({ kind: "overlap", title: bar.task.title || "", other: null });
                         return;
                       }
-                      // ── TRACE 4/8: the commit. What _build actually produces for this op,
-                      // taken from the SAME call that is handed to setTasks — not recomputed,
-                      // which would be a different value that happens to look similar.
-                      dragTrace("4 commit — what goes into setTasks", dragOpRow(_build(tasks), dragTrackedOp()));
                       setTasks(prev => _build(prev));
                       setTimeout(() => doSaveRef.current(), 0);
-                      // ── TRACE 5/8 and 6/8: one tick later, what state holds; one frame
-                      // later, what the renderer draws from. These are the two places the
-                      // value could still change after a correct commit, and neither has
-                      // ever been watched.
-                      if (dragTraceOn()) {
-                        setTimeout(() => dragTrace("5 one tick later — what `tasks` holds",
-                          dragOpRow(latestTasksRef.current, dragTrackedOp())), 0);
-                        requestAnimationFrame(() => requestAnimationFrame(() => {
-                          const _id = dragTrackedOp();
-                          // WHICH getPersonBars, and over WHICH tasks. The first run of
-                          // this point reported pre-drag dates, and the obvious reading —
-                          // "the renderer is wrong" — is only one of two. The other is that
-                          // the point called the getPersonBars captured in THIS closure,
-                          // which belongs to the render at mousedown and closes over the
-                          // pre-drag `tasks`. Both are measured here rather than argued.
-                          const _find = (fn, who) => {
-                            try {
-                              if (typeof fn !== "function") return { [who]: "unavailable" };
-                              for (const _p of people) {
-                                const _b = (fn(_p.id) || []).find(b => String(b.task?.id) === String(_id));
-                                if (_b) return { personId: String(_p.id), start: _b.task?.start, end: _b.task?.end, startHour: _b.task?.startHour, barStart: _b.start, barEnd: _b.end };
-                              }
-                              return { notDrawn: true };
-                            } catch (err) { return { threw: String((err && err.message) || err) }; }
-                          };
-                          dragTrace("6 one frame later — WHICH getPersonBars, over WHICH tasks", {
-                            renderNoAtGrab: _renderNoAtGrab,
-                            renderNoNow: traceRenderNoRef.current,
-                            closureTasksIsLiveTasks: _tasksAtGrab === traceRenderTasksRef.current,
-                            closureFnIsLiveFn: _barsAtGrab === traceLiveBarsRef.current,
-                            opInClosureTasks: dragOpRow(_tasksAtGrab, _id),
-                            opInLiveRenderTasks: dragOpRow(traceRenderTasksRef.current, _id),
-                            opInLatestRef: dragOpRow(latestTasksRef.current, _id),
-                            barsFromClosureFn: _find(_barsAtGrab, "closure"),
-                            barsFromLiveFn: _find(traceLiveBarsRef.current, "live"),
-                          });
-                        }));
-                      }
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
