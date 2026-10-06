@@ -92,11 +92,22 @@ console.log("\n6. doSave refreshes the cache on SUCCESS, not only on rollback");
   // lands, and every later sync replays the pre-save tree.
   ok("the success path caches what it just saved",
     /cacheFullSlices\(latestTasksRef\.current, latestPeopleRef\.current, dataRef\.current\.clients\)/.test(CODE), true);
-  // AFTER adoptStamps, or the cache stores rows carrying no server stamp —
-  // which, with the comparison above, would lose every future merge and make
-  // the cache permanently useless.
-  ok("...after the server stamps have been adopted",
-    /adoptStamps\(results\[2\][\s\S]{0,400}?cacheFullSlices\(latestTasksRef/.test(CODE), true);
+  // AFTER the stamps are adopted, or the cache stores rows carrying no server
+  // stamp — which, with the comparison above, would lose every future merge and
+  // make the cache permanently useless.
+  //
+  // RE-POINTED BY #387, not relaxed. The three adoptStamps calls now live in an
+  // `adoptAll` wrapper defined ABOVE the 409 branch, so that the conflict path
+  // can adopt before it returns; anchoring on `adoptStamps(results[2]` would
+  // now reach past thirty lines of conflict handling and fail for a reason that
+  // has nothing to do with this suite. The invariant is unchanged and is stated
+  // directly instead of through a proximity window: an adoption runs before the
+  // cache write, and what it adopts covers all three slices.
+  const cacheAt = CODE.indexOf("cacheFullSlices(latestTasksRef");
+  const adoptAt = cacheAt > 0 ? CODE.lastIndexOf("adoptAll();", cacheAt) : -1;
+  ok("...after the server stamps have been adopted", adoptAt > 0 && adoptAt < cacheAt, true);
+  ok("...and the adoption it runs covers all three slices",
+    /const adoptAll = \(\) => \{[\s\S]{0,600}?adoptStamps\(results\[2\]/.test(CODE), true);
   ok("...and the rollback branch still caches too",
     /cacheFullSlices\(srvTasks, srvPeople, srvClients\)/.test(CODE), true);
 }

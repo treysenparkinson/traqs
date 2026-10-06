@@ -8014,6 +8014,24 @@ Extraction rules:
         setSaveStatus("unsaved");
         return;
       }
+      // #387. CANCEL THE QUEUED DEBOUNCED SAVE BEFORE RUNNING THIS ONE.
+      //
+      // Every explicit caller of doSave is a `setTimeout(() =>
+      // doSaveRef.current(), 0)` fired immediately after a `setTasks` — and
+      // that same setTasks arms the 1s debounce in the autosave effect below.
+      // So a single drag POSTs TWICE: once at ~0ms, and again at ~1000ms
+      // carrying the stamps from before the first save adopted them. The second
+      // POST is stale against the first by construction, and under
+      // TASK_CONFLICT_MODE=enforce it is refused. The rule log for 2026-10-06
+      // shows the pairs plainly: duplicate POSTs 70ms, 88ms and 1.03s apart
+      // with identical `incoming` and `stored`.
+      //
+      // One cancel here covers all ~22 explicit call sites. Adding it at each
+      // one is twenty-two chances to forget, and the next call site added would
+      // reintroduce the bug silently. Placed AFTER the dataLoadedRef gate on
+      // purpose: a save that bails before loading must leave the pending timer
+      // armed, or the user's edit is dropped with nothing to re-arm it.
+      clearTimeout(saveTimerRef.current);
       setSaveStatus("saving");
       const tasks = latestTasksRef.current;
       const people = latestPeopleRef.current;
@@ -8111,21 +8129,6 @@ Extraction rules:
         return;
       }
       lastSaveTime.current = Date.now();
-      // The server kept its own copy of any job we held a stale copy of (someone
-      // clocked in, out or asked to finish since we loaded it) and saved the rest.
-      // Its copy is therefore the result: roll back to it and say what was kept.
-      const conflicts = results[0].value?.conflicts;
-      if (Array.isArray(conflicts) && conflicts.length > 0) {
-        const titles = conflicts.map(id => (tasks.find(t => String(t.id) === String(id))?.title) || id);
-        setSaveError({
-          endpoint: "saveTasks",
-          status: 409,
-          message: `${titles.join(", ")} changed on the server while you were editing — your change${conflicts.length > 1 ? "s to those jobs weren't" : " to it wasn't"} saved. Everything else was.`,
-          at: Date.now(),
-        });
-        await rollbackToServerRef.current();
-        return;
-      }
       // #337. ADOPT THE STAMPS THE SAVE JUST RETURNED.
       //
       // Until this existed the three response bodies were read for `conflicts`
@@ -8165,10 +8168,53 @@ Extraction rules:
       // identical content, different stamps. It ate the 50-slot stack and made
       // undo-after-save a silent stamp revert. The wrapper's other job is
       // mirroring into latestTasksRef, which is done here instead. (#218/#337)
-      adoptStamps(results[0].value?.stamps, latestTasksRef.current,
-        (next) => { latestTasksRef.current = next; _setTasks(next); }, "tasks");
-      adoptStamps(results[1].value?.stamps, latestPeopleRef.current, setPeople, "people");
-      adoptStamps(results[2]?.value?.stamps, dataRef.current.clients, setClients, "clients");
+      const adoptAll = () => {
+        adoptStamps(results[0].value?.stamps, latestTasksRef.current,
+          (next) => { latestTasksRef.current = next; _setTasks(next); }, "tasks");
+        adoptStamps(results[1].value?.stamps, latestPeopleRef.current, setPeople, "people");
+        adoptStamps(results[2]?.value?.stamps, dataRef.current.clients, setClients, "clients");
+      };
+
+      // The server kept its own copy of any job we held a stale copy of (someone
+      // clocked in, out or asked to finish since we loaded it) and saved the rest.
+      // Its copy is therefore the result: roll back to it and say what was kept.
+      const conflicts = results[0].value?.conflicts;
+      if (Array.isArray(conflicts) && conflicts.length > 0) {
+        const titles = conflicts.map(id => (tasks.find(t => String(t.id) === String(id))?.title) || id);
+        setSaveError({
+          endpoint: "saveTasks",
+          status: 409,
+          message: `${titles.join(", ")} changed on the server while you were editing — your change${conflicts.length > 1 ? "s to those jobs weren't" : " to it wasn't"} saved. Everything else was.`,
+          at: Date.now(),
+        });
+        // #387. ADOPT BEFORE ROLLING BACK, AND BEFORE RETURNING.
+        //
+        // This whole block used to sit ABOVE the adoptStamps definition, so the
+        // one response that most needs its stamps read — a REFUSAL — was the one
+        // response that never reached the reader. The recovery was meant to be
+        // the rollback on the next line, but rollbackToServer opens with
+        // `if (saveStatusRef.current === "unsaved") return;`: it bails whenever
+        // the user has edited again since the save began, which is exactly when
+        // a conflict happens. Bail, and the client is still holding the stamp it
+        // was just refused for — so it saves, is refused, bails, saves. Fourteen
+        // task-conflict records in one afternoon, one job, one caller, with an
+        // incomingStamp frozen at 14:18:11.418Z while the stored one advanced
+        // twice. That is #337's original bug wearing the conflict path as a
+        // disguise.
+        //
+        // ORDER MATTERS, AND SO DOES THE TRADE-OFF. The rollback below replaces
+        // content AND stamps with the server's copy whenever it actually runs,
+        // so this adoption is only load-bearing on the path where the rollback
+        // BAILS — the path where the client is going to write again regardless.
+        // There it chooses a write that succeeds over one refused forever, which
+        // does mean the refused job's content can go up on the next save. The
+        // banner set just above has already told the user what was kept; a
+        // client stuck in a refusal loop cannot tell them anything at all.
+        adoptAll();
+        await rollbackToServerRef.current();
+        return;
+      }
+      adoptAll();
 
       // #227 (1). Record what was just accepted, so the next save can tell
       // whether anything actually changed. Only the slices that were POSTed are

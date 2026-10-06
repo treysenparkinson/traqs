@@ -24,7 +24,14 @@ import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const SHIM = fileURLToPath(new URL("./clock-shift-shim.mjs", import.meta.url));
+// A file:// URL, NOT a filesystem path. `--import` goes through the ESM loader,
+// which on Windows rejects `C:\...` with ERR_UNSUPPORTED_ESM_URL_SCHEME —
+// "Received protocol 'c:'" — so every child here died on startup and this
+// suite was the only thing keeping `npm run build` red on a Windows checkout.
+// Same family as #376: a harness detail, not a product defect, failing on one
+// platform and making the whole build unreadable. A build that is permanently
+// red is the same as no build.
+const SHIM = new URL("./clock-shift-shim.mjs", import.meta.url).href;
 const SELF = "scripts/clock-shift-test.mjs";
 const DAY = 86400000;
 const CLOCKS = [

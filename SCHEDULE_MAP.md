@@ -1064,6 +1064,29 @@ Everything else was read at the cited line. Nothing was run against live data.
     because the store is easy to read — one GET, no app, no browser — and then describing the
     SCREEN. S3 is the easiest layer to measure and the furthest from what anybody looks at.
 
+12. BEFORE REPORTING A FIELD MISSING, PRINT THE ROW. Treysen's rule, 2026-10-06, and it
+    cost a recommendation rather than a measurement — which is the cheaper end of this
+    family, and only because he asked for the evidence instead of the conclusion.
+
+    Asked who was causing the enforce-mode refusals, I read
+    `orgs/MTX2026TRAQS/rule-events.json` for a `caller` field, found none, and reported that
+    the durable conflict record does not identify the client — and proposed adding it. The
+    field is there. It is called `by`, written at `netlify/functions/_utils/rule-log.js:63`
+    as `by: who.personId ?? null`, and every one of the fourteen records carried `by: 99`.
+    My reader asked for a key that was never the key. Printing one whole record would have
+    shown it in the first second; instead I was about to add a second field meaning exactly
+    what the first one already meant, and the `caller`/`by` pair would then have drifted.
+
+    THE CHECK, and it is one line: when a field is not where you expected it, DUMP THE WHOLE
+    OBJECT before concluding anything about it. `JSON.stringify(rows[0], null, 2)`. Absence
+    of a NAME is not absence of the DATA, and the same mistake aimed at a measurement rather
+    than a recommendation is how #347 and #377 happened.
+
+    This is the schema-shaped sibling of LESSONS #8 (grepping a name returns the things named
+    after it) and #6 (absence is a claim about the whole repository). #8 is about searching
+    CODE for a name; this is about searching DATA for one. Both fail the same way: the search
+    was well-formed, ran cleanly, returned nothing, and the nothing was believed.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1620,3 +1643,24 @@ Everything else was read at the cited line. Nothing was run against live data.
 385. [found in #349, not investigated] The public people projection (GET without a token — the kiosk's team-select roster) returns far more than the kiosk needs. Measured on MTX2026TRAQS, 18 live people: it drops only `pin`, `pushToken` and `timeOff`, and hands anyone who knows the org code `email` (18), `phone` (5), `payType` (10), `adminPerms` (4), `cap`, `userRole`, `canClockInOut`/`canSignOff`, and live `activeClockIn`/`activeJobClock`/`activeBreak`. The comment in people.js says the kiosk "only needs name/color/role/department/status/email". Not checked: which of these the kiosk screens actually read.
 
 386. [found in #349] timeoff.js writes BOTH its files without compare-and-swap: `timeoff.json` (two admins deciding at once — the second write carries the first's stale request list) and people.json. For people.json: it is a plain `writeJson` of the roster it read at the top of the handler (approve, deny-undo, cancel, edit). Since #349 the people POST is a conditional read-modify-write, so an approval can no longer be erased by a roster save — but the reverse still holds: a roster save landing inside an approval's window is overwritten by the approval's stale copy of everyone else's records.
+
+
+387. FIXED 2026-10-06, both halves. THE FIRST DAY OF `TASK_CONFLICT_MODE=enforce` PUT TREYSEN IN A PERMANENT REFUSAL LOOP: "Save failed. saveTasks returned 409", repeatedly, on his own drags, with Max's client closed. Fourteen `task-conflict` records in one afternoon, ALL on one job (`t3wr00dw3` / 402057) and ALL with `by: 99` — his own browser conflicting with itself, which is #185's and #337's original signature wearing the conflict path as a disguise. The tell is in the stamps: `incoming` sat frozen at `14:18:11.418Z` across saves at 14:18:17, :18 and :20, while `stored` advanced `14:18:14.690` → `14:18:17.733`. A client that cannot advance its own stamp cannot ever get a save through.
+
+    THE PARTIAL-SAVE MESSAGE WAS ACCURATE, checked first because a wrong message would have been a different bug. The banner says the named job's change was not saved and everything else was; the enforce substitution at `tasks.js:161` does exactly that (the stale job is replaced with the stored copy, the rest of the array is written), and the stored op still read `h12.5` afterwards, as the conflict record said. So the refusal was correct and the user was told the truth. The defect is that the client could never get out of it.
+
+    FIX 1 — THE DOUBLE-POST. Every one of doSave's ~22 explicit callers is a `setTimeout(() => doSaveRef.current(), 0)` fired straight after a `setTasks`, and that same `setTasks` arms the 1-second debounce in the autosave effect (`TRAQS.jsx:8484`). Nothing cancelled it, so ONE DRAG POSTED TWICE: at ~0ms, and again at ~1000ms carrying the stamps from before the first save adopted them. The second is stale against the first by construction; in `log` it was noise, in `enforce` it is a refusal. The log shows the pairs plainly — duplicate POSTs 70ms, 88ms and 1.03s apart with identical `incoming` and `stored`. One `clearTimeout(saveTimerRef.current)` inside doSave covers all 22 call sites; adding it at each one is twenty-two chances to forget, and the next call site added would reintroduce it silently. Placed AFTER the `dataLoadedRef` gate, so a save that bails before the initial load leaves the pending timer armed rather than dropping the user's edit.
+
+    FIX 2 — THE CONFLICT PATH COULD NOT ADOPT, AND THIS IS THE ONE THAT MATTERS. #337 made the server return the stamp it wrote and the client adopt it — ON THE SUCCESS PATH ONLY. `adoptStamps` was DEFINED at `TRAQS.jsx:8143`, BELOW the conflict branch's `return` at :8126, so the one response that most needs its stamps read was the one response that never reached the reader. The server was already returning `stamps` alongside `conflicts` in enforce (`tasks.js:353`); the client simply never looked.
+
+    WHY THE EXISTING RECOVERY DID NOT COVER IT. The conflict branch calls `rollbackToServer`, which refetches everything and would have supplied fresh stamps — except that it opens with `if (saveStatusRef.current === "unsaved") return;`. It bails whenever the user has edited again since the save began, WHICH IS EXACTLY WHEN A CONFLICT HAPPENS. Bail, and the client is still holding the stamp it was just refused for: save, refused, bail, save, refused. That is the fourteen records.
+
+    The three `adoptStamps` calls are now an `adoptAll()` wrapper defined above the branch, called on both paths. ORDER AND TRADE-OFF, recorded because the fix is not free: the rollback replaces content AND stamps with the server's copy whenever it actually runs, so this adoption is only load-bearing on the path where the rollback BAILS — the path where the client is going to write again regardless. There it chooses a write that SUCCEEDS over one refused forever, which does mean the refused job's content can go up on the next save. The banner has already told the user what was kept; a client stuck in a refusal loop can tell them nothing at all.
+
+    ENFORCE STAYS ON. The refusals were real, the detection was right, and the message was true — the client's inability to recover was the defect, and it is fixed. Turning the flag back off would restore the silent clobbering of #380 (15 of 15 accepted writes over a newer stored version) in exchange for hiding a banner.
+
+    TESTED, red-first, in `scripts/save-stamp-test.mjs` (sections 6 and 7, 36 assertions total). Section 6 states THE PROPERTY NOTHING WAS CHECKING — after a REFUSED save, the client's next save must carry the adopted stamp and succeed — and proves it against the REAL handler by running a model of doSave's conflict branch twice, with adoption and without: without, every one of three rounds is refused (`[true, true, true]`), Trey's loop reproduced headlessly; with, only the first is (`[true, false, false]`) and the edit lands. `rollbackToServer` is deliberately NOT modelled, because the whole point is that the client recovers without it. Section 7 pins the client lines by POSITION rather than presence — both `adoptStamps` and the branch existed throughout the bug, in the wrong order, so a `/adoptStamps/.test()` would have been green the entire time. Three mutants, three caught (drop the `clearTimeout`; drop the branch's `adoptAll()`; gut `adoptAll` to two slices).
+
+    ALSO RE-POINTED, NOT RELAXED: `cache-merge-test.mjs` section 6 asserted "the cache is written after the stamps are adopted" through a 400-character proximity window anchored on `adoptStamps(results[2]`. Moving the definition above the 409 branch put thirty lines of conflict handling inside that window and the suite went red for a reason that had nothing to do with it. The invariant is now stated directly — an adoption runs before the cache write, and what it adopts covers all three slices — which is what the window was approximating.
+
+    AND THE BUILD WAS RED ON WINDOWS THE WHOLE TIME, found by running it rather than a substitute (LESSONS #5). `clock-shift-test.mjs` passed its shim to `--import` as a filesystem path; `--import` goes through the ESM loader, which rejects `C:\…` with `ERR_UNSUPPORTED_ESM_URL_SCHEME` ("Received protocol 'c:'"). Every child process died at startup, so the suite failed on every Windows run and `npm run build` could not be read at all. One line — pass the `file://` URL. It now reruns ALL 69 BUILD SUITES at now + 2 days, now + 400 days and 2098-06-15, and all three pass. Same family as #376 and #382: a harness detail, not a product defect, making the whole build unreadable. `npm run build` is green, exit 0.
