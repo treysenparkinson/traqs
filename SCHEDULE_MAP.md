@@ -1248,6 +1248,39 @@ Everything else was read at the cited line. Nothing was run against live data.
     `Date` or anything else without a JSON form is green by default until it is converted —
     here, to sorted entries.
 
+17. A WRONG COMMENT IS WORSE THAN NO COMMENT, BECAUSE IT SURVIVES THE AUDIT A BARE
+    IDENTIFIER WOULD NOT. #416 removed a row cascade and swept up the state kept warm
+    around it. Three candidates, all reading as dead:
+
+        rowAnim         returned {} at five spread sites          DEAD
+        optBaseLenRef   fed rowAnim an index                      DEAD
+        optEditSeq      "bumped on each Edit Options open to
+                         re-fire the staggered cascade"           LOAD-BEARING
+
+    The third is `key={optEditSeq}` on the options list. The editor's body is ALWAYS
+    rendered — it collapses with `grid-template-rows: 0fr`, it does not unmount — so
+    that key is what REMOUNTS `.tq-opt-scroll` and re-fires `tqOptScrollOn`, the 0.42s
+    window that keeps a scrollbar from flickering in while the expansion plays.
+
+    Its comment named the cascade, which had already gone, and not the remount, which
+    had not. So it read as the most obviously dead of the three. **Had it carried NO
+    comment, the next question would have been "what reads this?" — and the answer,
+    one grep away, is `.tq-opt-scroll`.** The comment supplied a wrong answer to the
+    question that would otherwise have been asked.
+
+    THIS IS LESSONS #7's FAMILY FROM THE OTHER SIDE. #7 is code nobody has exercised.
+    This is a COMMENT nobody has re-read since the thing it describes was deleted —
+    and comments are never exercised at all, so nothing ever fails because one is
+    wrong. They rot silently and are trusted anyway.
+
+    THE CHECK, before deleting anything a comment calls dead:
+      - grep the identifier and read every READER, not the comment;
+      - for a React `key`, `ref` or `useState` whose comment names an effect, ask what
+        REMOUNTS or RE-FIRES because of it — that is usually invisible at the site;
+      - when the comment and the readers disagree, the readers win, and the comment is
+        a finding in its own right: fix it in the same pass or it misleads the next
+        person exactly as it misled you.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -2263,3 +2296,62 @@ Everything else was read at the cited line. Nothing was run against live data.
     WHY IT WAS RECORDED RATHER THAN ATTEMPTED. Trey: *"You're right that the queue rule is relative to siblings so it isn't a drop-in, and that's a reason to record it rather than attempt it here."* The queue rule's whole meaning is an op's position among its siblings — there is no "just this op" version of it, because moving one op is exactly what changes where the next one may sit. Scoping it means deciding what a phase's queue means when only part of the phase is in play, which is a design question, not a refactor.
 
     The measured urgency is currently nil: after #404 C the settle moves 0 ops on Matrix's board, so there is nothing for the wrong scope to move. That will change the moment unassigned work is scheduled into the future, which is what the queue rule is FOR. Worth holding until then rather than guessing the rule now.
+
+416. **FIXED 2026-10-06 — 482ms TO 140ms ON THE APP'S MOST-USED MENU. WHAT ACTUALLY STAGGERED WAS NOT THE DROPDOWNS.** Trey's visual item 3 is "remove the one-by-one item animation on dropdowns, keep the fade-in on popups and modals". The `.anim-stagger` family was partly deleted in the dead-code sweep, so the live stagger had to be found rather than assumed. It is CONTEXT MENUS, not dropdowns.
+
+        ctxRowAnim (:3233)       toolDrop/toolDropUp, idx * 38ms      THE ONE          10 rows
+        employee card menu       animIdx 0..3                          same helper       4 rows
+        chat menus (:29750+)     animIdx 0,1 + raw 38/76ms siblings    same helper       2-3 rows
+        PTO menu (:30139)        animIdx 0 + a raw 38ms sibling        same helper       2 rows
+        Jobs filter panel        toolDrop 0ms and a lone 190ms         not a menu
+
+    **THE MAIN SCHEDULE/JOBS CONTEXT MENU IS THE ONE HE SEES.** `let _ci = -1; const ci = () => ++_ci;` feeds a RUNNING index to ten rows, so the last one starts at 342ms and finishes at **482ms**. That is half a second before a right-click menu is readable, on the most-used menu in the app.
+
+    **`SimpleDrop` — THE ACTUAL DROPDOWN — IS ALREADY CLEAN.** Its rows carry `transition: background-color` and nothing else; the container has `animation: menuIn 0.15s ease-out`. The `.anim-drop` class is `dropIn 0.28s ... both` on the CONTAINER. So the fade-in Trey wants kept is exactly what is already there, and the thing he wants gone lives one component over.
+
+    **`MultiDrop`'s ROW STAGGER IS ALREADY DEAD, AND NOBODY NOTICED.** `:3601` sets `animation: tqDropIn 0.18s ease both ${ri * 0.02}s`. **`tqDropIn` IS NEVER DECLARED** — one reference, zero `@keyframes`, verified by counting refs and declarations for every animation name in `src/`. An animation naming a keyframe that does not exist is simply not applied, so those rows have no entrance at all. This is the dead-code sweep's casualty: the keyframe went, the reference stayed, and nothing failed. Same family as #49 and #405 — a control that reads as doing something and does nothing — except here the dead thing is the ANIMATION, which is why no test and no eye caught it.
+
+    NOT DROPDOWNS, and deliberately out of scope for item 3 unless Trey says otherwise: the Time Clock settings team table (`:19290`, `pi * 38ms`), the Add/Edit Dependencies modal rows (`:30010`, `di * 38ms`), the schedule's team-select bubbles (`:16198`, `ri * 25ms`), the dashboard cards (`:14915`), the FAST TRAQS intro (`:29144`) and the typing dots (`:28885`). Each is a list or a page, not a menu that opens under a pointer.
+
+    ONE SURFACE ALREADY HAD IT REMOVED, which is the precedent: `:27691`, `const rowAnim = () => ({}); // dropdown rows no longer stagger in (redesign pass 1)`. The Edit Options editor still carries `optEditSeq` and `optBaseLenRef` (`:5860`) to re-fire and partly skip a cascade that no longer runs — dead state kept alive around a deleted effect.
+
+    ─── WHAT WAS BUILT ───
+
+    `ctxRowAnim` returns `0.14s 0ms` and no longer takes a row count; the five hard-coded sibling delays (190ms, 76ms, 38ms x3) are 0ms; the `tqDropIn` reference is deleted. **`up` STAYS** — it is not about order. A menu that flipped ABOVE its anchor should still have its rows arrive from below, travelling away from the pointer rather than back toward it. What went with the stagger is the COUNT, whose only job was to reverse an order that no longer exists — and with it the `data-ctx-row` marker that existed solely to be counted.
+
+    **THIS REVERSES A PRIOR RULING, which is why a suite went red.** `shell-redesign-test` already removed the stagger from dropdowns and DELIBERATELY kept it on right-click menus, with an allow-list and a guard that it stays (`right-click menus still stagger`). Four of its assertions failed. They are rewritten as the NEW rule rather than the old one with its answer flipped — the rows still have an entrance, they just all have the same one — and `ctxRowAnim` is struck from the allow-list so the next one cannot borrow the exemption. Same handling as #404 B's `overlap-test` assertion.
+
+    **ONE OF THE THREE "LEFTOVERS" WAS NOT A LEFTOVER.** `rowAnim` and `optBaseLenRef` were dead and are gone. **`optEditSeq` IS LOAD-BEARING** and stays: the editor's body is ALWAYS rendered (it collapses via `grid-template-rows: 0fr`, it does not unmount), so `key={optEditSeq}` is what remounts `.tq-opt-scroll` and re-fires `tqOptScrollOn` — the 0.42s window that keeps a scrollbar from flickering in during the 0.3s expansion. Its comment called it a cascade re-trigger, which is how it nearly went: **the thing it was named for had gone, and the thing it actually did had not.** A comment naming the wrong purpose is worse than no comment, because it survives the audit that would have caught a bare identifier.
+
+    TESTED red-first, `scripts/menu-stagger-test.mjs`, 41 assertions, wired (80 suites). 18 mutants, 18 caught, including four OVER-CORRECTION mutants (deleting a container entrance, deleting the row entrance outright, flattening an out-of-scope list) — because "remove the animation" is the wrong reading of this ruling and the suite has to refuse it.
+
+    TWO OF THIS SUITE'S OWN ASSERTIONS WERE WRONG FIRST. A sweep demanding zero computed `toolDrop` delays anywhere CONTRADICTED the section requiring the two out-of-scope lists to survive — two assertions in one file disagreeing about the same lines — now an allow-list that names its exceptions. And `animation: "menuIn 0.15s ease-out"` appears FOURTEEN times, so a bare presence check stayed green with SimpleDrop's own copy deleted; that mutant was the only survivor of the first run. Assert the statement where it has to be, not the string somewhere. LESSONS #13 again, twice.
+
+
+417. [SURVEYED 2026-10-06, NOT CHANGED] **`toolDrop` IS DECLARED THREE TIMES AND `menuIn` TWICE — THE EXACT BUG THE COMMENT ABOVE THEM SAYS WAS FIXED.** The global sheet at `:933`-`:934` carries a note: *"These have to live in the GLOBAL sheet — toolDrop used to be declared only inside the Jobs view's `<style>`, so the cascade silently did nothing on every other page."* The declaration was MOVED and the original was never deleted. Still live:
+
+        menuIn     TRAQS.jsx:933   (global)   and  :4097  (the accent <style>, re-injected on every theme change)
+        toolDrop   TRAQS.jsx:934   (global)   and  :4097  and  :13027  (inline in the Jobs list header)
+
+    All three `toolDrop` bodies are currently IDENTICAL, so nothing is wrong on screen today — which is the whole risk. A later-parsed `@keyframes` of the same name wins globally, so the accent sheet (rewritten on every theme change) and a page-local `<style>` both silently outrank the stylesheet the comment says is authoritative. Whoever edits the global one next will change nothing and have no way to tell. Found while surveying #416; not folded into it because it is a different defect with a different fix.
+
+418. [MEASURED 2026-10-06, NOT FIXED — SHOULD JUMP THE QUEUE] **`codeOf()` DELETES 772 LINES OF REAL CODE, AND 23 SUITES ASSERT AGAINST WHAT IS LEFT.** Its own header says a drifted scanner "is the quietest kind of broken test: it keeps passing". It is that test.
+
+    THE MECHANISM. The JSX-comment pass is `\{\s*\/\*[\s\S]*?\*\/\s*\}`. A CSS rule inside a template literal opens with `{`, and its first declaration is very often a `/* comment */` — so the match STARTS at the rule's brace and runs forward to the next `*/` that happens to sit before a `}`, hundreds of lines later. Two such matches swallow **298 lines (1267..1564)** and **459 lines (2197..2655)**. Worse, they consume `/*` and `*/` tokens UNEVENLY, so the plain block-comment pass that runs next is left unbalanced and eats more.
+
+    THE MEASUREMENT, counting only lines that unambiguously begin with a JS/JSX token:
+
+        unambiguous code lines in TRAQS.jsx   20,598
+        ...absent from codeOf's view             772   (3.7%)
+        ...of which declare or animate something 264
+        suites importing codeOf                   23
+
+    `hexToHsl` and `brandGrad` are gone from the view entirely, as is most of the stylesheet from ~1241 to ~1600. **ANY ABSENCE ASSERTION NAMING ANYTHING IN THAT GAP PASSES UNCONDITIONALLY** — which is most of this campaign's wiring assertions, since they are overwhelmingly of the form "the old spelling is gone". Found because `settle-unify-test`'s neighbour `menu-stagger-test` needed `${pi * 38}` on line 19313 and codeOf did not have it.
+
+    `scripts/menu-stagger-test.mjs` does NOT use it, and says why at the import. Everything else still does. The fix is a real scanner that tracks strings and template literals rather than a pair of regexes — and the hard part is not the scanner, it is that **re-running 23 suites against a view that suddenly contains 772 more lines will turn some of them red, and each of those is a finding.** That is the job, and it is worth more than #417.
+
+419. [LOGGED 2026-10-06, NOT FIXED] **THE MOBILE SETTINGS MODAL'S General / Organization TABS DO NOTHING.** Found while renaming the Account section. `settingsTab` is declared at `:5759` (`"main" | "org"`) and read in exactly one place — the tabs' OWN styling, to decide which of them is underlined. **Nothing below switches on it.** So both tabs render the same body; the control moves an underline and changes nothing else.
+
+    **THE PATTERN WORTH NAMING: a control looks like it works because the ONLY THING READING ITS STATE IS ITS OWN STYLING.** The underline moves, the label goes bold, the accent changes — every signal a working tab gives — and all of it is the tab describing itself. Nothing downstream consults it. That is why this kind survives review: the feedback loop is real, it is just closed. The test is not "does clicking it change anything on screen" but "does anything other than this control read this state".
+
+    Third of the family, after #49 (a comment for a deleted function that read as a missing button) and #405 (the FAST TRAQS button opening a panel that writes nothing): **a labelled affordance promising something the code does not do.** It is why the Account rename stopped at the desktop rail — renaming a control that does nothing would make it more convincing, not more correct. Mobile settings are still the old modals, deferred with the rest of that surface.

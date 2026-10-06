@@ -3221,18 +3221,26 @@ function EmployeeCard({ person, img, dot, onOpen, onCtx, pending = false }) {
   );
 }
 
-// Cascade direction for context-menu rows. A menu that opened downward deals its
-// rows top-to-bottom; one that flipped ABOVE its anchor deals them bottom-to-top,
-// so the cascade always travels away from the pointer instead of running back
-// toward it. `count` comes from measuring the rendered rows — it's 0 on the first
-// (hidden) paint, which simply means no reversal until the menu has been placed.
-const CtxAnimContext = createContext({ up: false, count: 0 });
-function ctxRowAnim(animIdx, up, count) {
+// Context-menu rows arrive WITH the menu, not one at a time (#416).
+//
+// This used to deal them out at 38ms apart, and the main schedule/jobs menu feeds a
+// RUNNING index to ten rows — so the last one started at 342ms and finished at
+// 482ms. Half a second before the app's most-used menu was readable, every time.
+//
+// `up` stays, because it is not about order: a menu that flipped ABOVE its anchor
+// should still have its rows arrive from below, travelling away from the pointer
+// rather than back toward it. What went with the stagger is the row COUNT, whose
+// only job was to REVERSE an order that no longer exists.
+//
+// The menu keeps its own entrance (`.anim-ctx` → ctxMenuIn) and so does every
+// dropdown (`.anim-drop` → dropIn, SimpleDrop → menuIn). The ruling was about
+// items appearing one by one, not about animation.
+const CtxAnimContext = createContext({ up: false });
+function ctxRowAnim(animIdx, up) {
   if (animIdx === undefined) return {};
-  const idx = up && count > 0 ? Math.max(0, count - 1 - animIdx) : animIdx;
-  return { animation: `${up ? "toolDropUp" : "toolDrop"} 0.14s ${idx * 38}ms both ease-out` };
+  return { animation: `${up ? "toolDropUp" : "toolDrop"} 0.14s 0ms both ease-out` };
 }
-function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { const _ctxAnim = useContext(CtxAnimContext); return <div data-ctx-row onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...ctxRowAnim(animIdx, _ctxAnim.up, _ctxAnim.count) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
+function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { const _ctxAnim = useContext(CtxAnimContext); return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...ctxRowAnim(animIdx, _ctxAnim.up) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
 function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) {
@@ -3598,7 +3606,13 @@ function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact =
       {options.map((r, ri) => {
         const isOn = sel.some(d => String(d).toLowerCase() === String(r).toLowerCase());
         return <div key={r} onClick={() => onToggle(r)}
-          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", animation: `tqDropIn 0.18s ease both ${ri * 0.02}s`, background: isOn ? T.accent + "10" : "transparent" }}
+          // No row entrance (#416). This said `tqDropIn 0.18s ease both ${ri * 0.02}s`
+          // and `tqDropIn` WAS NEVER DECLARED — one reference, zero @keyframes, a
+          // casualty of the dead-code sweep that took the keyframe and left the
+          // reference. So these rows have had no entrance for some time and nobody
+          // missed it; restoring the keyframe would be ADDING an animation under the
+          // same ruling that removes one. The menu's own fade stays (.anim-drop).
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
@@ -5857,8 +5871,17 @@ Extraction rules:
   // adaptive = an accent shade (varied by the client's position) so it follows the theme.
   const clientCellColor = c => cellMode === "adaptive" ? valShade(Math.max(0, clients.findIndex(x => x.id === c.id)) % 4, 4) : (c.color || T.textDim);
   const [optDraft, setOptDraft] = useState(null); // { key, list } staged Edit Options changes — applied only on Save
-  const [optEditSeq, setOptEditSeq] = useState(0); // bumped on each Edit Options open to re-fire the staggered cascade
-  const optBaseLenRef = useRef(0); // option count captured at open — rows beyond it (added live) skip the stagger delay
+  // Bumped on each Edit Options open, as the `key` on the options list, so the
+  // list REMOUNTS and `.tq-opt-scroll` re-runs `tqOptScrollOn` — the 0.42s window
+  // that keeps overflow hidden while the editor's grid-template-rows expansion
+  // plays, so no scrollbar flickers in for a frame. The editor's body is always
+  // rendered (it collapses to 0fr, it does not unmount), so without this remount
+  // the animation would fire once and never again.
+  //
+  // ITS COMMENT USED TO SAY "re-fire the staggered cascade" (#416), which is how it
+  // nearly got deleted with the cascade: the cascade it named had already gone, but
+  // the remount was still load-bearing for something else entirely.
+  const [optEditSeq, setOptEditSeq] = useState(0);
   const [taskOrder, setTaskOrder] = useState([]); // manual job ID sort order
   const colDragRef = useRef(null); // colId being dragged
   const [colDropIdx, setColDropIdx] = useState(null);
@@ -11101,15 +11124,15 @@ ${jobsCtx || "No jobs found."}`;
     if (!ctxMenu) { setCtxPlace(null); return; }
     if (!ctxMenuEl) return;
     setCtxPlace({
+      // The row COUNT used to be measured here, from the DOM, to reverse the
+      // cascade on a menu that flipped up. The cascade is gone (#416) and so is
+      // the only reader of the count — and with it the `data-ctx-row` marker that
+      // existed solely to be counted.
       ...placeContextMenu({
         y: ctxMenu.y,
         viewportHeight: window.innerHeight,
         menuHeight: ctxMenuEl.scrollHeight,
       }),
-      // Row count drives the reversed cascade when the menu flips up. Counted
-      // from the DOM because the rows are built from inline conditionals, so
-      // there's no static total to read.
-      count: ctxMenuEl.querySelectorAll("[data-ctx-row]").length,
     });
   }, [ctxMenu, ctxMenuEl]);
 
@@ -13073,7 +13096,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 0ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
           </div>
           {/* Grouping */}
@@ -25433,7 +25456,10 @@ ${jobsCtx || "No jobs found."}`;
   // Under the page title: "Group · Page", as the section nav names them.
   // `title` is what the unsaved-changes dialog calls the section.
   const settingsSectionMeta = {
-    "general":                { sub: "Account · General",                     title: "Account" },
+    // The LABEL is Identity; the KEY stays "general" because it is a route and a
+    // persisted section, not a caption (renderSettingsGeneral, enterSettings's
+    // default, the save-toast map and the deep link all key on it).
+    "general":                { sub: "Account · Identity",                    title: "Account" },
     "org-general":            { sub: "Organization · General",                title: "Organization" },
     "org-departments":        { sub: "Organization · Departments",            title: "Departments" },
     "org-permissions":        { sub: "Organization · Worker permissions",     title: "Worker permissions" },
@@ -26460,13 +26486,13 @@ ${jobsCtx || "No jobs found."}`;
         <div className="rv-st" style={{ position: "relative", zIndex: 1, padding: isMobile ? "0 14px" : "4px 32px 0", ...(isMobile ? { gridTemplateColumns: "minmax(0,1fr)", gridTemplateRows: "auto minmax(0,1fr)", gap: 12 } : null) }}>
           {isMobile
             ? <select className="rv-in" value={sec} onChange={e => navigateSection(e.target.value)} aria-label="Settings section">
-              <optgroup label="Account"><option value="general">General</option></optgroup>
+              <optgroup label="Account"><option value="general">Identity</option></optgroup>
               {can("orgSettings") && <optgroup label="Organization">{SETTINGS_ORG_CHILDREN.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
               <optgroup label="Appearance"><option value="customization">Customization</option></optgroup>
             </select>
             : <nav className="rv-snav" aria-label="Settings sections">
               <small>Account</small>
-              {navBtn("general", "General")}
+              {navBtn("general", "Identity")}
               {can("orgSettings") && <><small>Organization</small>{SETTINGS_ORG_CHILDREN.map(c => navBtn(c.key, c.label))}</>}
               <small>Appearance</small>
               {navBtn("customization", "Customization")}
@@ -27688,10 +27714,8 @@ ${jobsCtx || "No jobs found."}`;
           const open = colCtxMenu.subMenu === "edit";
           const inputBase = { flex: 1, minWidth: 0, padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
           const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
-          const rowAnim = () => ({}); // dropdown rows no longer stagger in (redesign pass 1)
-          const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}66`, background: T.systemBg || T.surface, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
+          const addBtn = (onClick) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}66`, background: T.systemBg || T.surface, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
           const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 2 };
-          const base = optBaseLenRef.current; // rows at indices >= base were added live → no stagger delay (appear instantly)
           const draftKey = isStd ? cid : col.id;
           const source = isStd ? (cid === "status" ? statusOpts : priOpts) : toOptObjs(col.options || []);
           const draft = (optDraft && optDraft.key === draftKey) ? optDraft.list : source;
@@ -27708,26 +27732,26 @@ ${jobsCtx || "No jobs found."}`;
           const del = i => setDraft(prev => prev.filter((_, j) => j !== i));
           const add = () => setDraft(prev => [...prev, { name: `New ${prev.length + 1}`, color: OPT_PALETTE[prev.length % OPT_PALETTE.length], ...(hasIcon ? { icon: "○" } : {}) }]);
           const rows = <>
-            <div style={{ ...lbl, ...rowAnim(0) }}>{isStd ? (cid === "status" ? "Status Options" : "Priority Options") : "List Options"}</div>
+            <div style={lbl}>{isStd ? (cid === "status" ? "Status Options" : "Priority Options") : "List Options"}</div>
             {draft.map((o, i) => optName(o) === "—"
-              ? <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 7px", fontSize: 11, color: T.textDim, fontStyle: "italic", ...rowAnim(i >= base ? 0 : i + 1) }}>(blank / none)</div>
-              : <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, ...rowAnim(i >= base ? 0 : i + 1) }}>
+              ? <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 7px", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>(blank / none)</div>
+              : <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <input type="color" className="tq-color-swatch tq-bare" value={o.color || "#94a3b8"} disabled={adaptiveLock} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title={adaptiveLock ? "Colors are auto-generated in Adaptive mode" : "Color"} style={{ width: 24, height: 24, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: adaptiveLock ? "not-allowed" : "pointer", flexShrink: 0, opacity: adaptiveLock ? 0.35 : 1, pointerEvents: adaptiveLock ? "none" : "auto" }} />
                   {hasIcon && <input className="tq-sq" value={o.icon || ""} onClick={e => e.stopPropagation()} onChange={e => upd(i, { icon: e.target.value.slice(0, 2) })} title="Icon" style={{ width: 26, textAlign: "center", padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", flexShrink: 0, boxSizing: "border-box" }} />}
                   <input value={optName(o)} onClick={e => e.stopPropagation()} onChange={e => upd(i, { name: e.target.value })} onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} onFocus={e => e.currentTarget.style.borderColor = T.accent} onBlur={e => e.currentTarget.style.borderColor = T.border} style={inputBase} />
                   {delBtn(() => del(i), minOne && draft.length <= 1)}
                 </div>)}
-            {addBtn(add, draft.length + 1)}
+            {addBtn(add)}
           </>;
           const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
             <div key={optEditSeq} className="tq-opt-scroll" style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280 }}>{rows}</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}`, ...rowAnim(draft.length + 2) }}>
+            <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
               <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = T.card}>Cancel</button>
               <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
             </div>
           </div>;
           return <div>
-            <button onClick={() => { if (!open) { setOptEditSeq(s => s + 1); optBaseLenRef.current = source.length; } setColCtxMenu(prev => ({ ...prev, subMenu: open ? null : "edit" })); }}
+            <button onClick={() => { if (!open) setOptEditSeq(s => s + 1); setColCtxMenu(prev => ({ ...prev, subMenu: open ? null : "edit" })); }}
               style={{ width: "100%", padding: "9px 14px", background: open ? T.accent + "15" : "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: open ? T.accent : T.text, fontFamily: T.font, textAlign: "left" }}
               onMouseEnter={e => { if (!open) e.currentTarget.style.background = T.hover; }}
               onMouseLeave={e => { if (!open) e.currentTarget.style.background = "transparent"; }}>
@@ -29757,7 +29781,7 @@ ${jobsCtx || "No jobs found."}`;
           }} animIdx={1} />
         </>}
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 76ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Group</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this group and its messages</div></div>
         </div>}
@@ -29779,7 +29803,7 @@ ${jobsCtx || "No jobs found."}`;
           setThreadCtxMenu(null);
         }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {(String(threadCtxMenu.threadKey || "").startsWith("group:") ? canManageGroup(groupOfThread(threadCtxMenu.threadKey)) : can("editJobs")) && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {(String(threadCtxMenu.threadKey || "").startsWith("group:") ? canManageGroup(groupOfThread(threadCtxMenu.threadKey)) : can("editJobs")) && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
@@ -29801,7 +29825,7 @@ ${jobsCtx || "No jobs found."}`;
           setDmCtxMenu(null);
         }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Conversation</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this chat</div></div>
         </div>
@@ -29849,7 +29873,7 @@ ${jobsCtx || "No jobs found."}`;
         // Hidden until measured, so the first (unplaced) paint is never seen.
         visibility: ctxPlace ? "visible" : "hidden",
         padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
-      <CtxAnimContext.Provider value={{ up: flipUp, count: ctxPlace?.count || 0 }}>
+      <CtxAnimContext.Provider value={{ up: flipUp }}>
       {/* Header */}
       {(() => {
         let parentJobTitle = null, parentPanelTitle = null, panelId = null, siblingOpCount = 0, curDepsMode = "free";
@@ -29979,7 +30003,7 @@ ${jobsCtx || "No jobs found."}`;
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
         setConfirmDelete(deleteTarget);
-      }} data-ctx-row style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", ...ctxRowAnim(ci(), flipUp, ctxPlace?.count || 0) }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", ...ctxRowAnim(ci(), flipUp, ctxPlace?.count || 0) }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
@@ -30138,7 +30162,7 @@ ${jobsCtx || "No jobs found."}`;
         setPtoCtx(null);
       }} animIdx={0} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-      <div onClick={() => { cancelTimeOffEntry(timeOffEntryAt(ptoCtx.personId, ptoCtx.toIdx)); delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <div onClick={() => { cancelTimeOffEntry(timeOffEntryAt(ptoCtx.personId, ptoCtx.toIdx)); delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>

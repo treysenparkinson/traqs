@@ -15,7 +15,8 @@
 //      notifications, the profile menu with Upgrade and Log out), while undo/redo
 //      sit in every page's title row; the save state sits in the rail above the bell.
 //   4. Organization settings are tabs inside the page, not a second rail list.
-//   5. Dropdown rows no longer stagger in one by one. Right-click menus keep theirs
+//   5. Nothing that opens under a pointer staggers its rows — dropdowns, and since
+//      #416 right-click menus too. Lists, cards and modals keep theirs
 //      (ctxRowAnim), on purpose.
 //
 // The rest is STRUCTURAL: TRAQS.jsx is one component with no DOM harness, so it is
@@ -269,11 +270,18 @@ check("the settings page renders the organization pages as tabs", () => /SETTING
 console.log("\ndropdown stagger");
 // An index-multiplied delay on a row-entrance keyframe is a stagger.
 const STAGGER = /(toolDropUp|toolDrop|staggerUp|dropIn)\b[^\n]{0,80}?\$\{[^}]*\*\s*[\d.]+[^}]*\}(ms|s)\b|animationDelay:\s*`\$\{[^}]*\*/g;
-// Not dropdowns, kept deliberately: right-click menus, cards, page lists and
-// modals. Each is pinned by code within `dist` chars of the stagger (either side),
-// tight enough that a dropdown elsewhere cannot borrow the exemption.
+// Kept deliberately: cards, page lists and modals. Each is pinned by code within
+// `dist` chars of the stagger (either side), tight enough that a dropdown elsewhere
+// cannot borrow the exemption.
+//
+// RIGHT-CLICK MENUS WERE ON THIS LIST AND ARE NOT ANY MORE (#416). The redesign
+// pass that wrote this file removed the stagger from dropdowns and deliberately
+// kept it on context menus. Trey has since reversed that: the ruling is now about
+// anything that appears UNDER A POINTER, which a right-click menu plainly does.
+// Measured on the main schedule/jobs menu, which feeds a RUNNING index to ten rows:
+// the last row started at 342ms and finished at 482ms. Lists and pages are still
+// exempt, because content arriving on a page is not the same thing.
 const ALLOWED = [
-  ["right-click menus (ctxRowAnim)", /function ctxRowAnim\(/, 400],
   ["schedule select-mode rows", /animationDelay: `\$\{ri \* 25\}ms` \}\}>\{selPeople\.has/, 120],
   ["Time Settings people grid (modal)", /tsSettingsDraft\.map\(\(p, pi\) =>/, 900],
   ["Add/Edit Dependencies modal", /const on=isLinked\(sub\.id\);/, 400],
@@ -295,8 +303,13 @@ check("no hand-timed stagger delays (19/28/38/114/152ms)", () => {
   const n = count(/`toolDrop(Up)? 0\.14s (19|28|38|114|152)ms/g);
   return n === 0 || `${n} fixed-delay row(s)`;
 });
-check("context-menu rows keep their entrance", () => count(/"toolDrop 0\.14s 38ms both ease-out"/g) >= 3 || `${count(/"toolDrop 0\.14s 38ms both ease-out"/g)} left`);
-check("right-click menus still stagger", () => /function ctxRowAnim\([\s\S]{0,400}\$\{idx \* 38\}ms/.test(SRC) || "ctxRowAnim lost its stagger");
+// REVERSED 2026-10-06 (#416). These two asserted that right-click menus KEPT their
+// cascade. They now assert the opposite, written as the new rule rather than the old
+// one with its answer flipped: the rows still have an entrance, they just all have
+// the same one.
+check("context-menu rows keep their entrance", () => count(/"toolDrop 0\.14s 0ms both ease-out"/g) >= 3 || `${count(/"toolDrop 0\.14s 0ms both ease-out"/g)} left`);
+check("right-click menu rows no longer stagger", () => !/\$\{idx \* 38\}ms/.test(SRC) || "ctxRowAnim still multiplies by the row index");
+check("...and ctxRowAnim emits a zero delay", () => /function ctxRowAnim\([\s\S]{0,600}0\.14s 0ms both ease-out/.test(SRC) || "ctxRowAnim does not emit 0ms");
 
 // ── 6. Square page, solid colours ───────────────────────────────────────────────
 console.log("\npage corners and fills");
