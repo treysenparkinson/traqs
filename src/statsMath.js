@@ -1534,6 +1534,36 @@ export const clampStartHour = (hour, cfg, step = 0.5) => {
   return workStartH;
 };
 
+// A continuous position on the working-hours axis -> a whole day offset and a snapped hour
+// of day. ONE ROUNDING, with the day AND the hour both derived from its result (#390).
+//
+// WHY THIS EXISTS. The drag derived those two from one quantity using TWO DIFFERENT
+// ROUNDINGS: `Math.floor(contVal)` for the day and `Math.round((workStartH + frac *
+// totalWorkH) * 2) / 2` for the hour. They disagree at a boundary, and `_origColOffset` —
+// the bar's own start-hour as a fraction of a column — is EXACTLY ZERO for a bar that
+// starts at the work-day start, so such a bar's left edge sits on a column boundary with
+// no cushion at all. Measured on a 120px column: pxDx −1 gave the PREVIOUS day at 16:30
+// while pxDx 0 gave 08:00 — a full working day of travel for one pixel. A leftward tremor
+// on mouse-up, which is routine, relocated the op a day backwards. Trey: "it still snaps
+// back when dropping it at 8am for the start."
+//
+// The drag had already unified the COORDINATE BASIS for exactly this reason, and its
+// comment says so ("Derive the intra-day hour offset from the SAME delta-based column
+// value the day snap (dx) uses"). It left two roundings of that one value, which is the
+// same defect one layer in.
+//
+// The hour is then put through clampStartHour, so a day whose end is covered by a dead
+// window (lunch at 16:00–17:00) still cannot be landed on (#389). 17:00 itself is
+// unreachable here by construction, because `within` is already reduced modulo the day.
+export const snapWorkHourPosition = (hoursFromStart, cfg, step = 0.5) => {
+  const { workStartH, workEndH } = cfg;
+  const dayLen = Math.max(0.0001, workEndH - workStartH);
+  const snapped = Math.round(hoursFromStart / step) * step;
+  const dayOffset = Math.floor(snapped / dayLen);
+  const within = snapped - dayOffset * dayLen;
+  return { dayOffset, hour: clampStartHour(workStartH + within, cfg, step) };
+};
+
 // The same walk, backwards: given the moment work FINISHED and a duration in productive
 // hours, find where it started. Mirror of walkProductiveHours -- same dead windows, same
 // day length, same CLOCK_EPS -- so a span measured one way and rebuilt the other lands on

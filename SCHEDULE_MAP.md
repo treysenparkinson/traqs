@@ -1686,7 +1686,9 @@ Everything else was read at the cited line. Nothing was run against live data.
 
     `npm run build` green, exit 0, 70 suites, and the clock-shift harness reruns all 70 at now + 2 days, now + 400 days and 2098-06-15.
 
-389. FIXED 2026-10-06. THE DRAG COULD PLACE AN OP ON QUITTING TIME, AND QUITTING TIME HAS NO HOURS IN IT. Trey, after #387 and #388 had removed the save races: "it still snaps back, but ONLY when you drag it to 8am for the start and 5pm for the end. ONLY on those times though." Both ends of that are ONE event seen from each side, and he confirmed the prediction before the fix was built: "it lands on a day starting at 8am."
+389. FIXED 2026-10-06 — THE 5PM HALF ONLY. **CORRECTED 2026-10-06: "both ends of that are ONE event seen from each side" WAS WRONG.** This entry originally read Trey's "ONLY when you drag it to 8am for the start and 5pm for the end" as one defect observed from two directions. It was two defects. The 5pm half is this entry and is fixed and confirmed; the 8am half is a DIFFERENT bug with a different cause, and it survived this fix — Trey, after deploying it: "it still snaps back when dropping it at 8am for the start." It is logged as #390. Saying it plainly rather than rewriting the entry to look like it always said two: the unification was a guess that fitted the symptom, it was not measured, and the measurement that would have disproved it (sweeping pixel offsets at _origColOffset 0) was not run until #390.
+
+    THE 5PM DEFECT. The drag could place an op on quitting time, and quitting time has no hours in it. He confirmed the prediction before the fix was built: "it lands on a day starting at 8am."
 
     THE MECHANISM. `onM` derived the intra-day hour as `_colFrac = Math.min(0.9999, …)` and then `dropHour = Math.round((workStartH + _colFrac * totalWorkH) * 2) / 2`. THE CLAMP IS APPLIED TO THE FRACTION AND THE ROUNDING HAPPENS AFTER IT, so the rounding defeats the clamp. Measured across one column on Matrix's 08:00–17:00 day:
 
@@ -1712,3 +1714,25 @@ Everything else was read at the cited line. Nothing was run against live data.
     IS THIS #383? PROBABLY NOT, AND THE BRIDGE WAS TESTED RATHER THAN ARGUED. #383 is "a SECOND bar moves to the cursor when a drag is dropped". The candidate unification was that a rolled-over op renders a degenerate piece on the original day plus the real bar on the next one, which would read as two bars — #70 is literally "cursor-anchored head collapses to zero width". Ran `opDaySegments` for a 17:00 start and for a LEGAL 16:30 start: both produce two segments. The segment count does not discriminate, because any two-day op renders as two segments and that is ordinary. The directions also disagree: #389 moves the DRAGGED bar AWAY from the cursor, while #383 reports a bar ARRIVING at it. Recorded as likely separate, not proven separate; #383 remains uninvestigated.
 
     `npm run build` green, exit 0, 71 suites, all three shifted clocks.
+
+390. FIXED 2026-10-06. ONE ROUNDING, NOT TWO. A bar whose start hour IS the work-day start had a THREE-PIXEL landing zone with a one-day cliff on its left. Trey, after #389 shipped: "it still snaps back when dropping it at 8am for the start."
+
+    THE PATTERN, and it is the same lesson as #389 one layer in. The drag derived a DAY and an HOUR from ONE quantity using TWO DIFFERENT ROUNDINGS — `Math.floor(contVal)` for the day, `Math.round((workStartH + _colFrac * totalWorkH) * 2) / 2` for the hour. Two roundings of one value disagree at a boundary. `_origColOffset` is `max(0, startHour − workStartH) / totalWorkH`, which is **EXACTLY ZERO** for a bar that starts at the work-day start: its left edge sits on a column boundary with no cushion at all. Measured on a 120px column:
+
+        pxDx  -1  ->  day -1, 16:30      <-- PREVIOUS DAY
+        pxDx   0  ->  day  0, 08:00
+        pxDx   3  ->  day  0, 08:00
+
+    The band yielding "08:00, same day" was `pxDx 0 .. 3.25` — 2.7% of the column, and ONE-SIDED: it began at exactly 0. A leftward tremor on mouse-up, which is routine, relocated the op a full day backwards. A bar starting at 12:30 had no cliff at all (−6px → 12:00, +6px → 13:00, smooth and symmetric), which is why the symptom looked time-specific rather than geometry-specific and why it read as "only at 8am".
+
+    THE CODE HAD ALREADY FIXED HALF OF THIS AND SAID SO. Its comment: "Derive the intra-day hour offset from the SAME delta-based column value the day snap (dx) uses — NOT a separate absolute-cursor measurement. Using two different coordinate bases made the day and hour disagree by a sliver near column edges." The COORDINATE BASIS was unified; the two ROUNDINGS of that one value were left. The same defect, one layer down, under a comment describing the previous round of it.
+
+    THE FIX. `snapWorkHourPosition(hoursFromStart, cfg, step)` in `statsMath.js`: round the continuous position ONCE, then derive both the day offset and the hour from the result, with the hour put through `clampStartHour` so #389's dead-window rule still holds. 17:00 is now unreachable by construction, because `within` is already reduced modulo the day — #389's clamp is retained for configurations where a dead window covers the day's end (lunch at 16:00–17:00 makes 16:30 illegal too), not as the primary guard.
+
+    THE SWEEP, WHICH FOUND TWO MORE SITES. `_phiInv` in the dependency magnet carried the identical pair — `Math.floor(clock / totalWorkH)` for the day and `Math.round((workStartH + hrOff) * 2) / 2` for the hour — so a dependency boundary a hair below a day's start snapped to the PREVIOUS day at 17:00. That is exactly why #389 needed a choke point in front of the plan rather than a patch at one derivation site. The auto-scroll recompute (`dx2`) floored for the day while taking the hour from the live ref, a value snapped from a DIFFERENT `pxDx`, so during a scroll the two could describe different places. All three now go through the one helper, and the suite asserts the ABSENCE of the old pattern at each.
+
+    TESTED red-first, `scripts/column-snap-test.mjs`, 41 assertions, wired (72 suites). Four mutants, four caught: the helper flooring the raw position for the day while rounding for the hour (13 red), the half-hour snap removed (13), the drag flooring again (1), `_phiInv` restored to its own pair (2).
+
+    AND THE FIRST DRAFT OF THE SUITE MEASURED THE WRONG QUANTITY — worth recording, because it is LESSONS #11 in miniature and it happened inside the work that was applying it. The property was written as "monotonic, no day-sized jumps on the working-hours axis", and the RED PROOF CAME BACK GREEN: `(day −1, 17:00)` and `(day 0, 08:00)` are the SAME POINT on that axis. The axis was never discontinuous. What differs is the DATE — which is what gets stored and what Trey sees — and it only becomes visible once #389's clamp pulls 17:00 back to 16:30: the hour moves half an hour, the day cannot follow, and the landing settles a day early. The property is now CONSISTENCY — the day and the hour must both equal the one rounded position — with monotonicity asserted as a consequence rather than as the definition. The red proof also had to include #389's clamp to reproduce what was actually shipped when he retested.
+
+    `npm run build` green, exit 0, 72 suites, all three shifted clocks.

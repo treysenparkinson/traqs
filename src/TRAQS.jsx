@@ -28,7 +28,7 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
-import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
@@ -16645,7 +16645,12 @@ ${jobsCtx || "No jobs found."}`;
                           sx -= wholeDays * liveCW;
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
-                          const dx2 = Math.floor(pxDx2 / liveCW + _origColOffset);
+                          // #390, the same snap as the main path. This floored for the day
+                          // while taking the hour from the live ref — a value snapped from a
+                          // DIFFERENT pxDx — so during an auto-scroll the two could describe
+                          // different places. Both now come out of one rounding.
+                          const _snap2 = snapWorkHourPosition((pxDx2 / liveCW + _origColOffset) * totalWorkH, dayWindowCfg);
+                          const dx2 = _snap2.dayOffset;
                           let snapS2 = nextBD(addD(_dragBaseStart, dx2), barBDOpts);
                           // CRITICAL: the ghost AND the release-commit both read teamDragLiveRef.
                           // The original only updated teamDragInfo here, so the bar's date stayed
@@ -16685,7 +16690,17 @@ ${jobsCtx || "No jobs found."}`;
                       // the ghost; floor keeps day + hour consistent and lets the ghost glide cleanly.
                       // + _origColOffset accounts for the bar's own start-hour offset so the snapped
                       // day matches the column the bar's left edge (and the ghost) actually sits in.
-                      const dx = Math.floor(pxDx / liveCW + _origColOffset);
+                      // #390. ONE ROUNDING, and the day comes out of it. This used to be
+                      // `Math.floor(pxDx / liveCW + _origColOffset)` for the day with a
+                      // SEPARATE `Math.round(… * 2) / 2` for the hour below — two roundings
+                      // of one quantity, which disagree at a boundary. `_origColOffset` is
+                      // exactly 0 for a bar that starts at the work-day start, so such a bar
+                      // had no cushion: pxDx −1 landed on the PREVIOUS day at 16:30 while
+                      // pxDx 0 landed on 08:00. A leftward tremor on mouse-up moved the op a
+                      // full day backwards, which is what Trey saw as "it snaps back when
+                      // dropping it at 8am for the start".
+                      const _snap = snapWorkHourPosition((pxDx / liveCW + _origColOffset) * totalWorkH, dayWindowCfg);
+                      const dx = _snap.dayOffset;
                       let dropHour = null;
                       let snapS = nextBD(addD(_dragBaseStart, dx), barBDOpts);
                       if (tMode === "month" || tMode === "week") {
@@ -16698,14 +16713,13 @@ ${jobsCtx || "No jobs found."}`;
                         if (_weekendShifted) {
                           dropHour = workStartH; // bar starts at the snapped workday's beginning
                         } else {
-                          const _contVal = pxDx / liveCW + _origColOffset;
-                          const _colFrac = Math.min(0.9999, Math.max(0, _contVal - Math.floor(_contVal)));
-                          // Snap to the half hour. Continuous placement made the end of the
-                          // day unreachable in practice: at month zoom an hour is about 5px,
-                          // so landing exactly on 16:00 needed sub-pixel aim and every near
-                          // miss dribbled a few minutes into the next working day. Multi-drag
-                          // members already snapped this way; the dragged bar did not.
-                          dropHour = Math.round(Math.max(0, workStartH + _colFrac * totalWorkH) * 2) / 2;
+                          // The hour from the SAME snap the day came from (#390). Half-hour
+                          // snapping is kept for the reason it was added — continuous
+                          // placement made the end of the day unreachable, since at month
+                          // zoom an hour is about 5px and every near miss dribbled a few
+                          // minutes into the next working day — it is just no longer a
+                          // second, independent rounding of the value that chose the day.
+                          dropHour = _snap.hour;
                         }
                         // End-of-day magnet. The day's end is the end of every job whatever
                         // its size, so a drop that would finish within half an hour of
@@ -16738,10 +16752,16 @@ ${jobsCtx || "No jobs found."}`;
                           const bdDiff = d >= os ? diffBD(os, d, barBDOpts) : -diffBD(d, os, barBDOpts);
                           return bdDiff * totalWorkH + ((h ?? workStartH) - workStartH);
                         };
+                        // #390. The third site with the same two roundings — `Math.floor` by
+                        // totalWorkH for the day and `Math.round(… * 2) / 2` for the hour, of
+                        // the one `clock` value — so it carried the identical cliff: a
+                        // dependency boundary a hair below a day's start snapped to the
+                        // PREVIOUS day at 17:00, which has no work time in it. This is why
+                        // #389 needed a choke point in front of the plan rather than a patch
+                        // at one derivation site; now there is one snap and no site to miss.
                         const _phiInv = (clock) => {
-                          const bdOff = Math.floor(clock / totalWorkH);
-                          const hrOff = clock - bdOff * totalWorkH;
-                          return { day: addBD(os, bdOff, barBDOpts), hour: Math.round((workStartH + hrOff) * 2) / 2 };
+                          const s = snapWorkHourPosition(clock, dayWindowCfg);
+                          return { day: addBD(os, s.dayOffset, barBDOpts), hour: s.hour };
                         };
                         // Clock length on the dependency-snap axis, which counts working
                         // hours only — the walk's column span scaled back into hours.
