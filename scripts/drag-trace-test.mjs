@@ -105,7 +105,18 @@ console.log("\n3. EVERY POINT IS ON THE PATH — the failure #379's tracer had")
   // 5 and 6 — after the commit, which is where nothing has ever been watched.
   ok("5 one-tick-later is INSIDE onU", /dragTrace\("5 one tick later/.test(onU), true);
   ok("6 one-frame-later is INSIDE onU", /dragTrace\("6 one frame later/.test(onU), true);
-  ok("...and reads the RENDERER, not the state again", /getPersonBars\(_p\.id\)/.test(onU), true);
+  ok("...and reads the RENDERER, not the state again", /_find\(traceLiveBarsRef\.current/.test(onU), true);
+  // The distinction the first run of this point could not make: the mouseup
+  // closure's getPersonBars belongs to the render at MOUSEDOWN and closes over
+  // the pre-drag `tasks`, so calling it can only ever report pre-drag dates.
+  // Both are now called, and the trace says which is which.
+  ok("...calling BOTH the closure's and the live render's function",
+    /_find\(_barsAtGrab/.test(onU) && /_find\(traceLiveBarsRef\.current/.test(onU), true);
+  ok("...and reporting whether they are even the same function",
+    /closureFnIsLiveFn/.test(onU), true);
+  ok("...and whether they see the same tasks array", /closureTasksIsLiveTasks/.test(onU), true);
+  ok("the live render publishes its getPersonBars", /traceLiveBarsRef\.current = getPersonBars;/.test(CODE), true);
+  ok("...and the tasks it closed over", /traceRenderTasksRef\.current = tasks;/.test(CODE), true);
   ok("...gated, so a normal drag pays nothing", /if \(dragTraceOn\(\)\) \{/.test(onU), true);
 
   // 7 and 8 — the save, in doSaveOnce, which is the path every drag's save takes.

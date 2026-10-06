@@ -8965,6 +8965,15 @@ Extraction rules:
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
+  // TEMPORARY (#391 investigation). The LIVE render's getPersonBars and the
+  // `tasks` it closed over, refreshed every render. Point 6 of the drag trace
+  // called the getPersonBars captured in the mouseup closure — which is the
+  // PRE-DRAG render's — so it could only ever have reported pre-drag dates. That
+  // is a property of the instrument, not of the app, and these two refs are what
+  // tell the two apart. Remove with the trace.
+  const traceLiveBarsRef = useRef(null);
+  const traceRenderTasksRef = useRef(null);
+  const traceRenderNoRef = useRef(0);
   const isDraggingRef = useRef(false);
   const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
   const appTooltipTimer = useRef(null);
@@ -15183,6 +15192,13 @@ ${jobsCtx || "No jobs found."}`;
       }
       return bars;
     };
+    // TEMPORARY (#391 investigation). Publish THIS render's getPersonBars and the
+    // `tasks` it closed over, so the drag trace can call the live one rather than
+    // the one its mouseup closure captured before the drag began. Remove with the
+    // trace.
+    traceLiveBarsRef.current = getPersonBars;
+    traceRenderTasksRef.current = tasks;
+    traceRenderNoRef.current += 1;
     // Build flat row list with subtask expansion. Person rows always get pushed (with a
     // `hidden` flag when their dept is collapsed) so we can animate their height instead of
     // popping them in/out of the DOM.
@@ -16464,6 +16480,12 @@ ${jobsCtx || "No jobs found."}`;
                     // the flag, the path, or the build. (#391 investigation)
                     dragResetSeq();
                     dragTrackOp(bar.task?.id);
+                    // The `tasks` THIS render closed over, and this render's number.
+                    // Point 6 compares them against the live ones to say whether it is
+                    // reading a stale closure or the real renderer. (#391)
+                    const _tasksAtGrab = tasks;
+                    const _renderNoAtGrab = traceRenderNoRef.current;
+                    const _barsAtGrab = getPersonBars;
                     dragCrumb("mousedown", { op: String(bar.task?.id ?? ""), title: bar.task?.title || "", traceOn: dragTraceOn() });
                     dragTrace("1 mousedown — what is STORED for this op", {
                       ...dragOpRow(latestTasksRef.current, bar.task?.id),
@@ -16991,14 +17013,33 @@ ${jobsCtx || "No jobs found."}`;
                           dragOpRow(latestTasksRef.current, dragTrackedOp())), 0);
                         requestAnimationFrame(() => requestAnimationFrame(() => {
                           const _id = dragTrackedOp();
-                          let _drawn = null;
-                          try {
-                            for (const _p of people) {
-                              const _b = (getPersonBars(_p.id) || []).find(b => String(b.task?.id) === String(_id));
-                              if (_b) { _drawn = { personId: String(_p.id), start: _b.task?.start, end: _b.task?.end, startHour: _b.task?.startHour, barStart: _b.start, barEnd: _b.end }; break; }
-                            }
-                          } catch (err) { _drawn = { threw: String(err && err.message || err) }; }
-                          dragTrace("6 one frame later — what getPersonBars RENDERS", _drawn || { notDrawn: true, id: String(_id ?? "") });
+                          // WHICH getPersonBars, and over WHICH tasks. The first run of
+                          // this point reported pre-drag dates, and the obvious reading —
+                          // "the renderer is wrong" — is only one of two. The other is that
+                          // the point called the getPersonBars captured in THIS closure,
+                          // which belongs to the render at mousedown and closes over the
+                          // pre-drag `tasks`. Both are measured here rather than argued.
+                          const _find = (fn, who) => {
+                            try {
+                              if (typeof fn !== "function") return { [who]: "unavailable" };
+                              for (const _p of people) {
+                                const _b = (fn(_p.id) || []).find(b => String(b.task?.id) === String(_id));
+                                if (_b) return { personId: String(_p.id), start: _b.task?.start, end: _b.task?.end, startHour: _b.task?.startHour, barStart: _b.start, barEnd: _b.end };
+                              }
+                              return { notDrawn: true };
+                            } catch (err) { return { threw: String((err && err.message) || err) }; }
+                          };
+                          dragTrace("6 one frame later — WHICH getPersonBars, over WHICH tasks", {
+                            renderNoAtGrab: _renderNoAtGrab,
+                            renderNoNow: traceRenderNoRef.current,
+                            closureTasksIsLiveTasks: _tasksAtGrab === traceRenderTasksRef.current,
+                            closureFnIsLiveFn: _barsAtGrab === traceLiveBarsRef.current,
+                            opInClosureTasks: dragOpRow(_tasksAtGrab, _id),
+                            opInLiveRenderTasks: dragOpRow(traceRenderTasksRef.current, _id),
+                            opInLatestRef: dragOpRow(latestTasksRef.current, _id),
+                            barsFromClosureFn: _find(_barsAtGrab, "closure"),
+                            barsFromLiveFn: _find(traceLiveBarsRef.current, "live"),
+                          });
                         }));
                       }
                     };
