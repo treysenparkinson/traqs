@@ -206,7 +206,6 @@ export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule", d
     fromEndHour: m.from.endHour, toEndHour: m.to.endHour,
     ...(m.reassigned ? { fromTeam: m.from.team, toTeam: m.to.team } : {}),
     ...(m.to.hpd != null ? { fromHpd: m.from.hpd ?? null, toHpd: m.to.hpd } : {}),
-    ...(m.to.status != null ? { fromStatus: m.from.status ?? null, toStatus: m.to.status } : {}),
     // THE REPLACED SET, and this is the whole difference from #341 (#427). That
     // one wrote a guess into the data and left nowhere to look afterwards; a
     // department rewritten by a gesture is recoverable because the gesture said
@@ -276,14 +275,11 @@ export function applyDragMove(tasks, movers, { date, movedBy, reason, people = n
       start: m.to.start, end: m.to.end, startHour: m.to.startHour, endHour: m.to.endHour,
       ...(m.reassigned ? { team: m.to.team } : {}),
       ...(m.to.hpd != null ? { hpd: m.to.hpd } : {}),
-      // STATUS RIDES WITH THE PLAN when a caller sets it (#414), the same way
-      // hpd does above. Only the pending tray does: placing a brand-new op out
-      // of the tray promotes "Not Started" to "Pending". Carried HERE rather
-      // than written in a second setTasks beside the commit, so a placement
-      // stays one write, one undo frame and one moveLog entry. Absent from
-      // `from`, so every other caller leaves `to.status` undefined and the
-      // node's own status is untouched.
-      ...(m.to.status != null ? { status: m.to.status } : {}),
+      // NO STATUS. A passthrough lived here for one release (#414) so the
+      // pending tray could promote "Not Started" to "Pending" inside the plan.
+      // #437 ruled the promotion away, which left this reachable by nothing —
+      // and a parameter no caller can set is #419's stranded control wearing a
+      // different hat. MOVING WORK IS NOT A STATUS CHANGE, in any caller.
       // THE UNIT THAT MOVED, and only it. Its panel and job keep what they said,
       // which is right for the gesture and is also how a panel and its ops begin
       // to disagree — see #426, where the picker is the thing that should change.

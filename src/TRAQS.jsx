@@ -9227,13 +9227,7 @@ Extraction rules:
   // ACCEPTED CONSEQUENCE, ruled 2026-10-06: typing a date that overlaps is now
   // REFUSED where it used to succeed silently. A quieter path is the defect.
   const commitDates = (op, next) => {
-    // `status` joins `from` ONLY when the caller is setting one (#414, the
-    // pending tray). Putting it there unconditionally would make `to.status`
-    // always defined, so every date typed on the Jobs list would rewrite the
-    // status with itself and log a fromStatus/toStatus pair that reads like a
-    // change nobody made.
-    const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [],
-      ...(next && next.status != null ? { status: op.status ?? null } : {}) };
+    const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] };
     const to = { ...from, ...next };
     const movedBy = loggedInUser?.name || "Admin";
     // A drop that sets WHO as well as WHEN is a reassignment too — `placeTaskAt`
@@ -10647,15 +10641,19 @@ Extraction rules:
     const daysNeeded = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
     const start = dayStr;
     const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
-    // Placing a brand-new op out of the tray promotes it to "Pending". Carried
-    // in the plan so it is one write and one log entry, and guarded on the org's
-    // own list because `statusOpts` is user-editable and an org that removed
-    // "Pending" would otherwise get a status its own dropdown cannot show (#437).
-    const promoted = (node.status || "Not Started") === "Not Started" && STATUSES.includes("Pending");
+    // NO STATUS (#437, ruled 2026-10-07). This used to promote "Not Started" to
+    // "Pending", and nothing else in the product did. Placing a card says WHEN
+    // the work happens and WHO does it; it says nothing about whether it has
+    // begun, and every other placement path already behaved that way.
+    //
+    // The three nodes carrying "Pending" on Matrix were measured before the
+    // ruling and none of them is evidence for it: TWO ARE PANELS, which the old
+    // tray could never have promoted — its panel branch wrote only start, end
+    // and team — and the third carries 53 logged hours while still saying
+    // Pending, which is a stale hand-set label rather than a placement.
     if (commitDates(node, {
       start, end,
       team: withPerson(node.team, personId),
-      ...(promoted ? { status: "Pending" } : {}),
     }) === false) return;
     setPendingScheduleItems(prev => prev.filter(i => i.id !== itemId));
   };

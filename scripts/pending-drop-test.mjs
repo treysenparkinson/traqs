@@ -235,70 +235,88 @@ console.log("\n4. THE CARD REMOVAL IS GATED ON THE COMMIT (#434's lesson again)"
     (HANDLER.match(/setPendingScheduleItems\(/g) || []).length, 1);
 }
 
-console.log("\n5. STATUS IS CARRIED BY THE PLAN, NOT WRITTEN BESIDE IT");
+console.log("\n5. #437 — PLACING WORK IS NOT A STATUS CHANGE");
 {
-  // KEPT ON PURPOSE. Measured: only 3 of 230 nodes are "Pending" while 181 of
-  // 226 DATED nodes are still "Not Started", so placement does not imply Pending
-  // anywhere else in this product. That makes the tray an outlier — but removing
-  // an outlier is a product decision, and this pass is a consolidation. It is
-  // preserved, and recorded as #437 for a ruling of its own.
+  // THE RULE, not the previous rule with its answer flipped (R3). It used to be
+  // "the tray's promotion is preserved because removing it is a product decision
+  // and #414 was a consolidation." That decision has now been made, so the rule
+  // this section holds is a different sentence: **dropping a card on the
+  // schedule says WHEN the work happens and WHO does it, and says nothing about
+  // whether it has begun.** Every other placement path already behaved that way;
+  // the tray was the only one that did not.
+  //
+  // MEASURED: 3 of 230 nodes carry "Pending", and two of the three are PANELS,
+  // which the old tray could never have promoted — its panel branch wrote only
+  // start/end/team. The third carries 53 logged hours while still saying
+  // Pending, which is a stale hand-set label. So the status the tray wrote is
+  // not visible anywhere on the board.
   const op = { id: "o1", title: "Op", start: "", end: "", team: [], status: "Not Started" };
   const t = [{ id: "j1", title: "J", subs: [{ id: "p1", title: "P", subs: [op] }] }];
-  const m = mover(op, { start: "2026-10-01", end: "2026-10-01", team: ["wire1"], status: "Pending" });
+
+  ok("the handler writes no status at all", /status/.test(HANDLER), false);
+  ok("...and names no status to write", /"Pending"/.test(HANDLER), false);
+  ok("...and no longer consults the org's status list for one",
+    /STATUSES\.includes\(/.test(HANDLER), false);
+
+  // THE PASSTHROUGH IS GONE TOO, not merely unused. It existed for exactly one
+  // caller and that caller is this one; leaving it would be a parameter nothing
+  // can reach, which is #419's stranded control in a different file.
+  const m = mover(op, { start: "2026-10-01", end: "2026-10-01", team: ["wire1"] });
   const after = D.applyDragMove(t, m, { date: "d", movedBy: "m", people: PEOPLE })[0].subs[0].subs[0];
-  ok("the plan carries status through to the node", after.status, "Pending");
-  ok("...and the dates landed with it", [after.start, after.end], ["2026-10-01", "2026-10-01"]);
-  ok("...and the crew", after.team, ["wire1"]);
+  ok("a placement still lands its dates", [after.start, after.end], ["2026-10-01", "2026-10-01"]);
+  ok("...and its crew", after.team, ["wire1"]);
+  ok("...and leaves the status exactly as it was", after.status, "Not Started");
 
-  // No status in the plan must leave the node's own status alone — every other
-  // caller passes no status at all, and `to.status` is undefined for them.
-  const m2 = mover({ ...op, status: "In Progress" }, { start: "2026-10-02", end: "2026-10-02" });
-  const after2 = D.applyDragMove(
-    [{ id: "j1", title: "J", subs: [{ id: "p1", title: "P", subs: [{ ...op, status: "In Progress" }] }] }],
-    m2, { date: "d", movedBy: "m", people: PEOPLE })[0].subs[0].subs[0];
-  ok("a plan with no status does not blank the node's status", after2.status, "In Progress");
-
-  // It lands in the moveLog, like hpd and the departments do.
-  const log = after.moveLog[after.moveLog.length - 1];
-  ok("the status change is recorded in the moveLog",
-    [log.fromStatus, log.toStatus], ["Not Started", "Pending"]);
-  const log2 = after2.moveLog[after2.moveLog.length - 1];
-  ok("...and is ABSENT when nothing set it, so the log does not read like a change",
-    "toStatus" in log2, false);
-
-  ok("the handler only promotes a Not Started node",
-    /"Not Started"/.test(HANDLER), true);
-  ok("...and only to a status the org actually has, since statusOpts is editable",
-    /STATUSES\.includes\(/.test(HANDLER), true);
+  // Even a plan that explicitly carries a status must not move one, or the
+  // removal is an omission at the call site rather than a rule in the code.
+  const forced = [{ id: String(op.id), node: op, reassigned: true,
+    from: { start: "", end: "", startHour: null, endHour: null, team: [], status: "Not Started" },
+    to: { start: "2026-10-01", end: "2026-10-01", startHour: null, endHour: null, team: ["wire1"], status: "Pending" } }];
+  const forcedAfter = D.applyDragMove(t, forced, { date: "d", movedBy: "m", people: PEOPLE })[0].subs[0].subs[0];
+  ok("a plan carrying a status cannot change one", forcedAfter.status, "Not Started");
+  ok("...and the moveLog does not invent a status change either",
+    "toStatus" in forcedAfter.moveLog[forcedAfter.moveLog.length - 1], false);
+  ok("applyDragMove has no status branch left", /m\.to\.status/.test(read("../src/dragMove.js")), false);
 }
 
-console.log("\n5b. THE STATUS WIRING, not just its ingredients");
+console.log("\n5b. THE PLACEMENT STILL DOES EVERYTHING ELSE");
 {
-  // BOTH ASSERTIONS ABOVE SURVIVED MUTATION. Deleting the status from the commit
-  // call left them green, because `promoted` was still COMPUTED — an unused
-  // variable keeps every ingredient in the file. Checking that a thing is
-  // mentioned is not checking that it is connected.
+  // Removing one field from a commit call is an easy way to remove two. These
+  // pin what must survive, so the status going is a subtraction of exactly one
+  // thing rather than of whatever was next to it.
   const call = (() => {
     const at = HANDLER.indexOf("commitDates(");
     const end = HANDLER.indexOf("=== false", at);
     return at < 0 || end < 0 ? "" : HANDLER.slice(at, end);
   })();
   ok("the commit call was found", call.length > 0, true);
-  ok("...and `promoted` is passed INTO it, not merely computed above it",
-    /promoted\s*\?\s*\{\s*status:\s*"Pending"\s*\}/.test(call), true);
-  ok("...alongside the dates", /start,\s*end/.test(call), true);
-  ok("...and the crew", /team:\s*withPerson\(/.test(call), true);
+  ok("...it still carries the dates", /start,\s*end/.test(call), true);
+  ok("...and the crew, as a union", /team:\s*withPerson\(/.test(call), true);
+  ok("...and nothing else", /status/.test(call), false);
 
-  // `mover` at the top of this file is a COPY of commitDates, so a mutation to
-  // the real one cannot reach it — which is exactly what mutation testing found.
-  // The conditional that keeps `status` off `from` for every other caller is
-  // asserted HERE, against the source, where the copy cannot stand in for it.
+  // `commitDates` is handed back its original `from`: no caller sets a status
+  // now, so the conditional that existed to let one do it is gone with it.
   const cd = CODE.slice(CODE.indexOf("const commitDates = "), CODE.indexOf("const selectableOpIdsOf"));
   ok("commitDates was found", cd.length > 0, true);
-  ok("status joins `from` only when the caller is setting one",
-    /next && next\.status != null \? \{ status: op\.status \?\? null \}/.test(cd), true);
-  ok("...and never unconditionally, or every date typed on the Jobs list logs a status change",
-    /team: op\.team \|\| \[\],\s*status:/.test(cd), false);
+  ok("...and no longer puts status on `from`", /status/.test(cd), false);
+  // `/teamChanged/` alone let a mutant that deleted `reassigned` from the plan
+  // survive: the variable is still COMPUTED, so the name is still in the file.
+  // Third time this exact looseness has been caught by mutation in three
+  // sessions, so it is pinned to the whole expression.
+  ok("...while still putting `reassigned` INTO the plan, not just computing it",
+    /\.\.\.\(teamChanged \? \{ reassigned: true \} : \{\}\)/.test(cd), true);
+  // And the contract that makes it matter: without the flag the crew is not
+  // written, so a dropped `reassigned` silently discards the assignment.
+  const noFlag = [{ id: "o1", node: { id: "o1", team: ["cut1"] },
+    from: { start: "", end: "", startHour: null, endHour: null, team: ["cut1"] },
+    to: { start: "2026-10-01", end: "2026-10-01", startHour: null, endHour: null, team: ["wire1"] } }];
+  const t2 = [{ id: "j1", title: "J", subs: [{ id: "p1", title: "P", subs: [{ id: "o1", team: ["cut1"] }] }] }];
+  ok("a plan without `reassigned` does not move the crew",
+    D.applyDragMove(t2, noFlag, { date: "d", movedBy: "m", people: PEOPLE })[0].subs[0].subs[0].team, ["cut1"]);
+
+  // moveLogEntry too — a log field nothing can write is a column of nulls.
+  const dm = read("../src/dragMove.js");
+  ok("the moveLog has no status columns", /fromStatus|toStatus/.test(dm), false);
 }
 
 console.log("\n6. THE FIVE GAPS THE ROUTING CLOSES");
