@@ -134,17 +134,17 @@ class ApiService(private val token: String, private val orgCode: String) {
     suspend fun fetchOrgSettings(): OrgSettings = api.fetchOrgSettings()
 
     // MARK: - Timeclock history
-    suspend fun fetchTimeclock(personId: Int? = null): List<TimeclockEntry> =
+    suspend fun fetchTimeclock(personId: String? = null): List<TimeclockEntry> =
         api.fetchTimeclock(personId?.toString())
 
     // MARK: - Person PATCH (granular field updates — avoids savePeople race)
-    suspend fun patchPerson(personId: Int, fields: Map<String, Any>) {
+    suspend fun patchPerson(personId: String, fields: Map<String, Any>) {
         api.patchPerson(mapOf("personId" to personId, "fields" to fields))
     }
 
     // MARK: - Job Clock (Bearer-only, no PIN — uses currentPersonId)
     suspend fun jobClockIn(
-        personId: Int, jobId: String,
+        personId: String, jobId: String,
         panelId: String? = null, opId: String? = null,
         jobTitle: String? = null, panelTitle: String? = null, opTitle: String? = null
     ) {
@@ -161,12 +161,12 @@ class ApiService(private val token: String, private val orgCode: String) {
         api.timeclockAction(body)
     }
 
-    suspend fun jobClockOut(personId: Int) {
+    suspend fun jobClockOut(personId: String) {
         api.timeclockAction(mapOf("action" to "jobClockOut", "personId" to personId))
     }
 
     // MARK: - Break (Bearer-only, lightweight status — job clock keeps running)
-    suspend fun breakBegin(personId: Int, durationMinutes: Int) {
+    suspend fun breakBegin(personId: String, durationMinutes: Int) {
         api.timeclockAction(mapOf(
             "action" to "breakBegin",
             "personId" to personId,
@@ -174,7 +174,7 @@ class ApiService(private val token: String, private val orgCode: String) {
         ))
     }
 
-    suspend fun breakEnd(personId: Int) {
+    suspend fun breakEnd(personId: String) {
         // Server action is "breakClear" — distinct from the PIN-kiosk "breakEnd".
         api.timeclockAction(mapOf("action" to "breakClear", "personId" to personId))
     }

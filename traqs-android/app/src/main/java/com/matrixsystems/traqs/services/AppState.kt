@@ -129,7 +129,7 @@ class AppState(private val context: Context) : ViewModel() {
 
     // MARK: - Auth / Org
     var matchEmail: String? = null
-    var currentPersonId: Int? = null
+    var currentPersonId: String? = null
         private set
 
     private val _orgCode = MutableStateFlow(SecureStorage.load(context, SecureStorage.KEY_ORG_CODE) ?: "")
@@ -228,7 +228,7 @@ class AppState(private val context: Context) : ViewModel() {
         if (fresh.isNotEmpty() || _jobs.value.isEmpty()) _jobs.value = fresh
     }
 
-    fun refreshTimeclock(personId: Int? = null) {
+    fun refreshTimeclock(personId: String? = null) {
         viewModelScope.launch {
             runCatching { api?.fetchTimeclock(personId) }.getOrNull()?.let {
                 _timeclockEntries.value = it
@@ -295,7 +295,7 @@ class AppState(private val context: Context) : ViewModel() {
 
     // MARK: - Engineering Sign-Off
 
-    fun signOff(jobId: String, panelId: String, step: EngStep, personId: Int, personName: String) {
+    fun signOff(jobId: String, panelId: String, step: EngStep, personId: String, personName: String) {
         val jobList = _jobs.value.toMutableList()
         val jobIdx = jobList.indexOfFirst { it.id == jobId }
         if (jobIdx < 0) return
@@ -440,7 +440,7 @@ class AppState(private val context: Context) : ViewModel() {
 
     fun clientForJob(job: TRAQSJob): Client? = job.clientId?.let { id -> _clients.value.firstOrNull { it.id == id } }
 
-    fun person(id: Int): Person? = _people.value.firstOrNull { it.id == id }
+    fun person(id: String): Person? = _people.value.firstOrNull { it.id == id }
 
     // MARK: - AI
 
@@ -484,7 +484,7 @@ class AppState(private val context: Context) : ViewModel() {
     val myActiveBreak: ActiveBreak? get() = currentPerson?.activeBreak
     val isOnBreak: Boolean get() = myActiveBreak != null
 
-    private fun setLocalPersonMutation(personId: Int, mutate: (Person) -> Person) {
+    private fun setLocalPersonMutation(personId: String, mutate: (Person) -> Person) {
         val list = _people.value
         val idx = list.indexOfFirst { it.id == personId }
         if (idx < 0) return

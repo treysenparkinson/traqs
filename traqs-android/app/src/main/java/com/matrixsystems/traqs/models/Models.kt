@@ -71,7 +71,7 @@ data class Operation(
     val end: String = "",
     val status: JobStatus = JobStatus.NOT_STARTED,
     val pri: Priority = Priority.MEDIUM,
-    val team: List<Int> = emptyList(),
+    val team: List<String> = emptyList(),
     val hpd: Double = 7.5,
     val notes: String = "",
     val deps: List<String> = emptyList(),
@@ -91,7 +91,7 @@ data class Panel(
     val end: String = "",
     val status: JobStatus = JobStatus.NOT_STARTED,
     val pri: Priority = Priority.MEDIUM,
-    val team: List<Int> = emptyList(),
+    val team: List<String> = emptyList(),
     val hpd: Double = 7.5,
     val notes: String = "",
     val deps: List<String> = emptyList(),
@@ -111,7 +111,7 @@ data class TRAQSJob(
     val dueDate: String? = null,
     val status: JobStatus = JobStatus.NOT_STARTED,
     val pri: Priority = Priority.MEDIUM,
-    val team: List<Int> = emptyList(),
+    val team: List<String> = emptyList(),
     val color: String = "#3d7fff",
     val hpd: Double = 7.5,
     val notes: String = "",
@@ -218,8 +218,18 @@ data class TimeOffEntry(
 
 // MARK: - Person
 
+// A PERSON ID IS A STRING (#442). This was `Int`, and `SafeIntDeserializer`
+// turns an unparseable id into 0 rather than throwing — so sixteen of Matrix's
+// eighteen people decoded to the SAME id. TeamScreen's delete is
+// `filter { it.id != person.id }`, which with sixteen zeros removes sixteen
+// people, and `reconcileDeletions` then tombstones every one of them.
+//
+// `Int` cannot represent the id format this product uses — ids are `uid()`
+// tokens like `t0gnvtljt`, with only two legacy numeric ones — so it was wrong
+// independently of the collapse. `team` holds person ids too and collapsed the
+// same way; it is `List<String>` for the same reason.
 data class Person(
-    val id: Int = 0,
+    val id: String = "",
     val name: String = "Unknown",
     val role: String = "",
     val email: String = "",
@@ -275,7 +285,7 @@ data class Message(
     val authorId: Int = 0,
     val authorName: String = "",
     val authorColor: String = "#3d7fff",
-    val participantIds: List<Int> = emptyList(),
+    val participantIds: List<String> = emptyList(),
     val attachments: List<Attachment> = emptyList(),
     val timestamp: String = ""
 )
@@ -285,7 +295,7 @@ data class Message(
 data class ChatGroup(
     val id: String = "",
     val name: String = "",
-    val memberIds: List<Int> = emptyList()
+    val memberIds: List<String> = emptyList()
 )
 
 // MARK: - Notification Payload
@@ -296,8 +306,8 @@ data class NotifyPayload(
     val jobNumber: String? = null,
     val panelTitle: String = "",
     val stepLabel: String = "",
-    val jobTeamIds: List<Int> = emptyList(),
-    val newTeamIds: List<Int> = emptyList(),
+    val jobTeamIds: List<String> = emptyList(),
+    val newTeamIds: List<String> = emptyList(),
     val clientName: String? = null
 )
 

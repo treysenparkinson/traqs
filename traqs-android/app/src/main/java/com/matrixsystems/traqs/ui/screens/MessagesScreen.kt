@@ -79,7 +79,11 @@ fun MessagesScreen(
     fun displayTitle(key: String, lastMsg: Message?): String {
         return when {
             key.startsWith("dm:") -> {
-                val ids = key.removePrefix("dm:").split("_").mapNotNull { it.toIntOrNull() }
+                // #442: the halves of a DM key are PERSON IDS, and ids are tokens like
+                // `t0gnvtljt`. `toIntOrNull` dropped every one of them, so a DM thread
+                // with anyone but the two legacy numeric accounts resolved to no person
+                // and fell through to the literal "Direct Message".
+                val ids = key.removePrefix("dm:").split("_").filter { it.isNotBlank() }
                 val otherId = ids.firstOrNull { it != currentPersonId } ?: ids.firstOrNull()
                 people.firstOrNull { it.id == otherId }?.name ?: "Direct Message"
             }

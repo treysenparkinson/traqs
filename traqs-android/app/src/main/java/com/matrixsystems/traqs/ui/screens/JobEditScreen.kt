@@ -53,7 +53,7 @@ fun JobEditScreen(
     var notes by remember { mutableStateOf(job?.notes ?: "") }
     var selectedClientId by remember { mutableStateOf(job?.clientId) }
     var selectedColor by remember { mutableStateOf(job?.color ?: "#3d7fff") }
-    var selectedTeam by remember { mutableStateOf(job?.team ?: emptyList<Int>()) }
+    var selectedTeam by remember { mutableStateOf(job?.team ?: emptyList<String>()) }
 
     var statusExpanded by remember { mutableStateOf(false) }
     var priorityExpanded by remember { mutableStateOf(false) }

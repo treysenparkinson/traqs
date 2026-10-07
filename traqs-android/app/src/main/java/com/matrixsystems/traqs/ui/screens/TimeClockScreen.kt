@@ -150,7 +150,7 @@ private fun computeLiveRunningHours(jc: ActiveJobClock?, now: Long): Double {
 // Weekly hours = sum of loggedHours on jobs the current user is on + live running.
 private fun computeWeekHours(
     jobs: List<TRAQSJob>,
-    currentPersonId: Int?,
+    currentPersonId: String?,
     liveRunningHours: Double
 ): Double {
     val totalLogged = jobs.fold(0.0) { acc, job ->
