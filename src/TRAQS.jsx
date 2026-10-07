@@ -26862,10 +26862,17 @@ ${jobsCtx || "No jobs found."}`;
          const failed = !!saveError;
          const busy = !failed && saveStatus !== "saved";
          const label = failed ? "Save failed — click to retry" : busy ? "Saving…" : "Saved";
+          // THE SAME BOX AS A NAV BUTTON, so the hover highlight is the same
+          // shape. It was 28x28 with NO borderRadius, and the shared button glow
+          // follows the border radius -- so this one mark drew a SQUARE highlight
+          // directly below a column of rounded squares. Through the RAIL_NAV_*
+          // tokens rather than repeating 48/16, so the nav and the save mark
+          // cannot drift apart. The icon stays 18px: this is about the highlight,
+          // not about making the tick bigger.
          return (
            <button className="tq-rail-save" onClick={() => doSave()} aria-label={label}
-             onMouseEnter={e => tipFor(label, e.currentTarget)} onMouseLeave={railTipOff}
-             style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 0, flexShrink: 0 }}>
+             onMouseEnter={hoverIn(label)} onMouseLeave={hoverOut()}
+             style={{ width: RAIL_NAV_BTN, height: RAIL_NAV_BTN, borderRadius: RAIL_NAV_R, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 0, flexShrink: 0 }}>
              {failed
                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="3" strokeLinecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
                : busy

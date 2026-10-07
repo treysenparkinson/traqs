@@ -244,6 +244,24 @@ check("the save state sits above the bell", () => {
   const at = FOOT.indexOf('className="tq-rail-save"'), bell = FOOT.indexOf("ref={notifRef}");
   return (at > 0 && at < bell && /saveError/.test(FOOT.slice(0, at)) && /saveStatus/.test(FOOT.slice(0, at))) || `save ${at}, bell ${bell}`;
 });
+// The save mark's HIGHLIGHT must be the nav's highlight. It was a 28px box with
+// NO borderRadius, so the shared button glow (box-shadow follows the radius)
+// painted a square against the rounded squares above it. Asserted through the
+// same tokens rather than by repeating 48/16, so the two cannot drift apart.
+{
+  const saveAt = FOOT.indexOf('className="tq-rail-save"');
+  const saveBtn = saveAt < 0 ? "" : FOOT.slice(saveAt, saveAt + 700);
+  check("the save button was found", () => saveBtn.length > 200 || "no tq-rail-save button");
+  check("the save mark's box is the nav button's box", () =>
+    /width: RAIL_NAV_BTN, height: RAIL_NAV_BTN/.test(saveBtn) || "save button is not RAIL_NAV_BTN square");
+  check("...and its corner is the nav button's corner", () =>
+    /borderRadius: RAIL_NAV_R/.test(saveBtn) || "save button has no RAIL_NAV_R");
+  check("...with no literal size or radius left to drift", () =>
+    (!/width: 28, height: 28/.test(saveBtn) && !/borderRadius: (16|"50%")/.test(saveBtn)) || "a literal size/radius survives");
+  check("...and it highlights on hover the way the nav does", () =>
+    /onMouseEnter=\{hoverIn\(label\)\}/.test(saveBtn) || "save button does not use the rail's hoverIn");
+  check("...while keeping its own icon size", () => /width="18" height="18"/.test(saveBtn) || "icon is no longer 18px");
+}
 check("undo is wired to a button only in titleActions", () => count(/onClick=\{undo\}/g) === 1 || `${count(/onClick=\{undo\}/g)} undo buttons`);
 const H1 = [...SRC.matchAll(/<h1 style=\{(pageTitle\(\)|pageTitleStyle|\{ \.\.\.pageTitleStyle[^}]*\})\}>/g)];
 check("page titles found (count guard)", () => H1.length >= 10 || `${H1.length} page titles`);
