@@ -20,7 +20,15 @@ console.log("\n1. The department pickers are multi-select");
   // It MUST stay open on a toggle. Closing after each pick is what makes a
   // multi-select feel broken — you reopen it for the second choice and most
   // people conclude it is still single-select.
-  const comp = J.slice(J.indexOf("function MultiDrop("), J.indexOf("function MultiDrop(") + 3600);
+  // Sliced to the NEXT FUNCTION rather than a fixed 3600 characters. #426 added
+  // the clear row and the limitation line, which pushed `onToggle(r)` past that
+  // window and turned a still-true assertion red for a reason that had nothing
+  // to do with it. A magic width is a slice that expires.
+  const comp = (() => {
+    const at = J.indexOf("function MultiDrop(");
+    const end = J.indexOf("function AssigneeDrop(", at);
+    return at < 0 ? "" : J.slice(at, end > at ? end : at + 3600);
+  })();
   ok("...which stays open when an option is toggled", /onClick=\{\(\) => onToggle\(r\)\}/.test(comp), true);
   ok("...and never closes itself on pick", /onToggle\(r\); setOpen\(false\)/.test(comp), false);
   // Empty reads "Anyone", not "none": empty IS the canonical way to say anyone,
@@ -32,9 +40,18 @@ console.log("\n1. The department pickers are multi-select");
   // "set the department" — departments are exactly the field where three copies
   // produced four disagreeing readers.
   ok("there is one toggle helper", (J.match(/const toggleDept = /g) || []).length, 1);
-  ok("the op-level picker uses MultiDrop", /<MultiDrop values=\{unitDepartments\(op, null, null\)\}/.test(J), true);
-  ok("...the panel picker toggles through it", /updatePanel\(toggleDept\(panel,r\)\)/.test(J), true);
-  ok("...and the sub picker too", /updateSub\(toggleDept\(sub,r\)\)/.test(J), true);
+  // RE-ANCHORED 2026-10-07 by #426. These pinned `unitDepartments(op, null, null)`
+  // and `toggleDept(panel,r)` — the exact spellings that WERE the defect: passing
+  // null ancestors is what made a picker unable to see an inherited department.
+  // The intent is unchanged and is what still matters (one shared control, one
+  // shared helper, every picker going through them); only the shape it is
+  // asserted against has moved, so this is the same rule re-anchored rather than
+  // a rule whose answer was flipped (R3).
+  ok("the op-level picker uses MultiDrop", /<MultiDrop values=\{resolveDepartments\(op, panel, ej\)\.depts\}/.test(J), true);
+  ok("...and resolves against its ancestors, not null, null",
+    /<MultiDrop values=\{[^}]*\(op, null, null\)/.test(J), false);
+  ok("...the panel picker toggles through it", /updatePanel\(toggleDept\(panel,r,null,ed\)\)/.test(J), true);
+  ok("...and the sub picker too", /updateSub\(toggleDept\(sub,r,panel,ed\)\)/.test(J), true);
   // No single-value writer may survive, or one picker silently overwrites a set.
   ok("no picker writes a bare requiredDepartment string",
     /updatePanel\(\{requiredDepartment:|updateSub\(\{requiredDepartment:/.test(J), false);

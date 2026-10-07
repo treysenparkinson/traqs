@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
+import { personDeptMatch, unitDepartment, unitDepartments, resolveDepartments, departmentsAfterToggle, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
 import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
@@ -3599,7 +3599,61 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
 //   - the empty state reads "Anyone", not "none". Empty IS the canonical way to
 //     say anyone, and labelling it "none" would describe the same data as a
 //     restriction.
-function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact = false }) {
+// `inheritedFrom` is `resolveDepartments(...).from` — "own" | "panel" | "job" |
+// "none" (#426). WITHOUT IT THE CONTROL CANNOT TELL TWO DIFFERENT STATES APART,
+// because both arrive as an empty own-set: a node nobody constrains, and a node
+// its parent constrains. It drew them the same and said "Anyone" for both, which
+// is true of one and an outright falsehood about the other.
+//
+// `onClearToInherit` returns the node to following its parent. It is a separate
+// verb from unticking, for the same reason #430 split delete-the-column from
+// hide-it: unticking the last box and "use the operation's department" happen to
+// produce the same bytes today, but they are different intentions and only one
+// of them is sayable out loud.
+// ONE DEFINITION OF EACH, used by all three department pickers (#426/#439).
+//
+// The wording IS the deliverable for #439 — it is what stops someone discovering
+// by experiment that "anyone" cannot be said here — so it lives in one place
+// rather than being written out at three call sites. This field is the one that
+// already produced four disagreeing readers (#289) and two surfaces that gave
+// different wrong answers for one state; a third copy of a sentence is how that
+// happens again.
+//
+// `parent` is `resolveDepartments(null, <panel>, <job>)` — what the node would
+// fall back to. Both render nothing when there is nothing above, which is also
+// exactly when `[]` DOES mean anyone and both would be lies.
+function deptInheritable(parent) {
+  return !!parent && parent.from !== "none" && (parent.depts || []).length > 0;
+}
+function deptParentWord(parent) {
+  return parent && parent.from === "job" ? "job" : "operation";
+}
+/** "Use the operation's department (Admin)" — the explicit clear-to-inherit verb. */
+function DeptClearRow({ parent, isOwn, onClear }) {
+  if (!onClear || !isOwn || !deptInheritable(parent)) return null;
+  return <div onClick={() => onClear()}
+    style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", borderBottom: `1px solid ${T.border}` }}
+    onMouseEnter={e => e.currentTarget.style.background = T.hover}
+    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 14 4 9 9 4" /><path d="M20 20v-7a4 4 0 0 0-4-4H4" /></svg>
+    <span style={{ fontSize: 13, color: T.textSec, fontFamily: T.font }}>Use the {deptParentWord(parent)}&apos;s department ({(parent.depts || []).join(" or ")})</span>
+  </div>;
+}
+/** #439. What unticking everything will do, and what cannot be done at all. */
+function DeptInheritNote({ parent }) {
+  if (!deptInheritable(parent)) return null;
+  const w = deptParentWord(parent);
+  return <div style={{ padding: "8px 14px", borderTop: `1px solid ${T.border}`, fontSize: 11, lineHeight: 1.45, color: T.textDim, fontFamily: T.font }}>
+    Untick everything and this follows the {w} ({(parent.depts || []).join(" or ")}).
+    {" "}It can&apos;t be opened to anyone while the {w} names one.
+  </div>;
+}
+
+// `parent` is what this node WOULD resolve to if its own set were cleared:
+// `{ from, depts }`. It cannot be derived from `inheritedFrom`, because the one
+// state that needs it most — the node is overriding — reports "own" and says
+// nothing about what is underneath.
+function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact = false, inheritedFrom = "own", parent = null, onClearToInherit = null }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -3611,16 +3665,29 @@ function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact =
     return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
   }, [open]);
   const sel = Array.isArray(values) ? values.filter(Boolean) : [];
+  // The UI's nouns come from `deptParentWord`, the same helper the clear row and
+  // the limitation line use. This had its own copy of the mapping for one
+  // revision, which is the duplication this whole entry is about.
+  const parentWord = deptParentWord({ from: inheritedFrom });
+  const inherited = inheritedFrom === "panel" || inheritedFrom === "job";
   // "Wire or Cut" — the same word the rule uses, so the control reads as the
-  // sentence it produces rather than as a list of tags.
-  const label = sel.length === 0 ? emptyLabel : sel.join(" or ");
+  // sentence it produces rather than as a list of tags. An inherited set says
+  // whose it is, because "Wire" alone reads as a decision made here.
+  const label = sel.length === 0 ? emptyLabel
+    : inherited ? `${sel.join(" or ")} · from ${parentWord}`
+      : sel.join(" or ");
   return <div ref={ref} style={{ position: "relative" }}>
     <div className="tq-drop" onClick={() => setOpen(o => !o)} title={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: compact ? "4px 8px" : "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", gap: 6 }}>
-      <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: sel.length ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? 1.2 : 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: sel.length ? (inherited ? T.textSec : T.text) : T.textDim, fontStyle: inherited ? "italic" : "normal", fontFamily: T.font, flex: 1, lineHeight: compact ? 1.2 : 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
       <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
     </div>
     <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
       {options.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No departments yet</div>}
+      {/* CLEAR TO INHERIT, offered only when the node is OVERRIDING something —
+          `onClearToInherit` is passed null when no parent states a department,
+          because there it would be indistinguishable from "open this to anyone",
+          which is a different statement and the one we cannot make (#439). */}
+      <DeptClearRow parent={parent} isOwn={inheritedFrom === "own"} onClear={onClearToInherit} />
       {options.map((r, ri) => {
         const isOn = sel.some(d => String(d).toLowerCase() === String(r).toLowerCase());
         return <div key={r} onClick={() => onToggle(r)}
@@ -3639,6 +3706,14 @@ function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact =
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
         </div>;
       })}
+      {/* #439. SAY WHAT THE CONTROL CANNOT DO, rather than leave someone to find
+          out by trying. Under a parent that states a department there is no way
+          to say "anyone here": `[]` is the only empty encoding and it already
+          means "follow the parent". So unticking the last box LOOKS like it does
+          nothing — the set empties and the parent's value comes straight back.
+          That is the first gesture anyone will reach for, so it is pre-answered
+          rather than discovered. */}
+      <DeptInheritNote parent={parent} />
     </div></FadeOnClose>
   </div>;
 }
@@ -9615,12 +9690,18 @@ Extraction rules:
   //
   // Returns BOTH shapes. requiredDepartment trails the array with its first
   // element because iOS reads the string; see withDepartmentDualWrite.
-  const toggleDept = (node, role) => {
-    const cur = unitDepartments(node, null, null);
-    const next = cur.some(d => d.toLowerCase() === role.toLowerCase())
-      ? cur.filter(d => d.toLowerCase() !== role.toLowerCase())
-      : [...cur, role];
-    const set = normalizeDepartments(next, orgSettings.roles || null);
+  //
+  // TAKES THE ANCESTORS NOW (#426/#438). It used to pass `null, null`, which
+  // made it edit the node's OWN set while the picker showed the same thing —
+  // consistent, and consistently unable to see an inherited department. Two
+  // consequences, both fixed in `departmentsAfterToggle`: a click now starts
+  // from what the control actually displays, and the all-departments collapse
+  // is withheld when a parent states something, because `[]` means "ask the
+  // parent" there rather than "anyone".
+  //
+  // `role == null` is the clear-to-inherit verb.
+  const toggleDept = (node, role, panel = null, job = null) => {
+    const set = departmentsAfterToggle(node, panel, job, role, orgSettings.roles || null);
     return { requiredDepartments: set, requiredDepartment: set[0] || "" };
   };
 
@@ -24121,15 +24202,22 @@ ${jobsCtx || "No jobs found."}`;
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
                         <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                           style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, justifyContent:"space-between", border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
-                          <span style={{ fontSize:13, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
+                          {/* Resolved against the JOB (#426). It read `panel.requiredDepartment`
+                              alone, so a panel taking its department from the job showed the
+                              "Dept" placeholder — the other half of the two-surfaces problem,
+                              where the edit form said "Anyone" for the same state. */}
+                          {(() => { const _r = resolveDepartments(panel, null, ed); return (
+                            <span style={{ fontSize:13, color:_r.from==="own"?T.accent:T.textDim, fontStyle:_r.from==="job"?"italic":"normal", fontWeight:600 }}>
+                              {_r.depts.length ? (_r.from==="job" ? `${_r.depts.join(" or ")} · from job` : _r.depts.join(" or ")) : "Dept"}</span>); })()}
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                         <FadeOnClose open={deptDropId===panel.id}>{deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
+                          <DeptClearRow parent={resolveDepartments(null, null, ed)} isOwn={resolveDepartments(panel,null,ed).from==="own"} onClear={() => updatePanel(toggleDept(panel,null,null,ed))} />
                           {orgSettings.roles.map((r,ri) => {
-                            const isOn=unitDepartments(panel,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
+                            const isOn=resolveDepartments(panel,null,ed).depts.some(d=>d.toLowerCase()===r.toLowerCase());
                             const fk=`panel-${panel.id}-${r}`;
-                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
+                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r,null,ed)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
                               onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                 {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -24140,8 +24228,8 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                             {deptAddMode
                               ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v,null,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v,null,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                 </div>
                               : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                   onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -24149,6 +24237,7 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                             }
                           </div>
+                          <DeptInheritNote parent={resolveDepartments(null, null, ed)} />
                         </div>}</FadeOnClose>
                       </div>}
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
@@ -24180,15 +24269,19 @@ ${jobsCtx || "No jobs found."}`;
                               // Pill, and sized to match the hours and title inputs beside it
                               // (7px vertical padding, 13px text) rather than the smaller box it was.
                               style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
-                              <span style={{ fontSize:13, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
+                              {/* Resolved against its OPERATION and the job (#426). */}
+                              {(() => { const _r = resolveDepartments(sub, panel, ed); return (
+                                <span style={{ fontSize:13, color:_r.from==="own"?T.accent:T.textDim, fontStyle:_r.from==="own"?"normal":"italic", fontWeight:600 }}>
+                                  {_r.depts.length ? (_r.from==="own" ? _r.depts.join(" or ") : `${_r.depts.join(" or ")} · from ${_r.from==="job"?"job":"operation"}`) : "Dept"}</span>); })()}
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                             <FadeOnClose open={deptDropId===sub.id}>{deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                               {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
+                              <DeptClearRow parent={resolveDepartments(null, panel, ed)} isOwn={resolveDepartments(sub,panel,ed).from==="own"} onClear={() => updateSub(toggleDept(sub,null,panel,ed))} />
                               {orgSettings.roles.map((r,ri) => {
-                                const isOn=unitDepartments(sub,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
+                                const isOn=resolveDepartments(sub,panel,ed).depts.some(d=>d.toLowerCase()===r.toLowerCase());
                                 const fk=`sub-${sub.id}-${r}`;
-                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
+                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r,panel,ed)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
                                   onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                                   <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                     {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -24199,8 +24292,8 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                                 {deptAddMode
                                   ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v,panel,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v,panel,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                     </div>
                                   : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                       onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -24208,6 +24301,7 @@ ${jobsCtx || "No jobs found."}`;
                                     </div>
                                 }
                               </div>
+                              <DeptInheritNote parent={resolveDepartments(null, panel, ed)} />
                             </div>}</FadeOnClose>
                           </div>
                           <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
@@ -31450,7 +31544,15 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
-                              <MultiDrop values={unitDepartments(op, null, null)} onToggle={r => updOp(pi, oi, toggleDept(op, r))} options={orgSettings.roles || []} compact />
+                              {/* Resolved against its OPERATION AND ITS JOB, not `null, null` (#426).
+                                  The nulls were the whole defect: an op constrained by its panel
+                                  resolved to nothing here and the control said "Anyone". */}
+                              <MultiDrop values={resolveDepartments(op, panel, ej).depts}
+                                inheritedFrom={resolveDepartments(op, panel, ej).from}
+                                parent={resolveDepartments(null, panel, ej)}
+                                onToggle={r => updOp(pi, oi, toggleDept(op, r, panel, ej))}
+                                onClearToInherit={() => updOp(pi, oi, toggleDept(op, null, panel, ej))}
+                                options={orgSettings.roles || []} compact />
                             </div>
                             {/* Assignees. There was no way to put a person on an op from anywhere in
                                 the app except the auto-scheduler and dragging a bar on the Schedule --

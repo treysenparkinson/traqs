@@ -178,12 +178,67 @@ export function personDepartments(p) {
  * with a job saying "Layout"; the panel is simply more specific.
  */
 export function unitDepartments(node, panel, job) {
-  for (const n of [node, panel, job]) {
+  return resolveDepartments(node, panel, job).depts;
+}
+
+/**
+ * The same answer as `unitDepartments`, plus WHICH LEVEL GAVE IT (#426).
+ *
+ *   { depts: ["Wire"], from: "own" | "panel" | "job" }   someone states it
+ *   { depts: [],       from: "none" }                    nobody does — anyone
+ *
+ * The resolution was never the problem; the precedence rule is right and the
+ * nearest statement wins, which is what makes an override an override. What was
+ * missing is that every PICKER called `unitDepartments(node, null, null)` and so
+ * could not tell "this op requires Wire" from "this op's panel requires Wire" —
+ * it drew both as nothing at all.
+ *
+ * `unitDepartments` delegates here rather than keeping its own loop. Two copies
+ * of a precedence rule is exactly how this field ended up with four disagreeing
+ * readers (#289), so there is one implementation and the old signature is a
+ * view of it.
+ */
+export function resolveDepartments(node, panel, job) {
+  for (const [from, n] of [["own", node], ["panel", panel], ["job", job]]) {
     if (!n) continue;
     const own = Array.isArray(n.requiredDepartments) ? deptList(n.requiredDepartments) : deptList(n.requiredDepartment);
-    if (own.length) return own;
+    if (own.length) return { depts: own, from };
   }
-  return [];
+  return { depts: [], from: "none" };
+}
+
+/**
+ * The department set a node should carry after the picker toggles `role`
+ * (`role == null` means "clear back to inheriting").
+ *
+ * TWO THINGS THIS GETS RIGHT THAT THE INLINE VERSION DID NOT.
+ *
+ * It starts from the EFFECTIVE set, not the node's own. The picker now shows
+ * what actually applies, so a click has to edit what you can see — starting from
+ * an inheriting node's empty own-set would make the first click silently DROP
+ * the inherited department instead of adding to it.
+ *
+ * And it only collapses a full set to `[]` when `[]` would mean ANYONE. See
+ * #438: `[]` means "say nothing", so under a parent that states something it
+ * resolves to the PARENT, and ticking every box narrowed the node instead of
+ * opening it. The collapse is still right at the top, where nothing is above to
+ * fall through to, so the distinction is drawn there rather than the collapse
+ * being removed.
+ */
+export function departmentsAfterToggle(node, panel, job, role, allRoles = null) {
+  const cur = unitDepartments(node, panel, job);
+  const next = role == null ? []
+    : cur.some(d => d.toLowerCase() === String(role).toLowerCase())
+      ? cur.filter(d => d.toLowerCase() !== String(role).toLowerCase())
+      : [...cur, role];
+  // THE COLLAPSE IS OFFERED ONLY WHEN `[]` WOULD MEAN ANYONE (#438). `allRoles`
+  // is what lets `normalizeDepartments` fold a full set down to `[]`; withhold
+  // it and the explicit set is kept. A parent that states anything is exactly
+  // the condition under which `[]` stops meaning "anyone" and starts meaning
+  // "ask the parent", so that is the test — not a flag the caller sets, and not
+  // deleting a collapse that is correct wherever nothing is above.
+  const inherits = unitDepartments(null, panel, job).length > 0;
+  return normalizeDepartments(next, inherits ? null : allRoles);
 }
 
 /**
