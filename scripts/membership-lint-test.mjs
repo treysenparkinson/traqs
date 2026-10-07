@@ -34,7 +34,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { codeOf } from "./_code-view.mjs";
-import { membershipViolations } from "./_membership-lint.mjs";
+import { membershipViolations, idKeyViolations } from "./_membership-lint.mjs";
 
 let pass = 0, fail = 0;
 const ok = (label, got, want) => {
@@ -131,6 +131,74 @@ console.log("\n5. A RATCHET OVER THE LIVE SOURCE — the next one fails the buil
   ok("...and none has fewer — lower the baseline when one is removed", under, []);
   ok("every other file in src/ is at zero",
     names.filter(n => !(n in BASELINE) && counts[n]), []);
+}
+
+console.log("\n6. #384 — AN ID AS A MAP KEY, OR A LOOKUP INTO ONE");
+{
+  // The third shape in this family. `people.js` keyed `existingMap` on the raw
+  // id and read it with the raw id, while `reconcileDeletions` — walking the
+  // same array — compared `String(rec.id)`. A client normalised two numeric ids
+  // to strings; those records matched the reconciler and missed the map, losing
+  // their PINs, push tokens, active clock and an approved PTO entry in one write.
+  const KEYED = `const existingMap = new Map(existing.map(p => [p.id, p]));`;
+  ok("the people.js shape is caught", idKeyViolations(KEYED).length, 1);
+  ok("...and the finding says it is a key", idKeyViolations(KEYED)[0]?.member, "p.id (map key)");
+  ok("the stringified form is clean",
+    idKeyViolations(`const m = new Map(existing.map(p => [String(p.id), p]));`).length, 0);
+
+  const READ = `const stored = existingMap.get(p.id);`;
+  ok("the lookup side is caught too", idKeyViolations(READ).length, 1);
+  ok("...and names the map it read", idKeyViolations(READ)[0]?.member, "p.id (existingMap lookup)");
+  ok("a stringified lookup is clean", idKeyViolations(`existingMap.get(String(p.id))`).length, 0);
+  ok("`has` counts as a lookup", idKeyViolations(`if (byId.has(p.id)) n++;`).length, 1);
+
+  // Narrow on purpose. A Map keyed on something that is not an id, or read
+  // through a name that is not a map, is not this hazard — and a guard that
+  // flags ordinary code is one that gets switched off (LESSONS #4).
+  ok("a non-id key is not flagged",
+    idKeyViolations(`const byReq = new Map(linked.map(t => [t.reqId, t]));`).length, 0);
+  ok("an ordinary .get is not flagged", idKeyViolations(`const v = cache.get(p.id);`).length, 0);
+  ok("a comment quoting the shape is not a violation of itself",
+    idKeyViolations(`// never write new Map(xs.map(p => [p.id, p]))`).length, 0);
+
+  // WHAT IT CANNOT DO, asserted so the limitation is visible rather than
+  // assumed: it cannot tell that a map's KEY and its LOOKUP disagree. That is a
+  // correlation between two expressions bound by a variable, often far apart,
+  // and catching it needs a parser. `dragMove.js` has exactly that shape today —
+  // keyed raw, read through `sid()` — and it is SAFE only because every caller
+  // happens to build its movers with `id: String(op.id)`. The rule is therefore
+  // the stricter checkable one: stringify on both sides, so agreement is
+  // automatic and never has to be proved.
+  const SPLIT = `const byId = new Map(movers.map(m => [m.id, m]));\nconst m = byId.get(sid(node.id));`;
+  ok("a key/lookup disagreement is caught by its KEY half, not by the mismatch",
+    idKeyViolations(SPLIT).length, 1);
+
+  const BASELINE_ID = { "dragMove.js": 2, "jobDetail.js": 1, "TRAQS.jsx": 6 };
+  const files = [];
+  const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f);
+    if (statSync(p).isDirectory()) walk(p); else if (/\.(js|jsx)$/.test(f)) files.push(p); } };
+  walk(new URL("../src", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+  const counts2 = {}, found2 = [];
+  for (const f of files) {
+    const name = f.split(/[\\/]/).pop();
+    for (const v of idKeyViolations(readFileSync(f, "utf8"))) {
+      counts2[name] = (counts2[name] || 0) + 1;
+      found2.push(`${name}:${v.line}  ${v.member.padEnd(28)} ${v.text.trim().slice(0, 50)}`);
+    }
+  }
+  console.log(found2.length ? found2.map(s => `         ${s}`).join("\n") : "         (none)");
+  const names2 = [...new Set([...Object.keys(counts2), ...Object.keys(BASELINE_ID)])].sort();
+  ok("no file has MORE raw-id map keys or lookups than its baseline",
+    names2.filter(n => (counts2[n] || 0) > (BASELINE_ID[n] || 0)), []);
+  ok("...and none has fewer — lower the baseline when one is removed",
+    names2.filter(n => (counts2[n] || 0) < (BASELINE_ID[n] || 0)), []);
+  ok("every other file in src/ is at zero",
+    names2.filter(n => !(n in BASELINE_ID) && counts2[n]), []);
+
+  // people.js is the one that mattered and it is clean — asserted directly,
+  // because it lives outside src/ and the walk above never reaches it.
+  ok("people.js has none left",
+    idKeyViolations(readFileSync(new URL("../netlify/functions/people.js", import.meta.url), "utf8")).length, 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

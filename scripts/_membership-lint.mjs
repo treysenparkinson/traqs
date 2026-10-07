@@ -31,6 +31,54 @@
 // which is a parser, not a grep.
 
 /**
+ * A PERSON ID USED AS A MAP KEY, OR AS A LOOKUP INTO ONE, WITHOUT `String()`
+ * (#384). The third shape in this family, and the one that cost the most.
+ *
+ * `people.js` built `new Map(existing.map(p => [p.id, p]))` and read it with
+ * `existingMap.get(p.id)`, while `reconcileDeletions` — walking the SAME array
+ * — compared `String(rec.id)`. On 2026-08-12 a client normalised two numeric
+ * ids to strings; those two records matched the reconciler (so survived) and
+ * missed this map (so were stripped), losing their PINs, their push tokens,
+ * their active clock and an approved PTO entry in one write.
+ *
+ * WHAT THIS CANNOT DO, recorded rather than pretended away: it cannot check that
+ * a map's KEY and its LOOKUP agree. That is a correlation between two
+ * expressions bound by a variable, often many lines apart, and matching it needs
+ * the code parsed rather than scanned. So the rule is the stricter, checkable
+ * one — **always stringify, on both sides** — which makes agreement automatic
+ * without ever having to prove it.
+ *
+ * Scoped to `.id` keys on object-building `new Map(...)` and to reads of an
+ * identifier ending `Map`/`ById`, because those are where the drift is
+ * measurable and the shape unambiguous.
+ *
+ * @returns {{line: number, text: string, member: string}[]}
+ */
+export function idKeyViolations(src) {
+  const out = [];
+  const lines = String(src == null ? "" : src).split(/\r?\n/);
+  const noBlocks = String(src == null ? "" : src).replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const stripped = noBlocks.split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, ""));
+
+  // `new Map(xs.map(v => [v.id, …]))` — the key side.
+  const KEY = /new\s+Map\(\s*[\w.?[\]]+\s*\.map\(\s*\(?\s*(\w+)\s*\)?\s*=>\s*\[\s*\1\.id\b/g;
+  // `fooMap.get(v.id)` / `fooById.has(v.id)` — the lookup side.
+  // `byId` and `ById` both occur in this codebase, so the suffix is matched in
+  // either casing — a rule that misses half its own naming convention is worse
+  // than no rule, because the gap is invisible from the passing build.
+  const GET = /\b(\w*(?:Map|[Bb]yId))\s*\.\s*(?:get|has)\(\s*([\w.?[\]]*\.id)\s*\)/g;
+
+  stripped.forEach((line, i) => {
+    let m;
+    KEY.lastIndex = 0;
+    while ((m = KEY.exec(line))) out.push({ line: i + 1, text: lines[i], member: `${m[1]}.id (map key)` });
+    GET.lastIndex = 0;
+    while ((m = GET.exec(line))) out.push({ line: i + 1, text: lines[i], member: `${m[2]} (${m[1]} lookup)` });
+  });
+  return out;
+}
+
+/**
  * Raw team-membership comparisons in `src`.
  * @returns {{line: number, text: string, member: string}[]}
  */

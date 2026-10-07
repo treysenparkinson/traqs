@@ -218,10 +218,28 @@ export async function handler(event) {
       // approval landing inside the window was erased by the very next autosave.
       const result = await updateJson(s3Key, (stored) => {
         const existing = stored ?? [];
-        const existingMap = new Map(existing.map(p => [p.id, p]));
+        // KEYED BY String(id), AND EVERY READ BELOW MATCHES (#384/#349).
+        //
+        // This was keyed on the RAW id, and `reconcileDeletions` — operating on
+        // the same array two dozen lines later — has always compared
+        // `String(rec.id)`. The two disagreed, and the disagreement is the whole
+        // bug: a record could be MATCHED by the reconciler (so not tombstoned)
+        // and MISSED by this map (so stripped of everything the merge preserves).
+        //
+        // On 2026-08-12 a client normalised two numeric ids to strings. Trey
+        // (id 99 -> "99") and Max (id 100 -> "100") found no `stored`, and every
+        // preserve gated on it was skipped in one write: their PINs, their push
+        // tokens, their active clock, and Treysen's approved PTO. #384 and #349
+        // were filed as separate defects from the two ends of that single write.
+        //
+        // Person ids are mixed string/number across web, iOS and the stored
+        // history (#355/#207), so this is the same family as every other raw id
+        // comparison — only sitting on the one lookup that guards the clock-in
+        // path.
+        const existingMap = new Map(existing.map(p => [String(p.id), p]));
         const callerId = member?.personId != null ? String(member.personId) : null;
         const hasRoleChange = incoming.some(p => {
-          const old = existingMap.get(p.id);
+          const old = existingMap.get(String(p.id));
           // New person being added as admin, or existing person's role changing.
           return old ? old.userRole !== p.userRole : p.userRole === "admin";
         });
@@ -235,7 +253,7 @@ export async function handler(event) {
         // iOS sets activeBreak without persisting startedAt) so admin timers stay
         // accurate. An existing startedAt is always preserved — never reset.
         const merged = incoming.map(p => {
-          const stored = existingMap.get(p.id);
+          const stored = existingMap.get(String(p.id));
           // `hasPin` is a server-derived read flag — never persist it back.
           const { hasPin: _hp, ...pIn } = p;
           let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
@@ -301,7 +319,7 @@ export async function handler(event) {
         if (!can(member, "manageTeam")) {
           const incomingIds = new Set(merged.map(p => String(p.id)));
           safeMerged = [
-            ...merged.filter(p => existingMap.has(p.id)),
+            ...merged.filter(p => existingMap.has(String(p.id))),
             ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
           ];
         }
