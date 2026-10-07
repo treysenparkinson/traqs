@@ -46,14 +46,13 @@ struct HomeView: View {
                             }
                         }
 
-                        // Status — live shift + messages, two pastel tiles.
-                        // Today's hours still lives on the Time Clock page.
+                        // Live shift + messages, two pastel tiles. No section
+                        // header — the tiles label themselves.
                         VStack(alignment: .leading, spacing: 0) {
-                            RvSection("STATUS")
                             RvTileGrid {
                                 LiveClock(every: 1, tab: .home) { now in
                                     ShiftTile(status: appState.myShiftStatus,
-                                              liveHours: appState.liveShiftHours(now: now),
+                                              todayHours: appState.hoursToday(now: now),
                                               pauseSeconds: appState.livePauseSeconds(now: now)) {
                                         withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
                                     }
@@ -63,6 +62,7 @@ struct HomeView: View {
                                 }
                             }
                         }
+                        .padding(.top, 10)
                         .padding(.horizontal, Rv.side)
 
                         // Today's work.
@@ -236,31 +236,43 @@ private struct HomeWeekStrip: View {
 /// they're back. Taps jump to the Time Clock tab.
 private struct ShiftTile: View {
     let status: ShiftStatus
-    let liveHours: Double
+    /// Hours clocked today, net of lunch — the Time Clock hero's number. Holds
+    /// still on lunch and after clocking out; resets at the shop's midnight.
+    let todayHours: Double
     let pauseSeconds: Double
     let onOpen: () -> Void
 
     private var isPaused: Bool { status == .lunch || status == .onBreak }
 
-    private var statusText: String {
-        switch status {
-        case .offline:   return "Offline"
-        case .clockedIn: return "Clocked in"
-        case .lunch:     return "On lunch"
-        case .onBreak:   return "On break"
-        }
-    }
-
+    /// The big number. Was the open lunch/break's own count-up while paused,
+    /// which read as the shift still running through lunch.
     private var elapsed: String {
-        let secs = max(0, Int(isPaused ? pauseSeconds : liveHours * 3600))
+        let secs = max(0, Int(todayHours * 3600))
         return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
+    /// How long the current lunch/break has run, as a quiet suffix ("On lunch · 12m").
+    private var pauseSuffix: String {
+        let mins = max(0, Int(pauseSeconds / 60))
+        return mins >= 60 ? " · \(mins / 60)h \(mins % 60)m" : " · \(mins)m"
+    }
+
+    private var statusText: String {
+        switch status {
+        case .offline:   return "Clocked out"
+        case .clockedIn: return "Clocked in"
+        case .lunch:     return "On lunch" + pauseSuffix
+        case .onBreak:   return "On break" + pauseSuffix
+        }
+    }
+
     var body: some View {
+        // Offline with nothing clocked today says so in the big slot; once the
+        // day has hours, they stay up after clock-out.
+        let idle = status == .offline && todayHours <= 0
         RvTile(eyebrow: "SHIFT",
-               // Offline says so in the big slot; the sub line would only repeat it.
-               value: status == .offline ? "Offline" : elapsed,
-               sub: status == .offline ? nil : statusText,
+               value: idle ? "Offline" : elapsed,
+               sub: idle ? nil : statusText,
                tint: .lavender,
                action: onOpen) {
             if status.dot {

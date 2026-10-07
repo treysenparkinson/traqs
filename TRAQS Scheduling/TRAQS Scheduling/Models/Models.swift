@@ -692,6 +692,13 @@ struct TimeclockEntry: Codable, Equatable, Identifiable {
     var eventType: String?      // present for lunchStart/lunchEnd/breakStart/breakEnd rows
     var timestamp: String?      // ISO8601 for event-type rows
 
+    /// A completed span built on-device — the clock-out's provisional row, held
+    /// until the timeclock refresh brings back the server's own.
+    init(id: String, personId: String, date: String?, clockIn: String, clockOut: String, hours: Double) {
+        self.id = id; self.personId = personId; self.date = date
+        self.clockIn = clockIn; self.clockOut = clockOut; self.hours = hours
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id         = (try? c.decodeFlexID(forKey: .id)) ?? ""

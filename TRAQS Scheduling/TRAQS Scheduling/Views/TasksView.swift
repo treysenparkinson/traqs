@@ -31,7 +31,7 @@ struct TasksView: View {
     @State private var liveRefresh = 0
     /// The All / Mine / Active / Done tabs under the title (iOS Wireframes v2).
     /// A view over the sections the page already builds — see `JobsFilter`.
-    @State private var filter: JobsFilter = .all
+    @State private var filter: JobsFilter = .mine   // lands on your own work
 
     /// What the tabs show:
     ///   • all    — the page as it always was: your work, then every other job.
