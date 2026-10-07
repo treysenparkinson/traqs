@@ -75,7 +75,7 @@ struct TimeClockView: View {
 
                             RvTitle(title: "Time Clock", meta: todayMeta)
 
-                            // ── Timer: the live shift elapsed, with the status pill ──
+                            // ── Timer: hours clocked today, with the status pill ──
                             ClockTimerBlock(time: shiftTimer, status: clockStatus)
                                 .padding(.horizontal, Rv.side)
                                 .padding(.top, 4)
@@ -104,7 +104,6 @@ struct TimeClockView: View {
                                 PayClockControls(active: appState.payClockInActive,
                                                  onLunch: appState.payOnLunch,
                                                  onBreak: appState.isOnBreak,
-                                                 elapsed: payClockElapsed,
                                                  inFlight: appState.isPayClocking,
                                                  breakInFlight: breakBusy,
                                                  clockOutBlocked: appState.clockOutBlockedByJob,
@@ -158,7 +157,7 @@ struct TimeClockView: View {
                                     .padding(.top, 26)
 
                                 RvSection("Recent entries", action: "Last 8 days")
-                                let recent = recentEntries
+                                let recent = DayTotal.group(recentEntries)
                                 if recent.isEmpty {
                                     Text("No shifts in the last 8 days")
                                         .font(.custom(TFontName.regular.rawValue, size: 13))
@@ -167,7 +166,7 @@ struct TimeClockView: View {
                                         .padding(.vertical, 14)
                                 } else {
                                     ForEach(recent.indices, id: \.self) { i in
-                                        EntryLine(entry: recent[i], divider: i < recent.count - 1)
+                                        DayLine(day: recent[i], divider: i < recent.count - 1)
                                     }
                                 }
                             }
@@ -305,16 +304,6 @@ struct TimeClockView: View {
             && appState.canClockInOut
     }
 
-    /// Wall-clock elapsed for the pay-clock CTA (H:MM:SS once past an hour, else
-    /// MM:SS). Driven by the 1s `now` ticker. Net-of-break hours live in the
-    /// hero ring; this is just the CTA's live timer.
-    private var payClockElapsed: String {
-        guard let start = appState.payClockInStart else { return "0:00" }
-        let secs = max(0, Int(now.timeIntervalSince(start)))
-        let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-    }
-
     private func isoDay(_ iso: String?) -> Date? {
         guard let iso else { return nil }
         return Date.fromFlexibleISO8601(iso)
@@ -400,12 +389,14 @@ struct TimeClockView: View {
         ShopTime.current.formatter("EEE, MMM d").string(from: now)
     }
 
-    /// The hero timer: the same wall-clock elapsed as `payClockElapsed`
-    /// (`payClockInStart` against the 1s `now` ticker), drawn as HH:MM:SS.
-    /// Clocked out reads 00:00:00.
+    /// The hero timer: hours clocked TODAY (shop day), drawn as HH:MM:SS —
+    /// today's completed shifts plus the live one, net of lunch. It was the
+    /// wall-clock elapsed since `payClockInStart`, which kept counting through
+    /// lunch and dropped to 00:00:00 on every clock-out. Now it freezes while on
+    /// lunch, holds the day's total after clocking out, and only resets when the
+    /// shop's day turns over. Same number as the Home shift tile.
     private var shiftTimer: String {
-        guard appState.payClockInActive, let start = appState.payClockInStart else { return "00:00:00" }
-        let secs = max(0, Int(now.timeIntervalSince(start)))
+        let secs = max(0, Int(appState.hoursToday(now: now) * 3600))
         return String(format: "%02d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
@@ -496,34 +487,68 @@ private struct PayPeriodTile: View {
     }
 }
 
-// MARK: - Entry row
+// MARK: - Day row
 
-/// One completed shift: the day over its clock-in – clock-out, hours on the right.
-/// The DAY is the shop's (the day the server books it to); the TIMES are the
+/// One shop day's completed shifts, combined: a worker who clocks out and back
+/// in (or splits a day around an errand) reads as ONE line with the day's total,
+/// not a line per punch.
+private struct DayTotal {
+    let day: String          // the shop's day, "yyyy-MM-dd" — the grouping key
+    let date: Date?          // that day, for the title
+    let firstIn: Date?
+    let lastOut: Date?
+    let shifts: Int
+    let hours: Double
+
+    /// Entries → one row per shop day, newest day first. The DAY is the shop's
+    /// (the day the server books a punch to), from clock-in, else the row's date.
+    static func group(_ entries: [TimeclockEntry]) -> [DayTotal] {
+        let shop = ShopTime.current
+        var byDay: [String: [TimeclockEntry]] = [:]
+        for e in entries {
+            let key = e.clockIn.flatMap(Date.fromFlexibleISO8601).map { shop.day($0) } ?? e.date ?? ""
+            byDay[key, default: []].append(e)
+        }
+        return byDay.map { key, rows in
+            let ins = rows.compactMap { $0.clockIn.flatMap(Date.fromFlexibleISO8601) }
+            let outs = rows.compactMap { $0.clockOut.flatMap(Date.fromFlexibleISO8601) }
+            return DayTotal(day: key,
+                            date: shop.date(ofDay: key) ?? ins.min(),
+                            firstIn: ins.min(),
+                            lastOut: outs.max(),
+                            shifts: rows.count,
+                            hours: rows.reduce(0) { $0 + ($1.hours ?? 0) })
+        }
+        .sorted { $0.day > $1.day }
+    }
+}
+
+/// The day over its first clock-in – last clock-out (and the shift count when
+/// there was more than one), the day's total on the right. The TIMES are the
 /// viewer's, as punch times are everywhere (chunk D ruling 2 — see #371).
-private struct EntryLine: View {
-    let entry: TimeclockEntry
+private struct DayLine: View {
+    let day: DayTotal
     var divider: Bool = true
 
     private static let time: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "h:mm a"; return f
     }()
 
-    private var day: String {
-        guard let d = entry.clockIn.flatMap(Date.fromFlexibleISO8601) else { return entry.date ?? "" }
+    private var title: String {
+        guard let d = day.date else { return day.day }
         return ShopTime.current.formatter("EEE, MMM d").string(from: d)
     }
 
-    private var span: String {
-        let s = entry.clockIn.flatMap(Date.fromFlexibleISO8601).map(Self.time.string(from:)) ?? "—"
-        let e = entry.clockOut.flatMap(Date.fromFlexibleISO8601).map(Self.time.string(from:)) ?? "—"
-        return "\(s) – \(e)"
+    private var subtitle: String {
+        let s = day.firstIn.map(Self.time.string(from:)) ?? "—"
+        let e = day.lastOut.map(Self.time.string(from:)) ?? "—"
+        return day.shifts > 1 ? "\(s) – \(e) · \(day.shifts) shifts" : "\(s) – \(e)"
     }
 
     var body: some View {
         RvRow(divider: divider) {
-            RvRowText(title: day, subtitle: span)
-            Text(String(format: "%.2f h", entry.hours ?? 0))
+            RvRowText(title: title, subtitle: subtitle)
+            Text(String(format: "%.2f h", day.hours))
                 .font(.custom(TFontName.semibold.rawValue, size: 14))
                 .foregroundStyle(Color(hex: T.ink))
                 .monospacedDigit()
@@ -533,7 +558,7 @@ private struct EntryLine: View {
 
 // MARK: - Timesheet
 
-/// "View timesheet": every completed shift in the current pay period, read-only.
+/// "View timesheet": the current pay period's completed shifts, one row per day, read-only.
 private struct TimesheetSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ThemeSettings.self) private var theme
@@ -551,7 +576,7 @@ private struct TimesheetSheet: View {
                     VStack(spacing: 0) {
                         RvTitle(title: "Timesheet", meta: range)
                         VStack(spacing: 0) {
-                            RvSection(title: "Shifts", top: 0) {
+                            RvSection(title: "Days", top: 0) {
                                 Text(String(format: "%.1f / %.0f h", total, target))
                                     .font(.custom(TFontName.semibold.rawValue, size: 12))
                                     .foregroundStyle(Color(hex: T.muted))
@@ -564,8 +589,9 @@ private struct TimesheetSheet: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.vertical, 14)
                             } else {
-                                ForEach(entries.indices, id: \.self) { i in
-                                    EntryLine(entry: entries[i], divider: i < entries.count - 1)
+                                let days = DayTotal.group(entries)
+                                ForEach(days.indices, id: \.self) { i in
+                                    DayLine(day: days[i], divider: i < days.count - 1)
                                 }
                             }
                         }
@@ -663,7 +689,6 @@ private struct PayClockControls: View {
     let active: Bool
     let onLunch: Bool
     let onBreak: Bool
-    let elapsed: String
     let inFlight: Bool
     var breakInFlight: Bool = false
     var clockOutBlocked: Bool = false   // on a job → can't clock out yet

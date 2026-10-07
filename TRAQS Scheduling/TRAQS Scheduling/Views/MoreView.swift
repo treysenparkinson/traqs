@@ -64,9 +64,6 @@ struct MoreView: View {
                             statsTitle
                             rangeToggle
 
-                            RvSection("Metrics")
-                                .padding(.horizontal, Rv.side)
-
                             // Ticks every 5s so the stat grid (Idle) + Efficiency
                             // graph grow live while anyone is clocked in.
                             //
@@ -86,10 +83,11 @@ struct MoreView: View {
                                     statGrid(utilization: utilization,
                                              switching: switching,
                                              idle: idleHours(from: days))
+                                        .padding(.top, 10)   // breathing room under the range tabs, now the Metrics header is gone
                                     EfficiencySection(percent: "\(efficiencyPercent(from: days))%",
                                                       days: days,
                                                       now: date,
-                                                      info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
+                                                      info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
                                 }
                                 .padding(.horizontal, Rv.side)
                             }
@@ -111,11 +109,9 @@ struct MoreView: View {
                             // admin picked from the person button.
                             statsTitle
                             rangeToggle
-                            VStack(spacing: 0) {
-                                RvSection("Metrics")
-                                personalStatGrid(for: pid)
-                            }
-                            .padding(.horizontal, Rv.side)
+                            personalStatGrid(for: pid)
+                                .padding(.top, 10)
+                                .padding(.horizontal, Rv.side)
 
                             // This person's own efficiency for the selected week —
                             // ticks every 5s so it grows live while they're clocked in.
@@ -124,7 +120,7 @@ struct MoreView: View {
                                 EfficiencySection(percent: "\(efficiencyPercent(from: days))%",
                                                   days: days,
                                                   now: date,
-                                                  info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
+                                                  info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
                                     .padding(.horizontal, Rv.side)
                             }
                         }
@@ -976,7 +972,7 @@ private struct EfficiencySection: View {
                 RvBars(values: days.map(\.pay),
                        labels: days.map(\.label),
                        highlight: days.firstIndex { $0.date == todayId },
-                       valueLabels: days.map(Self.diffLabel),
+                       valueLabels: days.map(Self.hoursLabel),
                        barWidth: 34,
                        inner: days.map(\.job))
                     .padding(.top, 18)
@@ -1006,7 +1002,12 @@ private struct EfficiencySection: View {
         }
     }
 
-    static func diffLabel(_ d: EffDay) -> String { String(format: "%+.2f", d.diff) }
+    /// The day's clocked (pay) hours — what the bar itself measures. It was the
+    /// signed job-vs-working difference ("+0.25" / "-1.50"), which read as a
+    /// score rather than the hours worked that day.
+    static func hoursLabel(_ d: EffDay) -> String {
+        d.pay > 0 ? String(format: "%.1fh", d.pay) : "0h"
+    }
 
     private func legend(_ color: Color, _ text: String) -> some View {
         HStack(spacing: 6) {
@@ -1043,7 +1044,7 @@ private struct EffBarsRow: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(days) { d in
-                    cell(EfficiencySection.diffLabel(d), on: d.date == highlightId)
+                    cell(EfficiencySection.hoursLabel(d), on: d.date == highlightId)
                 }
                 ForEach(0..<pad, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
             }

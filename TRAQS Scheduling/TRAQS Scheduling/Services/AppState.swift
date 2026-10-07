@@ -2836,6 +2836,12 @@ class AppState {
         clockChangeAt = Date()
         do {
             try await api.payClockOut(personId: personId, pin: pin)
+            // Bank the finished shift as a provisional completed row BEFORE the
+            // live clock goes away. "Hours today" (Time Clock hero, Home tile) is
+            // completed rows + the live shift; clearing the live shift first left
+            // it short by this whole shift until `refreshTimeclock` below came
+            // back. The refresh replaces the array, so this row never outlives it.
+            appendProvisionalPayEntry(personId: personId, end: Date())
             // Clear the canonical in-memory activeClockIn too — not just the
             // payClockIn* flags — so the Home screen's shift card (which reads
             // currentPerson.activeClockIn directly) flips to clocked-out instead
@@ -2879,6 +2885,37 @@ class AppState {
             try? await Task.sleep(nanoseconds: 750_000_000)
         }
         return true
+    }
+
+    /// Re-read the pay shift from the server and let it WIN.
+    ///
+    /// Lunch got stuck because the old 409 path (`deltaSyncNow` + a forced
+    /// `reconcilePayClock`) could never correct `activeClockIn.events`: the tap
+    /// had just bumped `clockChangeAt`, so `rehydrateFromCache` re-applied the
+    /// optimistic snapshot over the server's row (OptimisticClocks, 12s grace),
+    /// and `deltaSyncNow` skipped the rehydrate entirely when the server's row
+    /// was already cached. `reconcilePayClock` only syncs the clock-in flags,
+    /// never the lunch events. Whatever the phone believed stayed on screen,
+    /// with nothing due to fix it later. Here the grace is dropped first and
+    /// the rehydrate always runs, so the cached server row is what's shown.
+    private func resyncPayClockFromServer() async {
+        clockChangeAt = nil
+        _ = await runDeltaSync()
+        rehydrateFromCache()
+        reconcilePayClock(force: true)
+    }
+
+    /// The just-ended shift as a completed row, net of lunch (`liveShiftHours`,
+    /// the same basis the server's punch uses). See `payClockOut`.
+    private func appendProvisionalPayEntry(personId: String, end: Date) {
+        guard let c = currentPerson?.activeClockIn, !c.clockIn.isEmpty else { return }
+        let row = TimeclockEntry(id: "local_\(Int(end.timeIntervalSince1970))",
+                                 personId: personId,
+                                 date: ShopTime.current.day(end),
+                                 clockIn: c.clockIn,
+                                 clockOut: Date.isoPlainString(end),
+                                 hours: liveShiftHours(now: end))
+        withoutAnimation { timeclockEntries.append(row) }
     }
 
     // MARK: - Pay Lunch (Bearer) — pauses the pay clock for lunch
@@ -2944,14 +2981,19 @@ class AppState {
                 else        { try await api.payLunchEnd(personId: personId) }
                 // Optimistic event already appended; server publishes "people" → delta-sync.
             } catch APIError.httpError(409) {
-                await deltaSyncNow()            // server already in the target state
-                reconcilePayClock(force: true)
+                // Server already in the target state — take its shift as-is.
+                await resyncPayClockFromServer()
             } catch {
-                // The revert is the failure report. It lands a beat after the
-                // banner, which is the price of not waiting for the server.
+                // The request may still have committed (a timeout after the
+                // server wrote), so the revert is provisional: the server's
+                // shift decides, and the error shows only if lunch really
+                // didn't change. It lands a beat after the banner, which is the
+                // price of not waiting for the server.
                 removeLastLocalClockEvent(personId: personId, type: evt.type)
-                clockChangeAt = Date()
-                clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+                await resyncPayClockFromServer()
+                if payOnLunch != starting {
+                    clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+                }
             }
         }
         return true
