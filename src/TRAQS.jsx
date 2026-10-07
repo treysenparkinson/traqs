@@ -21631,7 +21631,11 @@ ${jobsCtx || "No jobs found."}`;
           // Requests) on the left, the page actions on the right — all one size.
           const actions = isAdmin ? (
               <div className="tq-pagehdr" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", minHeight: 50 }}>
-                <span style={{ display: "inline-flex", alignItems: "center", marginRight: 10 }}><h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}</span>
+                {/* gap, not just marginRight: this span wraps the title AND the
+                    undo/redo pair, and without it the buttons sit flush against
+                    the "k" of "Time Clock". Every other page's header row carries
+                    a gap (the sibling titleRow above uses 14); this one had none. */}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 12, marginRight: 10 }}><h1 style={pageTitleStyle}>Time Clock</h1>{titleActions}</span>
                 {[
                   { id: "live", label: "Team" },
                   { id: "timesheets", label: "Timesheets" },

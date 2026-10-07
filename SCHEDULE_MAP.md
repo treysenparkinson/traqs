@@ -735,7 +735,7 @@ Opened from schedule bars (J:19389, 19467) and day-view bars (J:17248). On mobil
   - The day view's past check still applies; resize still runs `previewPush`.
   - Simple edit (J:26267–26282) collapses the whole team into `subs[0]` and sets `start=end=date`, with no checks.
 - **Mobile web:** no schedule. `renderMobileApp` calls `useState` behind the `isMobile` ternary (J:24107, 30374).
-- **Department lock** (project rule) is applied only in the wizard and quick-add schedulers (J:26583, 26766, 27489, 34134). **It is not applied in:** drag reassign, day-view reassign, `placeTaskAt`, the pending tray (ignores `requiredDepartment`, J:35129), simple edit, the op editor picker (J:35461), or planAssign (J:31984).
+- **Department lock** (project rule). **CORRECTED 2026-10-07, and it is now half right in a different way.** The consolidation (#393–#398) put the rule on the DRAG paths it was listed as missing from: `refuseDragMove` checks it (`dragMove.js:108`), and the three schedule drag/resize sites, `commitDates` (so the date cells and `placeTaskAt`) and the Gantt split and Reschedule all run `refuseLanding`. **It is still NOT applied in `commitAssign`** — the Jobs-list assignee cell and the `+ Assign` popover — see #424, which is a bigger hole than this line described. Still unchecked elsewhere: the pending tray (#155, #414), the simple edit and the op editor picker.
 
 ### I.7 Native interaction
 
@@ -2589,3 +2589,33 @@ Three defects fall out of it.
     Sign Off keeps its `can("orgSettings")` and gains the tier gate in front of it, and `web-gates-test`'s literal was updated to pin BOTH so neither can be dropped without the other being noticed.
 
     TESTED red-first, `scripts/settings-tier-test.mjs`, 28 assertions, wired (84 suites). 14 mutants, 14 caught — after one SKIPPED on an anchor that matched twice, because `(billing.tier || "basic") !== "business"` is identical at both org.js sites. Anchoring on the error message below each gate made them distinct, and both now have their own mutant.
+
+424. [MEASURED 2026-10-07, NOT FIXED] **`commitAssign` RUNS ONE OF `refuseDragMove`'s SIX LAYERS.** Found while scoping department-on-drop. The Jobs-list assignee cell and the `+ Assign` popover both commit through `commitAssign`, which builds a mover with `reassigned: true` and goes **straight to `commitLanding`** — the overlap backstop — without ever calling `refuseLanding`.
+
+        refuseDragMove layer     drag paths   commitAssign
+        record                   checked      —
+        active clock (isLive)    checked      checked (isReplannable, #393)
+        locked                   checked      —   (retired, ruling 3 — no loss)
+        overdue                  checked      —   (always false — no loss)
+        DEPARTMENT               checked      —
+        TIME OFF                 checked      —
+        past + overlap (Business) checked     overlap only
+
+    **#393 LIFTED EXACTLY ONE LAYER AND THE COMMENT SAYS SO WITHOUT NOTICING.** It reads: *"The Jobs-list cell called commitLanding directly and so skipped refuseLanding, which is where isLive lives — and then three more layers passed it through."* That sentence diagnoses the whole class and the fix added `isReplannable` alone. The guard was put in the commit "so a fifth caller inherits it without anyone remembering to add it" — which is right, and is an argument for moving the REST of the chain there too.
+
+    **THE LIVE EXPOSURE, measured on Matrix:** of the 414 (constrained op × person) pairs, **353 (85.3%) are cross-department**. Every one of those is REFUSED if you drag the bar and ACCEPTED SILENTLY if you use the assignee cell. Time off is the same shape and is the one a user would feel first — assigning somebody to a week they are away is accepted from the list and refused from the board.
+
+    Same family as #393–#398, one layer down: not four writers disagreeing about how to write, but two commit paths disagreeing about what to CHECK. It is the reason department-on-drop has to be scoped as "what should every assignment path do" rather than "what should a drag do".
+
+425. [MEASURED 2026-10-07] **DEPARTMENT INHERITANCE IS STRUCTURALLY SUPPORTED AND USED BY NOTHING.** `unitDepartments(node, panel, job)` walks op → panel → job and the nearest level that states anything wins outright. Measured on Matrix's 112 live ops:
+
+        states its own department      23
+        inherits from its PANEL         0
+        inherits from its JOB           0
+        none at all (anyone)           89   (79% of the board)
+
+    Two panels DO state a department. One (`Op-001` [Layout]) has **no live ops**. The other (`Developement` [Admin]) has three, and **all three state [Admin] themselves** — they restate the panel rather than inherit from it. No job states one at all.
+
+    So the precedence rule is real code that has never decided anything, which is LESSONS #7's family (not wrong — UNTESTED BY USE). It matters here because "does the op gain its own department or does the parent's change?" is a question about machinery no live data exercises, and a ruling made on it will be the first thing that ever does.
+
+    **NOR DOES ANY LIVE OP NAME MORE THAN ONE DEPARTMENT.** All 23 name exactly one, in the array form (`requiredDepartments`), with zero left on the legacy string. The set model ruled in on 2026-10-02 is correct and fully migrated, and is also entirely hypothetical on this board — so "Wire or Cut" cannot be reasoned about from data, only from intent.
