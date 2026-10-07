@@ -7,7 +7,8 @@ import { classifyTaskActions } from "../../src/taskActions.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
-import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
+import { stampArray, reconcileDeletions, applyExplicitWrite, changedIds } from "./_utils/timestamps.js";
+import { wouldEmptyOrg } from "./_utils/write-guard.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { diffTaskEvents } from "./_utils/task-events.js";
@@ -48,9 +49,24 @@ export async function handler(event) {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
-      let tasks;
-      try { tasks = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
-      if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");
+      // ── THE BODY: a bare array, or a delta envelope (#339) ────────────────
+      //
+      // DETECTED BY SHAPE, deliberately, with no version flag anywhere: a flag is
+      // a thing a caller can set wrongly, and this endpoint has native callers
+      // that will never be redeployed in step with the server. iOS encodes a bare
+      // `[Job]` and keeps the exact path it has today, byte for byte.
+      //
+      //   [ ...jobs ]                   LEGACY. The array IS the world, and a
+      //                                 stored id absent from it is a deletion.
+      //   { upsert: [], delete: [] }    DELTA. Absence means nothing; only the
+      //                                 listed ids are deleted.
+      let body;
+      try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
+      const isDelta = !!body && !Array.isArray(body) && typeof body === "object"
+        && (Array.isArray(body.upsert) || Array.isArray(body.delete));
+      if (!Array.isArray(body) && !isDelta) return err(400, "Invalid tasks data");
+      const tasks = isDelta ? (Array.isArray(body.upsert) ? body.upsert : []) : body;
+      const deleteIds = isDelta ? (Array.isArray(body.delete) ? body.delete : []) : null;
 
       // Rule context, read once: who is clocked in (activeClock) and the org's work
       // week, holidays and timezone (businessDay, past). A read failure disables
@@ -85,20 +101,14 @@ export async function handler(event) {
         const existing = stored;
         attempt = { conflicts: [], violations: [], gateDiff: null, hpdDefaults: [], overlaps: [], counterKeeps: [] };
 
-        // Refuse to overwrite a non-empty tasks.json with an empty array.
-        // Why: a client bug (failed initial fetch → React resets state → autosave fires)
-        // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
-        // on the server instead of silently destroying data. To intentionally clear all
-        // tasks, delete the S3 object directly or pass ?force=1.
-        // Empty-array safeguard: run on the RAW incoming array, before deletion
-        // reconciliation, or an empty POST would tombstone every live record. Only
-        // NON-tombstoned records count — once all live records are deleted, the
-        // leftover tombstones must not make a legitimately-empty roster get refused.
-        if (tasks.length === 0 && !force) {
-          if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
-            return { abort: err(409, "Refusing to overwrite non-empty tasks with empty array") };
-          }
-        }
+        // THE EMPTY-TASKS GUARD MOVED FROM SHAPE TO INTENT (#339) — see
+        // _utils/write-guard.js for the reasoning and the three properties the
+        // suite holds it to. It used to ask "is the body an empty array", which
+        // under a delta envelope is both too strict (an empty envelope is a
+        // no-op) and too loose (deleting everything is not an empty body). It now
+        // runs AFTER reconciliation, on what the write WOULD store, and asks
+        // whether that leaves the org with no live job. Aborting here writes
+        // nothing — update-json.js returns on `{ abort }` before the PUT.
 
         // ── Stale job copies ──────────────────────────────────────────────
         // Every job carries the server's lastModifiedAt. A POSTed job whose stamp is
@@ -221,9 +231,21 @@ export async function handler(event) {
           }
         }
 
-        // Turn client-side deletions (ids in `existing` but absent from the
-        // incoming array) into tombstones so delta-sync can propagate them.
-        const reconciled = reconcileDeletions(incoming, existing);
+        // Turn client-side deletions into tombstones so delta-sync can propagate
+        // them. A LEGACY body says so by absence — the array is the whole world.
+        // A DELTA body says so explicitly, and absence means only "not mentioned",
+        // which is what lets the payload be partial at all (#339).
+        const reconciled = isDelta
+          ? applyExplicitWrite(incoming, deleteIds, existing)
+          : reconcileDeletions(incoming, existing);
+
+        // THE GUARD, on the intent rather than the shape. Both paths reach it by
+        // the same arithmetic, and a partial write cannot trip it because every
+        // unmentioned record is carried forward above — structurally, not by an
+        // exemption a future caller could set wrongly.
+        if (!force && wouldEmptyOrg(reconciled, existing)) {
+          return { abort: err(409, "Refusing to overwrite non-empty tasks with empty array") };
+        }
         // The stamped array is kept on `attempt` so the RESPONSE can carry the
         // new `lastModifiedAt` per job. Without that the client has no way to
         // learn its own write's stamp until the next 30s poll, so every save it

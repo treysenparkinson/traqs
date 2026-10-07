@@ -16,6 +16,7 @@ import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessa
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
+import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -5014,6 +5015,11 @@ Extraction rules:
   // resolves towards SAVING, because a needless POST costs bandwidth and a
   // skipped one costs the user's edit.
   const lastSavedRef = useRef({ tasks: null, people: null, clients: null });
+  // #339. Per-JOB content keys as of the last write the SERVER ACCEPTED, which is
+  // what lets the next write carry only the jobs that changed. lastSavedRef above
+  // is the same idea per SLICE and answers "did anything change at all"; this
+  // answers "which ones". null means "not known" -- the next write is full.
+  const lastAckJobKeysRef = useRef(null);
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
   const latestTasksRef = useRef(tasks);
@@ -8209,8 +8215,42 @@ Extraction rules:
       }
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`
         + ` | slices: ${Object.entries(changedSlice).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}`);
+      // ── #339 (2). SEND THE JOBS THAT CHANGED ──────────────────────────────
+      //
+      // Measured: 508.3 KB POSTed per write against 17.3 KB actually different.
+      // Item 1 above removed the writes that change nothing; this removes most of
+      // what the remaining ones carry.
+      //
+      // THE INVARIANT IS CHECKED HERE, ON THE BODY THAT IS ABOUT TO GO, because
+      // the server cannot do it: a payload that omits a job which really changed
+      // is indistinguishable, at the far end, from a job that did not change. The
+      // save succeeds and the edit is silently gone -- the shape of #379 and
+      // #380. missingFromDelta RECOMPUTES the dirty set rather than trusting
+      // buildDelta, so it still fails if the body is mutated after it is built.
+      //
+      // A FAILURE FALLS BACK TO THE FULL ARRAY. An inconsistency we cannot explain
+      // degrades to exactly the behaviour this replaced, loudly, instead of
+      // risking a lost edit -- and the ack is dropped so the write after it is
+      // full too.
+      const _deltaKeys = jobKeys(dedupedTasks);
+      let _deltaBody = buildDelta(dedupedTasks, lastAckJobKeysRef.current);
+      const _deltaMissing = missingFromDelta(_deltaBody, _deltaKeys, lastAckJobKeysRef.current);
+      if (_deltaMissing.length > 0) {
+        console.error("[doSave] delta payload was missing changed jobs, sending everything:", _deltaMissing);
+        _deltaBody = dedupedTasks;
+        lastAckJobKeysRef.current = null;
+      }
+      const _tasksBody = _deltaBody || dedupedTasks;
+      // The line above reports the TREE; this reports what actually goes on the
+      // wire, which is now a different number. Saying "POST 112 tasks" while
+      // sending one would make the log useless for the exact question it exists
+      // to answer on this endpoint.
+      if (changedSlice.tasks && _deltaBody && !Array.isArray(_deltaBody)) {
+        console.log(`[doSave] delta: ${_deltaBody.upsert.length} upsert, ${_deltaBody.delete.length} delete,`
+          + ` of ${dedupedTasks.length} jobs`);
+      }
       const results = await Promise.allSettled([
-        changedSlice.tasks ? saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current, aiActionRef.current) : Promise.resolve(null),
+        changedSlice.tasks ? saveTasks(_tasksBody, getTokenRef.current, orgCodeRef.current, aiActionRef.current) : Promise.resolve(null),
         changedSlice.people ? savePeople(people, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
         // POST /clients needs manageClients even when nothing changed, and this ran on
         // every autosave — so every save by a worker or restricted admin failed here.
@@ -8337,6 +8377,15 @@ Extraction rules:
       // #227 (1). Record what was just accepted, so the next save can tell
       // whether anything actually changed. Only the slices that were POSTed are
       // updated: one left out of this round is still whatever it was.
+      // THE ACK. Only a save the server accepted WHOLE may update it: after a
+      // conflict the server kept its own copy of some jobs, so this client's keys
+      // for them describe content that was never stored, and a delta built from
+      // them would skip the very jobs that need re-sending. Cleared instead, which
+      // costs one full write and cannot lose an edit.
+      if (changedSlice.tasks) {
+        const _hadConflicts = Array.isArray(results[0].value?.conflicts) && results[0].value.conflicts.length > 0;
+        lastAckJobKeysRef.current = _hadConflicts ? null : _deltaKeys;
+      }
       if (changedSlice.tasks) lastSavedRef.current.tasks = nextKeys.tasks;
       if (changedSlice.people) lastSavedRef.current.people = nextKeys.people;
       if (changedSlice.clients) lastSavedRef.current.clients = nextKeys.clients;
@@ -8422,6 +8471,7 @@ Extraction rules:
       // direction — a needless POST after a rejected save is cheap, a skipped
       // one would strand the user on data the server refused.
       lastSavedRef.current = { tasks: null, people: null, clients: null };
+      lastAckJobKeysRef.current = null;   // #339: a reset means the next write is full
       setPeople(() => normPeople);
       setClients(() => srvClients);
       // A job created locally and refused is gone from the server's copy; its

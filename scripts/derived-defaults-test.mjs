@@ -136,9 +136,18 @@ console.log("\n7. The normalisers mark, and the save strips");
     /const dedupedTasks = stripDerived\(tasks\.filter\(/.test(body), true);
   ok("the PEOPLE payload is stripped",
     /const people = stripDerived\(latestPeopleRef\.current\);/.test(body), true);
-  const stripAt = body.indexOf("const dedupedTasks = stripDerived(");
-  const postAt = body.indexOf("saveTasks(dedupedTasks");
-  ok("...before the POST, not after", stripAt >= 0 && postAt > stripAt, true);
+  // THE CHAIN, not one pair (#339). The body sent is no longer `dedupedTasks`
+  // itself: it is the delta built FROM it, so the property to hold is that the
+  // thing going out still descends from the stripped array. Every index is
+  // required to be found — `indexOf` returns -1 when absent, and -1 is less than
+  // everything, so an ordering check passes when the FIRST thing is missing (R4).
+  const order = (...names) => {
+    const at = names.map(n => body.indexOf(n));
+    if (at.some(i => i < 0)) return names.filter((_, i) => at[i] < 0);   // name what is missing
+    return at.every((v, i) => i === 0 || at[i - 1] < v) ? [] : ["out of order"];
+  };
+  ok("...and the delta is built from the stripped array, before the POST",
+    order("const dedupedTasks = stripDerived(", "buildDelta(dedupedTasks,", "saveTasks(_tasksBody"), []);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

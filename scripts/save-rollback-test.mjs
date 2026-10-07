@@ -23,6 +23,12 @@ import { readFileSync } from "node:fs";
 // assertions that have nothing to do with it. The REAL helper is a pure function,
 // so the harness imports it rather than stubbing it.
 import { stripDerived } from "../src/derived.js";
+// #339. Real, not auto-stubbed: this sandbox turns unknown identifiers into
+// functions returning undefined, so a stubbed buildDelta makes _deltaBody
+// undefined and missingFromDelta(...).length throws before the POST is reached.
+// They are pure, so the harness runs the real ones -- the same repair #412 made
+// for stripDerived, for the same reason.
+import { jobKeys, buildDelta, missingFromDelta } from "../src/deltaWrite.js";
 const SRC = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 
 function slice(anchor, { optional = false } = {}) {
@@ -87,6 +93,7 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
   const saveStatusRef = { current: "saved" };
   const deps = {
     stripDerived,
+    jobKeys, buildDelta, missingFromDelta,
     console: { log() {}, warn() {}, error() {} },
     saveStatusRef,
     setSaveStatus: (s) => { saveStatusRef.current = s; },          // J:6013 mirrors it
@@ -99,6 +106,7 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
     getToken: async () => "t", orgCode: "ORG",
     lastSaveTime: { current: 0 }, protectedJobIds: { current: new Set(["j1"]) },
     pollAppliedRef: { current: {} },
+    lastAckJobKeysRef: { current: null },   // #339: no ack yet -> a full write, as before
     saveTasks, savePeople: async () => ({}),
     saveClients: saveClients || (async () => ({})),
     canManageClientsRef: { current: canManageClients },

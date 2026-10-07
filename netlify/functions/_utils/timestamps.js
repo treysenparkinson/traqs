@@ -175,6 +175,56 @@ export function reconcileDeletions(next, previous, onDelete = softDelete) {
 }
 
 /**
+ * The delta counterpart of `reconcileDeletions` (#339).
+ *
+ * `reconcileDeletions` infers a deletion from ABSENCE, which is exactly what
+ * stops the payload becoming partial: a POST carrying one changed job would read
+ * as "delete the other 63". This takes the deletions EXPLICITLY instead, so
+ * absence means nothing at all and every stored record the write does not
+ * mention is carried forward untouched.
+ *
+ * `upsert` — records to add or replace. `deleteIds` — ids to tombstone, and
+ * ONLY those. An id that is not stored is ignored rather than invented, and a
+ * record that is both upserted and deleted in one write ends up deleted, because
+ * the delete is the more specific statement.
+ *
+ * Keeps `reconcileDeletions`' anti-resurrection rule: a client still holding a
+ * record that was tombstoned server-side cannot bring it back by upserting its
+ * live copy. Stored order is preserved and genuinely new records are appended,
+ * so the array does not reshuffle on every delta.
+ *
+ * Returns a NEW array; never mutates the inputs.
+ */
+export function applyExplicitWrite(upsert, deleteIds, previous, onDelete = softDelete) {
+  const prev = Array.isArray(previous) ? previous : [];
+  const ups = Array.isArray(upsert) ? upsert : [];
+  const del = new Set();
+  for (const id of Array.isArray(deleteIds) ? deleteIds : []) if (id != null) del.add(String(id));
+
+  const upById = new Map();
+  for (const rec of ups) if (rec && rec.id != null) upById.set(String(rec.id), rec);
+
+  const out = [];
+  const seen = new Set();
+  for (const rec of prev) {
+    if (!rec || rec.id == null) { out.push(rec); continue; }   // untracked — carried as-is
+    const id = String(rec.id);
+    seen.add(id);
+    if (del.has(id)) { out.push(rec.deletedAt ? rec : onDelete(rec)); continue; }
+    const inc = upById.get(id);
+    if (!inc) { out.push(rec); continue; }                     // not mentioned — untouched
+    out.push(rec.deletedAt && !inc.deletedAt ? rec : inc);     // no resurrection
+  }
+  for (const rec of ups) {
+    if (!rec || rec.id == null) { out.push(rec); continue; }
+    const id = String(rec.id);
+    if (seen.has(id) || del.has(id)) continue;
+    out.push(rec);
+  }
+  return out;
+}
+
+/**
  * Ids of records in `next` that are NEW or whose content changed vs `previous`
  * — exactly the ones stampArray gives a fresh lastModifiedAt. Used to tell
  * real-time subscribers WHICH records to refetch. Tombstoned records appear here

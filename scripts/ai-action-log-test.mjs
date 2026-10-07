@@ -109,7 +109,12 @@ console.log("\n5. The client sends it, and only for an AI run");
   ok("the chat path sets it before saving", /aiActionRef\.current = `ai:\$\{/.test(J), true);
   ok("...and CLEARS it afterwards, or every later save is tagged as AI",
     /aiActionRef\.current = null;/.test(J), true);
-  ok("doSave passes it through", /saveTasks\(dedupedTasks, getTokenRef\.current, orgCodeRef\.current, aiActionRef\.current\)/.test(J), true);
+  // The first argument became the delta envelope (#339); the tag is still the
+  // fourth and is what this asserts. Pinned by POSITION rather than by the whole
+  // call, so the next change to the payload does not read as the tag going
+  // missing — and the body is still asserted to descend from the stripped array
+  // in derived-defaults-test.
+  ok("doSave passes it through", /saveTasks\(_tasksBody, getTokenRef\.current, orgCodeRef\.current, aiActionRef\.current\)/.test(J), true);
   const C = codeOf(readFileSync(new URL("../netlify/functions/_utils/cors.js", import.meta.url), "utf8"));
   ok("the header is allowed by CORS, or the browser never sends it", /X-Action-Source/.test(C), true);
 }

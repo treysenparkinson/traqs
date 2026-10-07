@@ -58,6 +58,32 @@ export const STUBS = {
     export const softDelete = (r) => ({ ...r, deletedAt: nowIso() });
     export const reconcileDeletions = (next) => next;
     export const changedIds = () => [];
+    // #339. Faithful, unlike the inert stubs above, and deliberately so: tasks.js
+    // now runs the empty-org guard on what the write WOULD store, so a stub that
+    // returned only the upsert would make the guard fire on every partial write
+    // in these tests. Short enough to read beside the real one in
+    // _utils/timestamps.js, which delta-write-test.mjs covers properly.
+    export const applyExplicitWrite = (upsert, deleteIds, previous) => {
+      const prev = Array.isArray(previous) ? previous : [];
+      const ups = Array.isArray(upsert) ? upsert : [];
+      const del = new Set((Array.isArray(deleteIds) ? deleteIds : []).filter(x => x != null).map(String));
+      const byId = new Map(ups.filter(r => r && r.id != null).map(r => [String(r.id), r]));
+      const out = [], seen = new Set();
+      for (const r of prev) {
+        if (!r || r.id == null) { out.push(r); continue; }
+        const id = String(r.id); seen.add(id);
+        if (del.has(id)) { out.push(r.deletedAt ? r : softDelete(r)); continue; }
+        const inc = byId.get(id);
+        out.push(inc && !(r.deletedAt && !inc.deletedAt) ? inc : r);
+      }
+      for (const r of ups) {
+        if (!r || r.id == null) { out.push(r); continue; }
+        const id = String(r.id);
+        if (seen.has(id) || del.has(id)) continue;
+        out.push(r);
+      }
+      return out;
+    };
   `,
   "./_utils/entities.js": `
     export const isLive = (r) => !r?.deletedAt;
