@@ -3,6 +3,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
 import { stampObject } from "./_utils/timestamps.js";
+import { mergePrefs, wouldEmptyPrefs } from "./_utils/merge-prefs.js";
 
 // Per-user appearance + personal view preferences (theme, colors, background,
 // saved presets, sidebar mode, job-list column layout, status/priority options).
@@ -55,16 +56,30 @@ export async function handler(event) {
 
       const existing = await readJson(s3Key);
 
-      // Refuse to overwrite a populated blob with an empty one (mirrors the
-      // data-loss guard in settings.js / tasks.js).
+      // MERGED, NOT REPLACED (#441). The body is a PATCH of the keys that
+      // changed; anything it does not mention keeps its stored value. Before
+      // this, a write from a tab that had been open since the morning rewrote
+      // every key with its load-time copy, so toggling a theme silently reverted
+      // a column layout set in another tab an hour earlier.
+      //
+      // A bare full bundle still works unchanged — it is simply a patch that
+      // mentions everything — so an older client, and the seeding write of a new
+      // account, need no special case.
+      const merged = mergePrefs(existing, settings);
+
+      // The guard moved from the request's SHAPE to the write's INTENT, the same
+      // way the tasks guard did (#339). "Is the body empty" was a question about
+      // the request; under a patch an empty body is a legitimate no-op, and the
+      // question worth asking is whether the ACCOUNT ends up with nothing. A
+      // merge can only add keys, so this cannot fire — structurally, not by
+      // exemption — and it is kept because it is what stands between this
+      // endpoint and the 2026-06-03 shape if the semantics ever change back.
       const force = event.queryStringParameters?.force === "1";
-      if (Object.keys(settings).length === 0 && !force) {
-        if (existing && typeof existing === "object" && !Array.isArray(existing) && Object.keys(existing).length > 0) {
-          return err(409, "Refusing to overwrite non-empty user settings with empty object");
-        }
+      if (!force && wouldEmptyPrefs(merged, existing)) {
+        return err(409, "Refusing to overwrite non-empty user settings with empty object");
       }
 
-      await writeJson(s3Key, stampObject(settings, existing));
+      await writeJson(s3Key, stampObject(merged, existing));
       return json(200, { ok: true });
     } catch (e) {
       console.error("user-settings POST error:", e);

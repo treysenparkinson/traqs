@@ -112,8 +112,24 @@ console.log("\n4. IT IS WIRED — and both halves reach the per-account blob");
   ok("the remote load applies hiddenCols through the migration",
     /setHiddenCols\(migrateHiddenCols\(remote\.colOrder, remote\.hiddenCols\)\)/.test(CODE), true);
   ok("...and colWidths", /setColWidths\(remote\.colWidths\)/.test(CODE), true);
-  ok("the save effect re-runs when either changes",
-    /\}, \[themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths, orgCode\]/.test(CODE), true);
+  // RE-ANCHORED by #431. This pinned the dep array as a LITERAL, so it went red
+  // the moment seven preferences joined the bundle — a true assertion failing
+  // for a reason it was not about, which is the fixed-width slice problem in
+  // another costume. What it is actually for is that these two keys retrigger
+  // the save, so it asserts MEMBERSHIP of that effect's deps instead.
+  // Read from CODE, where the trailing eslint-disable comment has been stripped,
+  // so the dep array ends at `]);` and nothing else.
+  const saveDeps = (() => {
+    const at = CODE.indexOf("const bundle = {");
+    if (at < 0) return [];
+    const open = CODE.indexOf("}, [", at);
+    const close = CODE.indexOf("]", open);
+    if (open < 0 || close < 0) return [];
+    return CODE.slice(open + 4, close).split(",").map(s => s.trim()).filter(Boolean);
+  })();
+  ok("the save effect's deps were found", saveDeps.length > 0, true);
+  ok("...and hiddenCols retriggers it", saveDeps.includes("hiddenCols"), true);
+  ok("...and colWidths too", saveDeps.includes("colWidths"), true);
 }
 
 console.log("\n5. HIDING NO LONGER MUTATES THE ORDER");

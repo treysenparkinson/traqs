@@ -16,6 +16,7 @@ import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessa
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
+import { changedPrefs } from "./prefsDelta.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
@@ -8620,14 +8621,35 @@ Extraction rules:
         if (remote.colLabels && typeof remote.colLabels === "object") setColLabels(remote.colLabels);
         if (remote.groupColPref && typeof remote.groupColPref === "object") setGroupColPref(remote.groupColPref);
         if (remote.userPrefs && typeof remote.userPrefs === "object") setUserPrefs(p => ({ ...p, ...remote.userPrefs }));
+        // #431. The seven view preferences that follow the account. Each is
+        // type-checked before it is applied: this blob can hold anything an
+        // older build wrote, and a preference arriving as the wrong type must
+        // fall back to the local value rather than break the view it drives.
+        // They keep their localStorage hook as well, which is what paints the
+        // first frame — this read lands after it and is the one that wins, the
+        // same arrangement colOrder already has.
+        if (Array.isArray(remote.grouping)) setGrouping(remote.grouping);
+        if (typeof remote.jobSort === "string") setJobSort(remote.jobSort);
+        if (remote.colSort && typeof remote.colSort === "object" && !Array.isArray(remote.colSort)) setColSort(remote.colSort);
+        if (typeof remote.gSort === "string") setGSort(remote.gSort);
+        if (typeof remote.jobsView === "string") setJobsView(remote.jobsView);
+        if (typeof remote.showCompleted === "boolean") setShowCompleted(remote.showCompleted);
+        if (typeof remote.adminFilter === "string") setAdminFilter(remote.adminFilter);
         // statusOpts/priOpts are NOT applied here any more: they are org-wide now,
         // and writing this account's old copy straight in would hand the whole
         // organization one user's stale list on every sign-in.
         //
-        // They are CAPTURED, though, because this read is the last chance to see
-        // them. The bundle no longer carries them and user-settings.js replaces the
-        // blob wholesale, so the next preference this admin changes deletes their old
-        // list from S3. The migration below folds it into the org's list first.
+        // They are CAPTURED here because the bundle no longer carries them, and
+        // the migration below folds them into the org's list.
+        //
+        // CORRECTED BY #441: this used to say the next preference change would
+        // delete them from S3, which was true only while the endpoint replaced
+        // the blob wholesale. It MERGES now, so a key no client sends is kept
+        // rather than collected — these two will linger in the blob indefinitely.
+        // That is harmless: the fold is idempotent (it returns null once every
+        // name is already in the org list) and runs once per machine behind a
+        // localStorage flag. Worth stating plainly rather than leaving a comment
+        // that describes the old write.
         if (Array.isArray(remote.statusOpts) && remote.statusOpts.length) legacyOptsRef.current.statusOpts = remote.statusOpts;
         if (Array.isArray(remote.priOpts) && remote.priOpts.length) legacyOptsRef.current.priOpts = remote.priOpts;
       })
@@ -8640,18 +8662,31 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    // user-settings.js REPLACES THE BLOB WHOLESALE, so every preference has to be
-    // in here every time — a key the client stops sending is deleted, not kept.
-    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths };
-    const snapshot = JSON.stringify(bundle);
-    if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
+    // user-settings.js MERGES (#441), so this sends only the keys that changed
+    // and anything left out keeps its stored value. It used to replace the blob
+    // wholesale, which made every write from a long-open tab a revert of every
+    // preference that tab had not seen change.
+    //
+    // The seven view preferences at the end are #431: the ones you SET ON
+    // PURPOSE and would expect to find on another machine. The other nineteen
+    // stay in localStorage deliberately — see prefs-merge-test.mjs for why, in
+    // short: free text would filter a board for a reason you cannot see, a
+    // filter is a current investigation rather than a preference, and expanded/
+    // collapsed id sets mean nothing on a different screen.
+    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
+      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter };
+    const patch = changedPrefs(bundle, lastSyncedUserSettingsRef.current);
+    if (!patch) return; // unchanged since the last write the server accepted
     const t = setTimeout(() => {
-      saveUserSettings(bundle, getTokenRef.current, orgCode)
-        .then(() => { lastSyncedUserSettingsRef.current = snapshot; })
+      saveUserSettings(patch, getTokenRef.current, orgCode)
+        // The baseline advances only on success, so a failed write leaves every
+        // key dirty and the next one carries them again.
+        .then(() => { lastSyncedUserSettingsRef.current = bundle; })
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
+    grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.

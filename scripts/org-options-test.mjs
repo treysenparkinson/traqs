@@ -32,14 +32,25 @@ ok("the synced per-user bundle does not carry the status list", !bundle.includes
 ok("...nor the priority list", !bundle.includes("priOpts"));
 ok("...and the remote per-user copy is not applied over the org's",
   !/setStatusOpts\(remote\.statusOpts\)/.test(S) && !/setPriOpts\(remote\.priOpts\)/.test(S));
-// It IS captured, though. That read is the last sight of it: the bundle no longer
-// carries these, and user-settings.js replaces the blob wholesale, so the next
-// preference this admin changes deletes their old list from S3 for good.
-ok("...but it IS captured before it is destroyed",
+// It IS captured, because the bundle no longer carries these and this read is
+// the only place they are seen.
+//
+// THE REASON CHANGED, so this is a new rule rather than the old one with its
+// answer flipped (R3). It used to be "capture them before the next write
+// DESTROYS them", which held only while user-settings.js replaced the blob
+// wholesale. #441 made it MERGE, so a key no client sends is now KEPT — these
+// two linger in the blob instead of being collected. The capture is still
+// required, for a different reason: the bundle does not carry them, so without
+// it they would never reach the org's list at all. What is no longer true is
+// that they are on a clock.
+ok("...and it IS captured, because nothing else will ever read it",
   S.includes("legacyOptsRef.current.statusOpts = remote.statusOpts") &&
   S.includes("legacyOptsRef.current.priOpts = remote.priOpts"));
-ok("...and the blob really is replaced wholesale, which is why it must be captured now",
+ok("...and the blob MERGES now, so the capture is not racing a deletion",
   readFileSync(new URL("../netlify/functions/user-settings.js", import.meta.url), "utf8")
+    .includes("writeJson(s3Key, stampObject(merged, existing))"));
+ok("...and the wholesale write it used to race is gone",
+  !readFileSync(new URL("../netlify/functions/user-settings.js", import.meta.url), "utf8")
     .includes("writeJson(s3Key, stampObject(settings, existing))"));
 ok("nothing writes the legacy localStorage keys any more",
   !/localStorage\.setItem\("tq_(status|pri)_opts"/.test(S));
