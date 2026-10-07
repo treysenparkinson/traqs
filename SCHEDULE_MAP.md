@@ -2703,3 +2703,57 @@ Three defects fall out of it.
     **AND TWO OF THIS SUITE'S FIXTURES PROVED NOTHING.** "A plain date move leaves the department alone" used the SAME team on both sides, which the added-people filter already empties — so removing the `reassigned` guard changed no assertion. It carries different teams now, which is the real shape: `applyDragMove` only writes `team` when `reassigned`, so a mover with a different `to.team` and no flag must not rewrite the department either. The second was missing entirely: an op already out of department, gaining an in-department person, must not be rewritten on the strength of the member who was already there.
 
     FIVE EXISTING ASSERTIONS REWRITTEN, NOT DELETED (R3): `day-drag-test`'s whole department section pinned the refusal. It now pins the follow — same conditions, opposite response — including that it happens on Basic too, which this never was a paid rule. `assign-cell-test`'s moveLog literal gained `people`, and two assertions in `assign-refusal-test` from #424 were rewritten the same way.
+
+428. [MEASURED 2026-10-07, NOT FIXED] **DELETING A COLUMN ON THE JOBS LIST COMES BACK ON RELOAD, AND THE CAUSE IS THAT "HIDDEN" AND "NEWLY SHIPPED" ARE THE SAME STATE.** Reported by Trey.
+
+    Hiding a standard column removes its id from `colOrder` (`:27911`). On load, both readers run it through:
+
+        const backfillColOrder = (saved) => {
+          const known = STD_COL_DEFS.map(c => c.id);
+          const kept = saved.filter(id => known.includes(id));
+          return [...kept, ...known.filter(id => !kept.includes(id))];   // <- adds back everything missing
+        };
+
+    **ABSENCE FROM THE ARRAY MEANS TWO DIFFERENT THINGS — "I hid this" and "this column shipped after you last saved" — and backfill resolves the ambiguity in favour of the second, every time.** Its own comment says why it exists: *"without it a column shipped after this account last saved its order is stripped a moment after appearing, on every single load."* That problem is real; the encoding is what makes the two indistinguishable.
+
+    TWO FACTS, ONE ENCODING — the same shape `scheduleRules` records for departments: *"'Wire or Cut can do this' had to be written as 'nothing', which is also how you write 'anyone'."* It was solved there by storing the SET explicitly and making empty canonical. The same move works here: store which columns are HIDDEN, rather than inferring it from which are missing from an order list.
+
+    It fails on a plain refresh, not only across browsers: backfill runs in the localStorage initialiser (`:5806`) AND in the remote load (`:8465`), and the remote read is the one that wins because it lands after first paint.
+
+429. **RULING 2026-10-07 — THE VALUE IS SHARED, THE VISIBILITY IS PERSONAL.** Trey: *"The contents of a column (PO numbers, whatever) are shared and sync to everyone when someone sets them. Whether a given person shows or hides that column is theirs alone, and must survive a reload and ideally a browser change. Same for any show/hide of a cell or field."*
+
+    **WHAT EXISTS TODAY — FOUR STORES, USED INCONSISTENTLY:**
+
+        orgSettings          S3, shared, admin-gated   column DEFINITIONS (customCols), status/
+                                                       priority lists, the shop calendar
+        user-settings blob   S3, PER ACCOUNT           themeMode, customTheme, colOrder, colLabels,
+                             survives a browser change groupColPref, userPrefs  — six things, total
+        usePersistedUI       localStorage, per browser 26 pieces of view state
+        plain useState       nothing at all            colWidths, tMode, taskSubView,
+                                                       scheduleTeamMode, tsAdminTab
+
+    **THE ACCOUNT-LEVEL STORE ALREADY EXISTS AND ALREADY CLAIMS THIS JOB.** `netlify/functions/user-settings.js` is keyed by the authenticated email server-side, so a user can only read or write their own, and its header says it holds *"job-list column layout"*. Column order, labels and grouping are in it. The mechanism is not missing — it is under-used.
+
+    **THE ANSWER TO "WHAT ELSE IS AT ORG LEVEL THAT IS REALLY PERSONAL" IS: ESSENTIALLY NOTHING, AND THE MISPLACEMENT RUNS THE OTHER WAY.** Every key in `orgSettings` was checked. `workDays`, `holidays`, `lunch`, `breaks`, `workStart`/`workEnd`, `timeZone`, `payDates`, `payPeriodHourCap`, `trackLunch`/`trackBreaks` are the shop's calendar and payroll; `roles`, `signOffTemplates`, `approvalSteps`, `conditions`, `approverLabel`, `approvalQueueLabel`, `orgLogo`, `iosPayClockEnabled` are org policy; `statusOpts`/`priOpts` are org DELIBERATELY and the reason is recorded in place (an admin's rename must be visible to everyone); `customCols` is the column's definition, which is shared by the same logic as its contents. **One judgement call: `exportTemplates`** — saved export layouts, org-wide. Shared presets are defensible for a team, so it is a question rather than a defect.
+
+    **THE REAL GAP IS PERSONAL PREFERENCES STORED NOWHERE OR LOCALLY.** Against the ruling's bar — survive a reload, ideally a browser change:
+
+        colWidths            NOWHERE. Resizing a column is lost on every refresh.
+        tMode, taskSubView,  NOWHERE. Which schedule view, which Jobs sub-view,
+        scheduleTeamMode,    one-row-vs-team, which Time Clock tab — all reset.
+        tsAdminTab
+        26 x usePersistedUI  localStorage only. Survives a reload, lost on a new
+                             browser or machine — the ruling's second half.
+
+    So the work is not moving things OUT of org settings. It is deciding which of these belong in the per-account blob that already exists, and fixing the encoding that makes hiding unrepresentable (#428).
+
+430. [MEASURED 2026-10-07, NOT FIXED] **ONE BUTTON LABELLED "Delete Column" DOES TWO DIFFERENT THINGS, AND NOTHING ON SCREEN SAYS WHICH.**
+
+        custom column    removeCustomCol(colId)  -> drops it from orgSettings.customCols,
+                                                    FOR THE WHOLE ORGANISATION, with its data
+        standard column  colOrder.filter(...)    -> hides it FOR THIS PERSON (and fails to
+                                                    persist at all — #428)
+
+    Same context menu, same label, same icon. One is destructive and shared; the other is a personal view toggle. Under #429's ruling they are not even the same KIND of operation — one changes the value, the other changes the visibility — so a single verb cannot be right for both.
+
+    R3's family seen from the other side: not a label that outlived its behaviour, but **one label covering two behaviours that were never the same**. The fix is a naming and UI question ("Hide column" for the personal one, "Delete column" with a confirm for the shared one), and it should be settled in the same pass as #428 because the same menu row is the thing being changed.
