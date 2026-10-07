@@ -92,6 +92,26 @@ export function planDragMove({ grabbed, members = [], drop, origPerson, dropPers
  *   tasks, overlapCtx                                 — for the one overlap rule
  * }
  */
+/**
+ * Whether this mover actually changes WHEN the work sits, as opposed to only who
+ * is on it. A mover with no `from` cannot be shown to be standing still, so it
+ * counts as moving — the safe direction, because the date-shaped rules then run.
+ */
+function datesMoved(m) {
+  const f = m.from;
+  if (!f) return true;
+  // END HOUR AND hpd COUNT. A RESIZE does not move the start and may not even
+  // change the day, but it changes how much time the work occupies — which is
+  // exactly how it can be extended over somebody's leave. `resize-test` caught
+  // this: a release that grew an op across its assignee's day off stopped being
+  // refused when the comparison was start/end/startHour alone.
+  return f.start !== m.to.start
+    || f.end !== m.to.end
+    || (f.startHour ?? null) !== (m.to.startHour ?? null)
+    || (f.endHour ?? null) !== (m.to.endHour ?? null)
+    || (f.hpd ?? null) !== (m.to.hpd ?? null);
+}
+
 export function refuseDragMove(movers, ctx) {
   const title = (m) => m.node?.title || "";
   for (const m of movers) {
@@ -118,14 +138,29 @@ export function refuseDragMove(movers, ctx) {
       }
     }
   }
+  // TIME OFF. Checked for anyone the edit ADDS, and for everyone when the DATES
+  // move — those are the two ways a person can newly collide with their own leave
+  // (#424). A crew change that leaves somebody where they already were, on dates
+  // that are not changing, must not be refused on their behalf: that would block
+  // an edit which does not touch them.
   for (const m of movers) {
+    const moved = datesMoved(m);
     for (const pid of m.to.team || []) {
+      if (!moved && (m.from?.team || []).some(x => same(x, pid))) continue;
       const hit = leaveOn(ctx.timeOff?.(pid), m.to.start, m.to.end);
       if (hit) return { kind: "pto", id: m.id, title: title(m), personId: pid, timeOff: hit };
     }
   }
   if (!ctx.business) return null;
+  // THE PAST RULE IS ABOUT THE LANDING, so a mover that is not moving in time is
+  // not landing anywhere (#424). An assignment carries the SAME dates on both
+  // sides and only changes the crew; judging it by `to.start < nowDay` would
+  // refuse every reassignment of every op that has already started — including
+  // correcting who actually did last week's work, which is the opposite of what
+  // this rule is for. Derived from the mover rather than passed as a flag, so no
+  // caller can get it wrong, and so the same mistake is not available anywhere else.
   for (const m of movers) {
+    if (!datesMoved(m)) continue;
     if (m.to.start < ctx.nowDay || (m.to.start === ctx.nowDay && m.to.startHour < ctx.nowHour)) {
       return { kind: "past", id: m.id, title: title(m) };
     }

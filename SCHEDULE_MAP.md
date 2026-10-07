@@ -2590,7 +2590,7 @@ Three defects fall out of it.
 
     TESTED red-first, `scripts/settings-tier-test.mjs`, 28 assertions, wired (84 suites). 14 mutants, 14 caught — after one SKIPPED on an anchor that matched twice, because `(billing.tier || "basic") !== "business"` is identical at both org.js sites. Anchoring on the error message below each gate made them distinct, and both now have their own mutant.
 
-424. [MEASURED 2026-10-07, NOT FIXED] **`commitAssign` RUNS ONE OF `refuseDragMove`'s SIX LAYERS.** Found while scoping department-on-drop. The Jobs-list assignee cell and the `+ Assign` popover both commit through `commitAssign`, which builds a mover with `reassigned: true` and goes **straight to `commitLanding`** — the overlap backstop — without ever calling `refuseLanding`.
+424. **FIXED 2026-10-07 — `commitAssign` RAN ONE OF `refuseDragMove`'s SIX LAYERS.** Found while scoping department-on-drop. The Jobs-list assignee cell and the `+ Assign` popover both commit through `commitAssign`, which builds a mover with `reassigned: true` and goes **straight to `commitLanding`** — the overlap backstop — without ever calling `refuseLanding`.
 
         refuseDragMove layer     drag paths   commitAssign
         record                   checked      —
@@ -2619,3 +2619,29 @@ Three defects fall out of it.
     So the precedence rule is real code that has never decided anything, which is LESSONS #7's family (not wrong — UNTESTED BY USE). It matters here because "does the op gain its own department or does the parent's change?" is a question about machinery no live data exercises, and a ruling made on it will be the first thing that ever does.
 
     **NOR DOES ANY LIVE OP NAME MORE THAN ONE DEPARTMENT.** All 23 name exactly one, in the array form (`requiredDepartments`), with zero left on the legacy string. The set model ruled in on 2026-10-02 is correct and fully migrated, and is also entirely hypothetical on this board — so "Wire or Cut" cannot be reasoned about from data, only from intent.
+
+    ─── WHAT WAS BUILT, AND WHY TWO OF THE FOUR DID NOT TRANSFER ───
+
+    `commitAssign` calls `refuseLanding` before `commitLanding`, after its existing active-clock guard so that guard's specific message still wins. Trey asked which of the four missing layers it should get; the answer is two, and the two refusals are as interesting as the two acceptances.
+
+    **DEPARTMENT — yes.** The layer this pass exists to deliver, and the one that makes department-on-drop possible at all. It already skips people the edit does not add, so a crew change that leaves an out-of-department member where they were is not re-judged.
+
+    **TIME OFF — yes, but it needed scoping to match.** It checked EVERY member of `to.team`, so adding it unchanged would have refused a no-op re-save whenever anyone already on the op had leave. It now checks a person when they are newly ADDED **or when the dates move** — the two ways somebody can newly collide with their own leave. An assignment changes who, a drag changes when, and each needs the other half.
+
+    **PAST — NO, and this is the one worth reading.** It tests `m.to.start < nowDay`, which is a statement about a LANDING. An assignment carries the same dates on both sides, so applying it as-is would refuse **every reassignment of every op that has already started** — including correcting who actually did last week's work. That is the opposite of what the rule is for.
+
+    **RECORD — NO, and there is nothing to pass.** `isRecord` is set on the GRABBED BAR by `planDragMove` ("a cross-row bar, a record of work done"), not on an op. `commitAssign` has no bar. Forcing the layer would mean inventing a flag and then deciding what it means, which is a new concept rather than a missing check.
+
+    **BOTH NEGATIVES ARE IMPLEMENTED AS A PROPERTY OF THE MOVER, NOT AS A FLAG ON THE CALLER.** `datesMoved(m)` compares `from` against `to`, and a mover with no `from` counts as moving — the safe direction. A `past` refusal for something that is not moving in time was wrong on every caller, not only this one, so the fix belongs in the rule rather than in an exemption each caller has to remember.
+
+    **`resize-test` CAUGHT THE FIRST VERSION OF `datesMoved`**, and the catch is the useful part: it compared `start`/`end`/`startHour`, so a RESIZE — which does not move the start and may not change the day — read as standing still, and an op grown across its own assignee's day off stopped being refused. `endHour` and `hpd` count too. A rule about "when the work sits" has to include how much of the day it takes.
+
+    TESTED red-first, `scripts/assign-refusal-test.mjs`, 25 assertions, wired (85 suites). 16 mutants, 16 caught — after one SKIPPED on `if (refusal) { showLandingRefusal(...` , which is identical in `commitAssign` and `commitDates`. R4 in the mutants again.
+
+    **AND ONE OF THIS SUITE'S OWN ASSERTIONS WAS GREEN ON THE UNFIXED CODE.** "refuseLanding comes before commitLanding" was written as `body.indexOf(a) < body.indexOf(b)`, and `indexOf` returns **-1** when absent — so "A comes before B" is true whenever **A is missing**, which is precisely the state the suite exists to catch. Every ordering assertion now requires both ends to be found. That is R4's shape on a third axis: not "is the string somewhere else" but "does absence satisfy the comparison".
+
+426. [LOGGED 2026-10-07, NOT BUILT] **THE DEPARTMENT PRECEDENCE HAZARD, which department-on-drop will be the first thing to create.** `unitDepartments` walks op → panel → job and the NEAREST level that states anything wins outright — no union. Today nothing exercises it (#425: 23 ops state their own, zero inherit). The approved rewrite writes an own department onto the OP and leaves its parents alone, which is right for the gesture and is also how a panel and its ops begin to disagree.
+
+    The trap is quiet because the precedence rule RESOLVES the disagreement rather than reporting it: once an op states a department, its panel's value stops meaning anything for that op, permanently and with nothing on screen to say so. Set a panel to "Wire" expecting its ops to follow, and the ones a drag has touched will not — and the panel picker will keep showing "Wire" as though it applied.
+
+    Costs nothing today (two panels state a department: one has no live ops, the other's three ops already restate it). Bites the first time someone uses the panel-level picker after this ships. Worth a decision then rather than now: either the panel picker cascades to its ops, or it says that ops with their own department are unaffected.

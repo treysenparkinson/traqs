@@ -9035,6 +9035,22 @@ Extraction rules:
     // changes who is on it.
     const mover = { id: String(op.id), reassigned: true,
       from: { ...at, team: op.team || [] }, to: { ...at, team: nextTeam } };
+    // #424. THE REST OF THE CHAIN, not just the active-clock guard.
+    //
+    // #393 lifted `isLive` into this commit by hand and its own comment diagnosed
+    // the whole class — "skipped refuseLanding, which is where isLive lives, and
+    // then three more layers passed it through" — but only that one layer moved.
+    // So the DEPARTMENT and TIME-OFF rules were refused on a drag and accepted
+    // silently here: 353 of Matrix's 414 (constrained op x person) pairs are
+    // cross-department, and every one of them took this path without a word.
+    //
+    // The other two layers do NOT transfer, and that is in refuseDragMove rather
+    // than skipped here: `record` is drag-layer state set on a grabbed BAR, so
+    // there is nothing to pass; and `past` tests the landing date, which an
+    // assignment does not change, so it is now conditional on the dates actually
+    // moving. Both are decided from the mover, so no caller can get them wrong.
+    const refusal = refuseLanding([mover]);
+    if (refusal) { showLandingRefusal(refusal); return false; }
     const reason = nextTeam.length ? "Assigned from the Jobs list" : "Unassigned from the Jobs list";
     return commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy, reason }), movedBy),
       [String(op.id)], op.title || "");
