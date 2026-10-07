@@ -46,12 +46,58 @@ export function membershipViolations(src) {
   // `X.team.includes(Y)` and `(X.team || []).includes(Y)`, in spaced or
   // minified spelling. The member expression is captured so the finding can name
   // what was being tested rather than only where.
-  const RE = /(?:\(\s*[\w.?[\]]*\.?team\s*\|\|\s*\[\s*\]\s*\)|[\w.?[\]]*\.team)\s*\.includes\(\s*([^)]+?)\s*\)/g;
+  const TEAM = String.raw`(?:\(\s*[\w.?[\]]*\.?team\s*\|\|\s*\[\s*\]\s*\)|[\w.?[\]]*\.team)`;
+  const RE = new RegExp(TEAM + String.raw`\s*\.includes\(\s*([^)]+?)\s*\)`, "g");
+
+  // #436. THE SECOND SPELLING, and it passed clean through every build for five
+  // months: `Array.from(new Set([...(op.team || []), personId]))`.
+  //
+  // A Set dedupes by `===`, so this is the SAME HAZARD as `.includes` wearing
+  // different clothes — a member stored as the number 7 and added as the string
+  // "7" both survive, and the same human is on the op twice. Silent, like the
+  // rest of the family.
+  //
+  // THE COMMA IS THE WHOLE TEST. `new Set([...(op.team || [])])` with nothing
+  // after it is a plain dedupe of one array and is not a membership comparison
+  // at all, so it is left alone — a guard that flags harmless code is a guard
+  // that gets switched off (LESSONS #4).
+  const RE_SET = new RegExp(String.raw`new\s+Set\(\s*(\[)\s*\.\.\.\s*` + TEAM + String.raw`\s*,\s*([^,\]]+?)\s*[,\]]`, "g");
+
+  // THE `.map(String)` GUARD IS ALIVE FOR THIS PATTERN, and that is worth saying
+  // because the header above records it being removed as DEAD for `.includes`.
+  // It was dead there because `.includes` has to sit directly on `team`, so a
+  // `.map(String)` in between already prevented a match. Here the normaliser
+  // sits on the ARRAY LITERAL, after the spreads and outside anything the regex
+  // can see:
+  //
+  //     [...new Set([...(panel.team || []), ...ops.flatMap(o => o.team || [])].map(String))]
+  //
+  // That is SAFE — every id is a string before the Set ever dedupes — and it is
+  // live code in the job-detail panel roll-up. Flagging it would be a false
+  // positive on the first file the extension ran against, which is how a guard
+  // stops being believed (LESSONS #4). So the array's extent is found by
+  // matching brackets rather than guessed at, and a normalised one is excluded.
+  const normalised = (line, openAt) => {
+    let depth = 0;
+    for (let k = openAt; k < line.length; k++) {
+      const c = line[k];
+      if (c === "[") depth++;
+      else if (c === "]") {
+        depth--;
+        if (depth === 0) return /^\s*\.map\(\s*String\s*\)/.test(line.slice(k + 1));
+      }
+    }
+    return false;   // unbalanced on this line — report it rather than assume
+  };
+
   stripped.forEach((line, i) => {
     let m;
     RE.lastIndex = 0;
-    while ((m = RE.exec(line))) {
-      out.push({ line: i + 1, text: lines[i], member: m[1].trim() });
+    while ((m = RE.exec(line))) out.push({ line: i + 1, text: lines[i], member: m[1].trim() });
+    RE_SET.lastIndex = 0;
+    while ((m = RE_SET.exec(line))) {
+      if (normalised(line, m.index + m[0].indexOf("["))) continue;
+      out.push({ line: i + 1, text: lines[i], member: m[2].trim() });
     }
   });
   return out;

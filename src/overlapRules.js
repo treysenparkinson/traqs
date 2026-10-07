@@ -40,6 +40,43 @@ const prevDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.
 const ids = (team) => (Array.isArray(team) ? team.map(String) : []);
 
 /**
+ * A team with `pid` on it, added only if they are not already there (#436).
+ *
+ * THE REPLACED FORM WAS `Array.from(new Set([...team, pid]))`, which dedupes by
+ * `===`. Person ids are mixed string/number across the web, iOS and the stored
+ * history, so a member stored as the number 7 and dropped as the string "7"
+ * BOTH SURVIVE and the same human ends up on the op twice. It does not throw —
+ * it is the silent half of the person-id-type-drift family, exactly like the
+ * `.includes(pid)` cases in #340 and #345.
+ *
+ * Compares through `String` and returns the ORIGINAL array when nothing is
+ * added, so a drop on somebody already on the crew is not a change and does not
+ * register as a reassignment. A null/undefined person is refused rather than
+ * stored: `onTeam` would never match it afterwards, so it could never be taken
+ * off again.
+ */
+export function withPerson(team, pid) {
+  const list = Array.isArray(team) ? team : [];
+  if (pid == null) return list;
+  return list.some(x => x != null && String(x) === String(pid)) ? list : [...list, pid];
+}
+
+/**
+ * A team with `pid` off it (#436), the mirror of `withPerson`.
+ *
+ * THE REMOVAL SIDE FAILS THE OTHER WAY AND IT IS WORSE. `team.filter(id => id
+ * !== pid)` against a drifted type removes NOBODY and reports success, so a
+ * request to take someone off a job silently leaves them on it. Found next to
+ * the add it mirrors, in the AI action handler, where `input.person_id` comes
+ * from outside the app entirely and its type is whatever the model emitted.
+ */
+export function withoutPerson(team, pid) {
+  const list = Array.isArray(team) ? team : [];
+  if (pid == null) return list;
+  return list.filter(x => x == null || String(x) !== String(pid));
+}
+
+/**
  * The context every function here takes, from org settings (the server's view).
  * The web builds the same object from its own dayWindowCfg.
  *   { cfg, productiveHoursPerDay, isWorkDay, today, shareHours? }

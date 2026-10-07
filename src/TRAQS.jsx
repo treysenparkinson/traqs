@@ -13,7 +13,7 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
-import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart } from "./overlapRules.js";
+import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
@@ -9152,7 +9152,13 @@ Extraction rules:
   // ACCEPTED CONSEQUENCE, ruled 2026-10-06: typing a date that overlaps is now
   // REFUSED where it used to succeed silently. A quieter path is the defect.
   const commitDates = (op, next) => {
-    const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] };
+    // `status` joins `from` ONLY when the caller is setting one (#414, the
+    // pending tray). Putting it there unconditionally would make `to.status`
+    // always defined, so every date typed on the Jobs list would rewrite the
+    // status with itself and log a fromStatus/toStatus pair that reads like a
+    // change nobody made.
+    const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [],
+      ...(next && next.status != null ? { status: op.status ?? null } : {}) };
     const to = { ...from, ...next };
     const movedBy = loggedInUser?.name || "Admin";
     // A drop that sets WHO as well as WHEN is a reassignment too — `placeTaskAt`
@@ -10470,12 +10476,22 @@ Extraction rules:
   // dates, and this is the way to give it both at once.
   //
   // OVERWRITES, and that is the difference from handlePendingItemDrop below.
-  // That one ADDS a person to the team, because it places work off the pending
-  // list where several people can pile onto one item. Here the drop IS the
-  // decision: whoever's row you dropped on is the assignee, replacing whoever was
-  // there, and the dates are replaced too. Merging instead would make a second
-  // drop leave the first person still on the task, which is the opposite of
-  // "drop it wherever you want".
+  // Here the drop IS the decision: whoever's row you dropped on is the assignee,
+  // replacing whoever was there, and the dates are replaced too. Merging instead
+  // would make a second drop leave the first person still on the task, which is
+  // the opposite of "drop it wherever you want".
+  //
+  // CORRECTED 2026-10-07 (#414, R2). This comment used to justify the tray's
+  // ADD by saying it "places work off the pending list where several people can
+  // pile onto one item". THAT WAS INFERENCE STATED AS FACT, it was wrong, and
+  // because it read like a settled product rule it is the reason the question
+  // cost a round to answer. Two measurements contradict it: 0 of 230 live panels
+  // and ops at Matrix carry more than one person, and a card leaves the tray on
+  // its FIRST drop, so the tray cannot be how several people pile onto anything.
+  // The tray is filled only from `editAddedIds` — nodes created in the edit
+  // session that just ended — and `addPanel`/`addOp` both make `team: []`, for
+  // which add and replace are the same array. The add is an idiom, not a ruling.
+  // It is kept because changing it is a product decision, not a consolidation.
   const [placingTask, setPlacingTask] = useState(null); // { id, pid, title, hpd }
   const placeTaskAt = (personId, dayStr) => {
     const it = placingTask;
@@ -10517,32 +10533,49 @@ Extraction rules:
     return () => document.removeEventListener("keydown", onKey);
   }, [placingTask]);
 
+  // #414. THE LAST SCHEDULE-FIELD WRITER OUTSIDE THE SHARED COMMITS, and it was
+  // a bare `setTasks` tree map: start, end, team and status written with no
+  // refusal chain, no overlap backstop, no moveLog, no recalcBounds and no
+  // department follow. Five layers every other writer goes through.
+  //
+  // THE UNION IS PASSED AS A VALUE, not as a merge mode on the commit.
+  // `commitDates` takes an ABSOLUTE team and works out `reassigned` by comparing
+  // from/to, and `applyDragMove` writes `m.to.team` wholesale — so merging is the
+  // caller's arithmetic and the shared commit needs to know nothing about it.
+  // Behaviour here is preserved exactly: the tray still ADDS the person.
+  //
+  // THE CARD IS REMOVED AT THE COMMIT, not at the top. With a refusal chain in
+  // front of it, the old unconditional removal would have destroyed the card AND
+  // left the op undated — strictly worse than what it replaced, which at least
+  // placed it. Same ordering lesson as #434.
   const handlePendingItemDrop = (itemId, personId, dayStr) => {
     const item = pendingScheduleItems.find(i => i.id === itemId);
     if (!item) return;
-    // The drop sets the dates, the assignee and the status.
+    // Stricter than the other commits by one: this creates the placement rather
+    // than adjusting an existing one.
     const lacking = ["editJobs", "moveJobs", "reassign"].find(k => !can(k));
     if (lacking) return denied(PERM_VERB[lacking]);
+    // A card is either an op or a childless panel; both are scheduling units
+    // (`occupyingUnits` falls back to the panel when it has no ops), so both go
+    // through the same commit.
+    const node = findTaskNode(item.kind === "op" ? item.opId : item.panelId);
+    if (!node) return;
     // Compute true duration from hpd (total hours / productive hours per workday).
     // sub-1-day stays on a single day (partial-width bar via startHour/endHour); multi-day
     // spans the right number of business days so the bar lands at its real length immediately.
     const daysNeeded = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
     const start = dayStr;
     const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
-    setTasks(prev => prev.map(job => {
-      if (job.id !== item.jobId) return job;
-      return { ...job, subs: (job.subs || []).map(pnl => {
-        if (pnl.id !== item.panelId) return pnl;
-        if (item.kind === "op") {
-          return { ...pnl, subs: (pnl.subs || []).map(op => {
-            if (op.id !== item.opId) return op;
-            return { ...op, start, end, team: Array.from(new Set([...(op.team || []), personId])), status: op.status === "Not Started" ? "Pending" : op.status };
-          }) };
-        }
-        // panel-only placement
-        return { ...pnl, start, end, team: Array.from(new Set([...(pnl.team || []), personId])) };
-      }) };
-    }));
+    // Placing a brand-new op out of the tray promotes it to "Pending". Carried
+    // in the plan so it is one write and one log entry, and guarded on the org's
+    // own list because `statusOpts` is user-editable and an org that removed
+    // "Pending" would otherwise get a status its own dropdown cannot show (#437).
+    const promoted = (node.status || "Not Started") === "Not Started" && STATUSES.includes("Pending");
+    if (commitDates(node, {
+      start, end,
+      team: withPerson(node.team, personId),
+      ...(promoted ? { status: "Pending" } : {}),
+    }) === false) return;
     setPendingScheduleItems(prev => prev.filter(i => i.id !== itemId));
   };
 
@@ -10919,11 +10952,17 @@ ${jobsCtx || "No jobs found."}`;
           break;
         case "assign_person_to_job":
           changed = jobExists(input.job_id);
-          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t));
+          // #436. `input.person_id` arrives from the MODEL, so its type is
+          // whatever the tool call emitted — the one place in this file where a
+          // person id has no provenance at all. The `new Set` here and the
+          // `!==` filter below both compared raw, and they fail in opposite
+          // directions: the add put the same human on twice, the remove took
+          // nobody off and reported success.
+          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: withPerson(t.team, input.person_id) } : t));
           break;
         case "remove_person_from_job":
           changed = jobExists(input.job_id);
-          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t));
+          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: withoutPerson(t.team, input.person_id) } : t));
           break;
         case "update_operation": {
           const opUpd = {};
