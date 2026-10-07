@@ -16,6 +16,7 @@ import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessa
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
+import { healthState, isJudged, countsAsOnTime } from "./health.js";
 import { changedPrefs } from "./prefsDelta.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
@@ -666,27 +667,16 @@ const uid = () => "t" + Math.random().toString(36).substr(2, 8);
 // stored status is only as fresh as the last person to edit it, and work clocked into a
 // panel never touches it: a panel with 34.87h against it, 26% done and comfortably on
 // schedule, read `critical` purely because the label still said Not Started.
-const getHealth = (t, pctDoneOverride = null) => {
-  if (t.status === "Finished") return "done";
-  const measured = pctDoneOverride == null ? null : Math.max(0, pctDoneOverride);
-  // Any logged time means work has started, whatever the label says. loggedHours is the
-  // only evidence visible from module scope; it undercounts (the counter drifts below the
-  // session rows) but a non-zero value is still proof of work.
-  const started = measured != null ? measured > 0 : (t.loggedHours || 0) > 0;
-  if (t.status === "Not Started" && !started) return TD > t.start ? "critical" : "ontime";
-  const total = diffD(t.start, t.end) + 1;
-  const elapsed = diffD(t.start, TD) + 1;
-  const pctTime = Math.min(elapsed / Math.max(total, 1), 1);
-  const pctDone = measured != null ? measured
-    : t.status === "In Progress" ? 0.5
-    : t.status === "Pending" ? 0.15
-    : t.status === "On Hold" ? 0.25
-    : 0;
-  if (t.status === "On Hold" && pctTime > 0.5) return "critical";
-  if (pctTime > pctDone + 0.35) return "critical";
-  if (pctTime > pctDone + 0.15) return "behind";
-  return "ontime";
-};
+// REPLACED 2026-10-07 (#440), and the old rule is GONE rather than parked beside
+// this one — a second implementation nothing calls is #419's stranded control.
+// It compared elapsed time against a progress figure guessed from the status
+// label, and it was not wrong about any single unit: four different rules over
+// Matrix's board all produced the same 133 reds. What it never did was ask
+// whether the JOB was finished, and 110 of those 133 sat on one that was.
+// src/health.js holds the states and the reasoning.
+const getHealth = (t, pctDoneOverride = null, jobStatus = null) =>
+  healthState(t, { today: TD, jobStatus, pctDone: pctDoneOverride });
+
 const HEALTH_DOT = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", done: "#10b981" };
 
 // ── Hours-driven progress ramp ───────────────────────────────────────────────
@@ -3412,7 +3402,22 @@ const ScrollBox = ({ style, fill, children }) => {
     >{children}</div>
   );
 };
-const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = elColorT(HEALTH_DOT[h]); return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
+// TAKES THE VALUE, DOES NOT COMPUTE IT (#440). It used to call `getHealth(t)`
+// from module scope, where real progress is unreachable, so it fell through to
+// the status-keyed guesses (0.5/0.15/0.25) that the component path never
+// reaches. Three of Matrix's 182 units disagreed between the two — the Jobs
+// list and the dashboard showing different colours for the same operation.
+// There is one computation now, so there is nothing left to agree.
+//
+// `notyet` renders NOTHING: a unit that has not reached its start date has no
+// health to report, and a grey dot would read as a fourth verdict rather than
+// as the absence of one.
+const HEALTH_TITLE = { ontime: "On time", behind: "Needs a look", critical: "Late", done: "Done" };
+const HealthIcon = ({ health, size = 14 }) => {
+  if (!health || health === "notyet") return null;
+  const c = elColorT(HEALTH_DOT[health]);
+  return <span title={HEALTH_TITLE[health] || ""} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />;
+};
 function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false, multi = false, values = [], onChangeMulti }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -6268,7 +6273,22 @@ Extraction rules:
   // Health measured against real logged hours rather than the status label. Use this
   // everywhere inside the component; bare getHealth is for module scope, which cannot
   // reach the session rows or the live clocks.
-  const healthOf = (t) => getHealth(t, _pctForItem(t) / 100);
+  // Supplies the PARENT JOB'S STATUS, which is the whole of #440's fix: an
+  // operation on a job that shipped is not late, it is done. Jobs are matched by
+  // identity first — the common case, and free — falling back to a walk for the
+  // panels and ops that are not themselves top-level.
+  const jobStatusOfNode = (t) => {
+    if (!t) return null;
+    for (const job of tasks) {
+      if (job === t || sameId(job.id, t.id)) return job.status ?? null;
+      for (const panel of job.subs || []) {
+        if (panel === t || sameId(panel.id, t.id)) return job.status ?? null;
+        if ((panel.subs || []).some(o => o === t || sameId(o.id, t.id))) return job.status ?? null;
+      }
+    }
+    return null;
+  };
+  const healthOf = (t) => getHealth(t, _pctForItem(t) / 100, jobStatusOfNode(t));
   // Everyone actually on a node, at whatever level it sits. Assignment lives on the
   // LEAVES -- a job and a phase carry no team of their own once a job is created
   // through the new-job modal -- so reading node.team alone answers empty for work
@@ -13534,7 +13554,7 @@ ${jobsCtx || "No jobs found."}`;
             <div>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} />
+                  <HealthIcon health={healthOf(fresh)} size={22} style={{ flexShrink: 0 }} />
                   <div>
                     <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
                     {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
@@ -13588,7 +13608,7 @@ ${jobsCtx || "No jobs found."}`;
                   const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
                   return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusLg, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 16, marginBottom: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <HealthIcon t={panel} size={14} />
+                      <HealthIcon health={healthOf(panel)} size={14} />
                       <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
                       {panel.dateOverridden && <span title={`Original start: ${fm(panel.dateOverridden.originalStart)} · Overridden by ${panel.dateOverridden.overriddenBy} on ${fm(panel.dateOverridden.overriddenAt)}`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b33", cursor: "help", flexShrink: 0 }}>Date Overridden</span>}
                       <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
@@ -13614,7 +13634,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(panel.subs || []).length > 0 && <div>
                       {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
                         return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: panel.id, grandPid: parent.id, level: 2, panelTitle: panel.title }, "job-detail")}>
-                          <HealthIcon t={op} size={12} />
+                          <HealthIcon health={healthOf(op)} size={12} />
                           <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
                           <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
                           {person && <span style={{ marginLeft: "auto", fontSize: 12, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><PersonAvatar person={person} size={16} />{person.name}</span>}
@@ -13627,7 +13647,7 @@ ${jobsCtx || "No jobs found."}`;
               {(!parent || (parent.subs || []).length === 0) && (fresh.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
                 <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Subtasks ({fresh.subs.length})</h4>
                 {fresh.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: T.radiusSm, marginBottom: 6, background: T.surface, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...s, isSub: true, pid: fresh.id, level: 1 }, "job-detail")}>
-                  <HealthIcon t={s} size={13} />
+                  <HealthIcon health={healthOf(s)} size={13} />
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text }}>{s.title}</span>
                   <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(s.start)} → {fm(s.end)}</span>
                 </div>)}
@@ -14637,7 +14657,7 @@ ${jobsCtx || "No jobs found."}`;
               return <div key={t.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${elColor(t.color)}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                    <HealthIcon t={t} />
+                    <HealthIcon health={healthOf(t)} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
                     {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                   </div>
@@ -18098,8 +18118,14 @@ ${jobsCtx || "No jobs found."}`;
     const hoursLogged = Math.round(periodEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
     const activeJobs = tasks.filter(t => t.status !== "Finished" && t.start <= periodEnd && t.end >= periodStart);
     const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
-    const onTimeCount = activeJobs.filter(j => healthOf(j) === "ontime").length;
-    const onTimePct = activeJobs.length ? Math.round((onTimeCount / activeJobs.length) * 100) : 0;
+    // WORK THAT HAS NOT STARTED IS NOT A SUCCESS (#440). Both halves of this
+    // counted it as one: `notyet` units sat in the denominator AND, being
+    // neither behind nor critical, flattered the numerator. Twelve of Matrix's
+    // 182 units. They are excluded from the measurement entirely now rather
+    // than being scored, because "has not begun" is not a verdict.
+    const _jobHealth = activeJobs.map(j => healthOf(j)).filter(isJudged);
+    const onTimeCount = _jobHealth.filter(countsAsOnTime).length;
+    const onTimePct = _jobHealth.length ? Math.round((onTimeCount / _jobHealth.length) * 100) : 0;
 
     // â”€â”€ Per-person pay-period hours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Hours logged in the CURRENT pay period (semi-monthly, e.g. the 5th & 20th
@@ -18527,7 +18553,7 @@ ${jobsCtx || "No jobs found."}`;
                 {hasSubs && <div style={{ fontSize: 11, color: T.accent, marginTop: 3 }}>{t.subs.length} subtask{t.subs.length > 1 ? "s" : ""}{subs.length < t.subs.length ? ` (${subs.length} today)` : ""}</div>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <HealthIcon t={t} size={10} />
+                <HealthIcon health={healthOf(t)} size={10} />
                 {!hasSubs && <span style={{ fontSize: 10, color: T.textDim }}>view</span>}
               </div>
             </div>
@@ -18541,7 +18567,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontSize: 13, fontWeight: 500, color: isActive ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
                     <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}{!isActive ? " · not today" : ""}</div>
                   </div>
-                  <HealthIcon t={s} size={8} />
+                  <HealthIcon health={healthOf(s)} size={8} />
                 </div>;
               })}
               <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer", gap: 6 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
@@ -18579,7 +18605,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 12, color: opts.dateColor || T.textDim, marginTop: 2 }}>{opts.prefix || ""}{cl ? cl.name + " · " : ""}{fm(t.start)} → {fm(t.end)}</div>
             {hasSubs && <div style={{ fontSize: 11, color: T.accent, marginTop: 3 }}>{t.subs.length} subtask{t.subs.length > 1 ? "s" : ""}</div>}
           </div>
-          <HealthIcon t={t} size={10} />
+          <HealthIcon health={healthOf(t)} size={10} />
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${cardBorder}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
           {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
@@ -18588,7 +18614,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}</div>
             </div>
-            <HealthIcon t={s} size={8} />
+            <HealthIcon health={healthOf(s)} size={8} />
           </div>)}
           <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
@@ -19078,8 +19104,13 @@ ${jobsCtx || "No jobs found."}`;
     const utilization = capacity > 0 ? Math.min(100, Math.round((perf.working / capacity) * 100)) : null;
     const doneOps = myOps.filter(m => m.op.status === "Finished" && m.op.end >= pStart && m.op.end <= pEnd);
     const dueOps = myOps.filter(m => m.op.end >= pStart && m.op.end <= pEnd);
-    const onTime = dueOps.length ? Math.round((dueOps.filter(m => ["ontime", "done"].includes(healthOf(m.op))).length / dueOps.length) * 100) : null;
-    const behindCount = dueOps.filter(m => ["critical", "behind"].includes(healthOf(m.op))).length;
+    // Same exclusion as the dashboard tile (#440), and it matters more here:
+    // this number is shown to an individual against their own name, so counting
+    // work they have not been able to start yet — in either direction — is
+    // telling someone something untrue about themselves.
+    const _dueHealth = dueOps.map(m => healthOf(m.op)).filter(isJudged);
+    const onTime = _dueHealth.length ? Math.round((_dueHealth.filter(countsAsOnTime).length / _dueHealth.length) * 100) : null;
+    const behindCount = _dueHealth.filter(h => h === "critical" || h === "behind").length;
     const avgPerTask = doneOps.length ? actual / doneOps.length : null;
 
 
@@ -22373,7 +22404,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}</div>
             </div>
-            <HealthIcon t={s} size={8} />
+            <HealthIcon health={healthOf(s)} size={8} />
           </div>)}
           <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
@@ -22501,7 +22532,7 @@ ${jobsCtx || "No jobs found."}`;
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
               {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
-                <HealthIcon t={t} size={8} />
+                <HealthIcon health={healthOf(t)} size={8} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
               </div>)}
@@ -22605,7 +22636,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontWeight: 500 }}>{c.name}</span>
               </div>)}
               {jobResults.slice(0, 6).map(t => <div key={t.id} onClick={() => { setSearchQ(""); setSearchOpen(false); openDetail(t); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
-                <HealthIcon t={t} size={8} />
+                <HealthIcon health={healthOf(t)} size={8} />
                 <span style={{ fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               </div>)}
             </div>;
