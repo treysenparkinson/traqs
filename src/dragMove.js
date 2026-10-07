@@ -154,11 +154,11 @@ export function refuseDragMove(movers, ctx) {
   // The one overlap rule. Each mover's hours are its own landing share; the other movers are
   // not obstacles where they USED to be, but they are where they LAND — two members reassigned
   // onto one row must not end up on top of each other.
-  const shares = new Map(movers.map(m => [m.id, m.shareH]));
+  const shares = new Map(movers.map(m => [sid(m.id), m.shareH]));
   const baseShare = ctx.overlapCtx.shareHours
     || ((u) => personShareHours(u.hpd, (u.team || []).length, ctx.overlapCtx.productiveHoursPerDay));
   const octx = { ...ctx.overlapCtx, shareHours: (u) => (shares.has(sid(u.id)) ? shares.get(sid(u.id)) : baseShare(u)) };
-  const moverIds = new Set(movers.map(m => m.id));
+  const moverIds = new Set(movers.map(m => sid(m.id)));
   const standing = occupyingUnits(ctx.tasks, octx);
   const landed = [];
   for (const m of movers) {
@@ -260,7 +260,7 @@ export function departmentFollow(node, panel, job, m, people) {
 
 /** The tasks with every mover written at its landing, each with its moveLog entry. */
 export function applyDragMove(tasks, movers, { date, movedBy, reason, people = null }) {
-  const byId = new Map(movers.map(m => [m.id, m]));
+  const byId = new Map(movers.map(m => [sid(m.id), m]));
   // `people` is what lets the department follow the work (#427). WITHOUT IT THE
   // REWRITE SILENTLY DOES NOT HAPPEN — and since the refusal is gone, a caller
   // that forgets it accepts the drop AND leaves the department stale, which is a

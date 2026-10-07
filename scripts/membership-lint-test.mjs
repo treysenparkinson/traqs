@@ -173,7 +173,22 @@ console.log("\n6. #384 — AN ID AS A MAP KEY, OR A LOOKUP INTO ONE");
   ok("a key/lookup disagreement is caught by its KEY half, not by the mismatch",
     idKeyViolations(SPLIT).length, 1);
 
-  const BASELINE_ID = { "dragMove.js": 2, "jobDetail.js": 1, "TRAQS.jsx": 6 };
+  // DOWN FROM 9 TO 1 (#444). Eight were fixed: the three asymmetric ones in
+  // dragMove.js (keyed raw, probed through `sid()` — the people.js defect
+  // exactly), the two cross-boundary ones in TRAQS.jsx (`pinById`, whose keys
+  // come from the server roster and whose probes come from the settings draft,
+  // and `scheduledMap`, whose two sides are different arrays), and the three
+  // local ones.
+  //
+  // THE ONE THAT REMAINS IS A DELIBERATE EXCEPTION, not an oversight.
+  // `getDepGroup`'s `adj` feeds a Set that is RETURNED and then probed raw by
+  // three call sites (`depGroupIds.has(s.id)`, `.has(op.id)`, and a `forEach`).
+  // Stringifying the map without changing what the Set carries is correct but
+  // subtle, and `getDepGroup` lives inside the component where no suite can
+  // drive it to prove the rewrite behaved. Carrying a known exception is better
+  // than a silent rewrite of a group-drag nobody can test — if it is ever fixed,
+  // the thing to preserve is that `group` keeps the ORIGINAL id values.
+  const BASELINE_ID = { "TRAQS.jsx": 1 };
   const files = [];
   const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f);
     if (statSync(p).isDirectory()) walk(p); else if (/\.(js|jsx)$/.test(f)) files.push(p); } };

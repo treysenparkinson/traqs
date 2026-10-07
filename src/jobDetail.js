@@ -13,13 +13,13 @@ export const subJobNumber = (jobNumber, idx) =>
 export function duplicateJob(job, { uid, now }) {
   const idMap = new Map();
   const live = arr => (arr || []).filter(x => x && !x.deletedAt);
-  const assign = node => { idMap.set(node.id, uid()); live(node.subs).forEach(assign); };
+  const assign = node => { idMap.set(String(node.id), uid()); live(node.subs).forEach(assign); };
   assign(job);
-  const remap = deps => (deps || []).map(d => idMap.get(d) ?? d);
+  const remap = deps => (deps || []).map(d => idMap.get(String(d)) ?? d);
   const DROP = ["loggedHours", "actualHours", "finishRequest", "finishRequests", "attachments", "signOffs",
     "engineering", "apprChain", "apprComments", "apprLog", "deletedAt"];
   const copy = node => {
-    const out = { ...node, id: idMap.get(node.id), status: "Not Started", deps: remap(node.deps) };
+    const out = { ...node, id: idMap.get(String(node.id)), status: "Not Started", deps: remap(node.deps) };
     DROP.forEach(k => { delete out[k]; });
     if (node.subs) out.subs = live(node.subs).map(copy);
     return out;

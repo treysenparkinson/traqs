@@ -21050,8 +21050,8 @@ ${jobsCtx || "No jobs found."}`;
       const buildTree = (entries) => {
         const jobMap = new Map();
         entries.forEach(({ job, panel, op }) => {
-          if (!jobMap.has(job.id)) jobMap.set(job.id, { job, panels: new Map() });
-          const jNode = jobMap.get(job.id);
+          if (!jobMap.has(String(job.id))) jobMap.set(String(job.id), { job, panels: new Map() });
+          const jNode = jobMap.get(String(job.id));
           if (!jNode.panels.has(panel.id)) jNode.panels.set(panel.id, { panel, ops: [] });
           jNode.panels.get(panel.id).ops.push(op);
         });
@@ -24990,9 +24990,9 @@ ${jobsCtx || "No jobs found."}`;
                       // from real data the next time something reads it.
                       const _strip = (n) => { const { _outcome:_o, _placed:_pl, ...rest } = n; return rest; };
                       if (p.isReschedule && _replanned.size > 0) {
-                        const scheduledMap=new Map(newSubs.map(s => [s.id, s]));
+                        const scheduledMap=new Map(newSubs.map(s => [String(s.id), s]));
                         updated.subs=(p.subs||[]).map(orig => {
-                          const fresh = scheduledMap.get(orig.id);
+                          const fresh = scheduledMap.get(String(orig.id));
                           if (!fresh) return orig;
                           // A refused panel (one with no ops of its own) stays untouched.
                           if ((fresh.subs||[]).length===0 && _blockedIds.has(String(fresh.id))) return orig;
@@ -25798,13 +25798,13 @@ ${jobsCtx || "No jobs found."}`;
     const snapshot = settingsPristineRef.current;
     fetchPeople(getToken, orgCode)
       .then(fresh => {
-        const pinById = new Map((fresh || []).map(p => [p.id, p.pin]));
+        const pinById = new Map((fresh || []).map(p => [String(p.id), p.pin]));
         setSettingsDraft(prev => {
           if (!prev || !prev.people) return prev;
           if (JSON.stringify(prev) !== snapshot) return prev; // navigated away or edited — don't clobber
           let changed = false;
           const people = prev.people.map(p => {
-            const pin = pinById.get(p.id);
+            const pin = pinById.get(String(p.id));
             if (pin && pin !== (p.pin || "")) { changed = true; return { ...p, pin }; }
             return p;
           });
