@@ -75,10 +75,16 @@ console.log("\n1. DEPARTMENT — the layer this whole pass exists for");
 {
   const op = OP({ requiredDepartments: ["Wire"] });
   const t = tasksWith(op);
-  ok("RED: assigning someone OUT of department is refused",
-    D.refuseDragMove(assignMover(op, ["cut1"]), ctxFor(t))?.kind, "department");
-  ok("...and the refusal names the person and the department",
-    (() => { const r = D.refuseDragMove(assignMover(op, ["cut1"]), ctxFor(t)); return [r?.personName, r?.department]; })(), ["Carl", "Wire"]);
+  // REWRITTEN 2026-10-07 by #427, which reversed the ruling: a cross-department
+  // assignment is no longer REFUSED, it rewrites the op's department to where the
+  // work went. What #424 delivered is unchanged and is still what these assert —
+  // the department layer REACHES this path at all. New rule, not the old one with
+  // its answer flipped (R3).
+  ok("assigning someone OUT of department is no longer refused",
+    D.refuseDragMove(assignMover(op, ["cut1"]), ctxFor(t)), null);
+  ok("...the department follows the work instead",
+    D.applyDragMove(t, assignMover(op, ["cut1"]), { date: "d", movedBy: "m", people: PEOPLE })[0]
+      .subs[0].subs[0].requiredDepartments, ["Cut"]);
   ok("someone IN department is allowed", D.refuseDragMove(assignMover(op, ["wire1"]), ctxFor(t)), null);
   ok("an unconstrained op takes anyone",
     D.refuseDragMove(assignMover(OP(), ["cut1"]), ctxFor(tasksWith(OP()))), null);

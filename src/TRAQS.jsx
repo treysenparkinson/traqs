@@ -9052,7 +9052,7 @@ Extraction rules:
     const refusal = refuseLanding([mover]);
     if (refusal) { showLandingRefusal(refusal); return false; }
     const reason = nextTeam.length ? "Assigned from the Jobs list" : "Unassigned from the Jobs list";
-    return commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy, reason }), movedBy),
+    return commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy, reason, people }), movedBy),
       [String(op.id)], op.title || "");
   };
   // #398. TYPING A DATE DOES WHAT DRAGGING TO IT DOES.
@@ -9084,7 +9084,7 @@ Extraction rules:
     const refusal = refuseLanding(plan);
     if (refusal) { showLandingRefusal(refusal); return false; }
     return commitLanding(
-      (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason: "Date typed on the Jobs list" }), movedBy),
+      (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason: "Date typed on the Jobs list", people }), movedBy),
       [String(op.id)], op.title || "");
   };
   const selectableOpIdsOf = (panel) => opIdsOf(panel).filter(id => {
@@ -15600,7 +15600,7 @@ ${jobsCtx || "No jobs found."}`;
           return;
         }
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, ...(mode === "move" ? {} : { reason: "Resized in schedule" }) }), movedByName);
+        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, people, ...(mode === "move" ? {} : { reason: "Resized in schedule" }) }), movedByName);
         // Backstop, as week/month: if the no-overlap guard would move anything, refuse instead.
         const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
         if (_bumped.length || _stuck.length) {
@@ -17173,7 +17173,7 @@ ${jobsCtx || "No jobs found."}`;
                       const newOpId = _split ? uid() : null;
                       const _build = (list) => {
                         // Every mover lands at its planned position with a moveLog entry (#3)…
-                        let next = applyDragMove(list, _split ? _plan.slice(1) : _plan, { date: TD, movedBy: movedByName });
+                        let next = applyDragMove(list, _split ? _plan.slice(1) : _plan, { date: TD, movedBy: movedByName, people });
                         // …and a split grabbed op becomes its two parts, each logged.
                         if (_split) next = applySplit(next, { node: bar.task, keep: _parts.keep, go: { ..._g, hpd: _parts.remainderHpd }, newId: newOpId, date: TD, movedBy: movedByName,
                           reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${bar.task.title || ""}"` } });
@@ -17251,7 +17251,7 @@ ${jobsCtx || "No jobs found."}`;
                       refuse: _refuseResize,
                       onPreview: (pv) => setResizePreview(pv ? { barId: bar.id, ...pv } : null),
                       commit: (plan) => {
-                        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, reason: "Resized in schedule" }), movedByName);
+                        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, people, reason: "Resized in schedule" }), movedByName);
                         // Backstop, as the drag: if the no-overlap guard would move anything, refuse.
                         const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
                         if (_bumped.length || _stuck.length) {
@@ -30749,7 +30749,7 @@ ${jobsCtx || "No jobs found."}`;
               // A whole-day reschedule starts at the start of the working day for the checks.
               const _refusal = refuseLanding([{ ...mover, to: { ...mover.to, startHour: op.startHour ?? workStartH } }]);
               if (_refusal) { showLandingRefusal(_refusal, "Can't reschedule here"); return; }
-              if (commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy: movedByName, reason: "Manual reschedule" }), movedByName), [String(op.id)], op.title)) setRescheduleModal(null);
+              if (commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy: movedByName, people, reason: "Manual reschedule" }), movedByName), [String(op.id)], op.title)) setRescheduleModal(null);
             }}>Apply Schedule</Btn>
           </div>
         </div>

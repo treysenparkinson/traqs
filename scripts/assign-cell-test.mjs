@@ -293,8 +293,12 @@ console.log("\n13. Assigning writes to the SCHEDULE — the op must become a bar
   // applyDragMove appends moveLogEntry itself, and moveLogEntry already writes
   // fromTeam/toTeam when the mover is a reassignment — so the log comes from the
   // same shape a drag produces rather than a second entry format.
+  // `people` joined the options in #427: applyDragMove needs the roster to let a
+  // department follow the work, and a caller that omits it accepts the drop and
+  // leaves the department stale. Pinned here as well as in department-follow-test,
+  // because this is the assertion that names THIS call site.
   ok("...and the moveLog comes from the shared writer",
-    /applyDragMove\(list, \[mover\], \{ date: TD, movedBy, reason \}\)/.test(CODE), true);
+    /applyDragMove\(list, \[mover\], \{ date: TD, movedBy, reason, people \}\)/.test(CODE), true);
   ok("...marked as a reassignment so fromTeam/toTeam are written",
     /reassigned: true/.test(CODE), true);
 }

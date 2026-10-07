@@ -89,25 +89,53 @@ console.log("3. #17 — a cross-row record bar can't be moved or resized, and sa
   check("the message says what it is", () => (/record of work already done/.test(D.refusalMessage(r)) ? true : D.refusalMessage(r)));
 }
 
-console.log("4. department — a drop that ADDS someone outside the unit's department is refused, naming both");
+console.log("4. department — a drop that ADDS someone outside the unit's department SUCCEEDS, and the department follows (#427)");
 {
+  // REWRITTEN 2026-10-07. These five assertions pinned the REFUSAL, which is the
+  // behaviour #427 reverses: the drop is now allowed and the op's department
+  // becomes where the work went. Written as the new rule rather than the old one
+  // with its answer flipped (R3) — the condition is unchanged, only the response.
   const o = op("o1", "2026-10-13", "2026-10-13", 8, 2, ["wes"], { requiredDepartment: "Wire" });
   const toCaleb = move(o, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 8 }, "wes", "caleb");
-  const r = D.refuseDragMove(toCaleb, ctxFor(tree([o])));
-  check("refused 'department'", () => eq([r?.kind, r?.personName, r?.department], ["department", "Caleb", "Wire"]));
-  check("the message names the person and the department", () => (D.refusalMessage(r).startsWith("Caleb isn't in Wire") ? true : D.refusalMessage(r)));
-  check("a secondary department counts (Sam: Assembly, secondary Wire)", () => eq(D.refuseDragMove(move(o, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 8 }, "wes", "sam"), ctxFor(tree([o]))), null));
+  check("a cross-department drop is not refused", () => eq(D.refuseDragMove(toCaleb, ctxFor(tree([o]))), null));
+  check("...and the department follows the work", () => {
+    const out = D.applyDragMove(tree([o]), toCaleb, { date: "2026-10-13", movedBy: "t", people });
+    return eq(out[0].subs[0].subs[0].requiredDepartments, ["Assembly"]);
+  });
+  check("...and the replaced set is in the moveLog, which is what makes it recoverable", () => {
+    const e = D.applyDragMove(tree([o]), toCaleb, { date: "2026-10-13", movedBy: "t", people })[0].subs[0].subs[0].moveLog.at(-1);
+    return eq([e.fromDepartments, e.toDepartments], [["Wire"], ["Assembly"]]);
+  });
+  check("someone already IN the department rewrites nothing (Sam holds Wire)", () => {
+    const mv = move(o, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 8 }, "wes", "sam");
+    const out = D.applyDragMove(tree([o]), mv, { date: "2026-10-13", movedBy: "t", people });
+    return eq([D.refuseDragMove(mv, ctxFor(tree([o]))), out[0].subs[0].subs[0].requiredDepartment], [null, "Wire"]);
+  });
   const onPanel = op("o2", "2026-10-13", "2026-10-13", 8, 2, ["wes"]);
-  check("the panel's department applies when the op has none", () =>
-    eq(D.refuseDragMove(move(onPanel, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 8 }, "wes", "caleb"), ctxFor(tree([onPanel], { requiredDepartment: "Wire" })))?.kind, "department"));
+  check("an op INHERITING from its panel gains its own value, panel untouched", () => {
+    const mv = move(onPanel, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 8 }, "wes", "caleb");
+    const out = D.applyDragMove(tree([onPanel], { requiredDepartment: "Wire" }), mv, { date: "2026-10-13", movedBy: "t", people });
+    return eq([out[0].subs[0].subs[0].requiredDepartments, out[0].subs[0].requiredDepartment], [["Assembly"], "Wire"]);
+  });
   const already = op("o3", "2026-10-13", "2026-10-13", 8, 2, ["caleb"], { requiredDepartment: "Wire" });
-  check("an op already out of department still moves along its own row", () =>
-    eq(D.refuseDragMove(move(already, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 11 }, "caleb", "caleb"), ctxFor(tree([already]))), null));
-  check("department applies on Basic too", () => eq(D.refuseDragMove(toCaleb, ctxFor(tree([o]), { business: false }))?.kind, "department"));
-  // Week/month uses the same list: a multi-select member reassigned onto Caleb is refused too.
+  check("an op already out of department still moves along its own row, unchanged", () => {
+    const mv = move(already, { day: "2026-10-13", hour: 8 }, { day: "2026-10-13", hour: 11 }, "caleb", "caleb");
+    const out = D.applyDragMove(tree([already]), mv, { date: "2026-10-13", movedBy: "t", people });
+    return eq([D.refuseDragMove(mv, ctxFor(tree([already]))), out[0].subs[0].subs[0].requiredDepartment], [null, "Wire"]);
+  });
+  check("it follows on Basic too — this was never a paid rule", () => {
+    const out = D.applyDragMove(tree([o]), toCaleb, { date: "2026-10-13", movedBy: "t", people });
+    return eq([D.refuseDragMove(toCaleb, ctxFor(tree([o]), { business: false })), out[0].subs[0].subs[0].requiredDepartments], [null, ["Assembly"]]);
+  });
+  // Week/month uses the same list: a multi-select MEMBER reassigned onto Caleb
+  // follows too, and the grabbed bar beside it is left alone.
   const g = op("g", "2026-10-13", "2026-10-13", 8, 2, ["wes"]), m = op("m", "2026-10-13", "2026-10-13", 13, 2, ["wes"], { requiredDepartment: "Wire" });
   const multi = D.planDragMove({ grabbed: { id: "g", node: g, fromDay: "2026-10-13", fromHour: 8, shareH: 2 }, members: [{ id: "m", node: m, day: "2026-10-13", hour: 13, shareH: 2 }], drop: { day: "2026-10-14", hour: 8 }, origPerson: "wes", dropPerson: "caleb", ...base });
-  check("…a MEMBER reassigned out of its department is refused, naming it", () => eq([D.refuseDragMove(multi, ctxFor(tree([g, m])))?.kind, D.refuseDragMove(multi, ctxFor(tree([g, m])))?.id], ["department", "m"]));
+  check("…a MEMBER reassigned out of its department follows, and only it", () => {
+    const out = D.applyDragMove(tree([g, m]), multi, { date: "2026-10-13", movedBy: "t", people });
+    const [og, om] = out[0].subs[0].subs;
+    return eq([D.refuseDragMove(multi, ctxFor(tree([g, m]))), om.requiredDepartments, og.requiredDepartments], [null, ["Assembly"], undefined]);
+  });
 }
 
 console.log("5. the day view's handler uses the shared landing and checks (TRAQS.jsx)");

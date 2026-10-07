@@ -10,7 +10,7 @@
 
 import { walkProductiveHours, personShareHours, productiveHoursBetween, splitWorkedOp } from "./statsMath.js";
 import { overlapsWith, occupyingUnits } from "./overlapRules.js";
-import { unitDepartments, personDeptMatch } from "./scheduleRules.js";
+import { unitDepartments, personDeptMatch, personDepartments, normalizeDepartments } from "./scheduleRules.js";
 import { shopMs } from "./shopTime.js";
 import { leaveOn } from "./timeOff.js";
 
@@ -120,24 +120,10 @@ export function refuseDragMove(movers, ctx) {
     if (ctx.isLocked?.(m.node)) return { kind: "locked", id: m.id, title: title(m) };
     if (ctx.isOverdue?.(m.node)) return { kind: "overdue", id: m.id, title: title(m) };
   }
-  // The department rule (scheduleRules): a unit with a required department only takes people
-  // in it, primary or secondary. Only the people a drop ADDS are checked — a unit that already
-  // has someone out of department can still move along its own row.
-  for (const m of movers) {
-    if (!m.reassigned) continue;
-    const depts = requiredDepartmentsOf(ctx.tasks, m.id);
-    if (depts.length === 0) continue;          // [] means anyone
-    for (const pid of m.to.team) {
-      if ((m.from.team || []).some(x => same(x, pid))) continue;
-      const person = (ctx.people || []).find(p => same(p.id, pid));
-      if (person && !personDeptMatch(person, depts)) {
-        // `department` stays a STRING on the refusal payload: it is what the
-        // message prints, and "Wire or Cut" reads correctly in the sentence the
-        // caller builds. The decision above used the whole set.
-        return { kind: "department", id: m.id, title: title(m), personId: pid, personName: person.name || "", department: depts.join(" or ") };
-      }
-    }
-  }
+  // THE DEPARTMENT RULE IS NO LONGER A REFUSAL (#427, reversing root cause 7 B).
+  // A drop onto someone outside the unit's department SUCCEEDS and the department
+  // FOLLOWS the work — see departmentFollow below, applied in applyDragMove.
+  // Nothing is checked here because nothing can fail here any more.
   // TIME OFF. Checked for anyone the edit ADDS, and for everyone when the DATES
   // move — those are the two ways a person can newly collide with their own leave
   // (#424). A crew change that leaves somebody where they already were, on dates
@@ -213,36 +199,94 @@ export function resizeShare({ side, paintedStart, paintedEnd, day, hour, cfg, mi
 }
 
 /** A moveLog entry for one mover (#3). */
-export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule" }) {
+export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule", departments = null }) {
   return {
     fromStart: m.from.start, fromEnd: m.from.end, toStart: m.to.start, toEnd: m.to.end,
     fromStartHour: m.from.startHour, toStartHour: m.to.startHour,
     fromEndHour: m.from.endHour, toEndHour: m.to.endHour,
     ...(m.reassigned ? { fromTeam: m.from.team, toTeam: m.to.team } : {}),
     ...(m.to.hpd != null ? { fromHpd: m.from.hpd ?? null, toHpd: m.to.hpd } : {}),
+    // THE REPLACED SET, and this is the whole difference from #341 (#427). That
+    // one wrote a guess into the data and left nowhere to look afterwards; a
+    // department rewritten by a gesture is recoverable because the gesture said
+    // what it replaced. Absent when nothing changed, so the log does not fill
+    // with entries that read like a change.
+    ...(departments ? { fromDepartments: departments.from, toDepartments: departments.to } : {}),
     date, movedBy, reason,
   };
 }
 
+/**
+ * The department a reassignment moves the work INTO, or null when nothing changes.
+ *
+ * Fires on exactly the condition that used to REFUSE the drop (#427): the unit
+ * states (or inherits) a department, and somebody the edit ADDS is outside it.
+ * An op that said "anyone" is left alone — narrowing a stated department in the
+ * direction the work went is editing a fact, while creating one on an
+ * unconstrained op is inventing a constraint from a gesture, and 89 of Matrix's
+ * 112 ops say nothing at all.
+ *
+ * REPLACE, NOT UNION. The new set is the added people's departments: a union
+ * would produce "Wire or Cut or Layout", which nobody can read as intent — it is
+ * indistinguishable from someone having ticked three boxes.
+ *
+ * Returns `{ from, to }`, both arrays. `to` may be EMPTY: dropping on somebody
+ * with no department widens the unit to "anyone", which is the one case that
+ * removes a constraint rather than narrowing. Coherent — the work went to someone
+ * unrestricted — and unreachable at Matrix, where all 18 people hold exactly one.
+ */
+export function departmentFollow(node, panel, job, m, people) {
+  if (!m?.reassigned || !Array.isArray(people) || people.length === 0) return null;
+  // NO `depts.length === 0` EARLY RETURN, and no "did the set actually change"
+  // guard. Both were here and MUTATION PROVED THEM DEAD:
+  //
+  //   `[] means anyone` is already what personDeptMatch says — it returns true for
+  //   every person when the requirement is empty, so nobody is ever "outside" an
+  //   unconstrained unit and `outside` is empty on its own.
+  //
+  //   `to === depts` cannot happen: `outside` is exactly the people with NO
+  //   overlap with `depts`, so the union of their departments is disjoint from it.
+  //
+  // Two mechanisms for one decision is a place for them to drift apart (#70), so
+  // the condition is stated once, by personDeptMatch.
+  const depts = unitDepartments(node, panel, job);
+  const added = (m.to.team || []).filter(pid => !(m.from?.team || []).some(x => same(x, pid)));
+  const outside = added
+    .map(pid => people.find(p => same(p.id, pid)))
+    .filter(p => p && !personDeptMatch(p, depts));
+  if (outside.length === 0) return null;
+  return { from: depts, to: normalizeDepartments(outside.flatMap(personDepartments)) };
+}
+
 /** The tasks with every mover written at its landing, each with its moveLog entry. */
-export function applyDragMove(tasks, movers, { date, movedBy, reason }) {
+export function applyDragMove(tasks, movers, { date, movedBy, reason, people = null }) {
   const byId = new Map(movers.map(m => [m.id, m]));
-  const put = (node) => {
+  // `people` is what lets the department follow the work (#427). WITHOUT IT THE
+  // REWRITE SILENTLY DOES NOT HAPPEN — and since the refusal is gone, a caller
+  // that forgets it accepts the drop AND leaves the department stale, which is a
+  // third behaviour worse than either of the two this replaced. Every call site
+  // is asserted to pass it (`department-follow-test`).
+  const put = (node, panel = null, job = null) => {
     const m = byId.get(sid(node.id));
     if (!m) return node;
+    const dept = departmentFollow(node, panel, job, m, people);
     return {
       ...node,
       start: m.to.start, end: m.to.end, startHour: m.to.startHour, endHour: m.to.endHour,
       ...(m.reassigned ? { team: m.to.team } : {}),
       ...(m.to.hpd != null ? { hpd: m.to.hpd } : {}),
-      moveLog: [...(node.moveLog || []), moveLogEntry(m, { date, movedBy, ...(reason ? { reason } : {}) })],
+      // THE UNIT THAT MOVED, and only it. Its panel and job keep what they said,
+      // which is right for the gesture and is also how a panel and its ops begin
+      // to disagree — see #426, where the picker is the thing that should change.
+      ...(dept ? { requiredDepartments: dept.to, requiredDepartment: dept.to[0] || "" } : {}),
+      moveLog: [...(node.moveLog || []), moveLogEntry(m, { date, movedBy, ...(reason ? { reason } : {}), departments: dept })],
     };
   };
   return (tasks || []).map(job => {
     const j = put(job);
     return { ...j, subs: (j.subs || []).map(panel => {
-      const p = put(panel);
-      return { ...p, subs: (p.subs || []).map(put) };
+      const p = put(panel, null, j);
+      return { ...p, subs: (p.subs || []).map(op => put(op, p, j)) };
     }) };
   });
 }
@@ -253,7 +297,6 @@ export function refusalMessage(r) {
   switch (r.kind) {
     case "splitPermission": return `${name} is partly worked, so moving it here splits it: the worked part stays and the rest becomes a new operation. Splitting needs the Edit jobs permission.`;
     case "record": return `${name} here is a record of work already done, so it can't be moved or resized. Move the operation from its own row.`;
-    case "department": return `${r.personName || "That person"} isn't in ${r.department}, so ${name} can't be assigned to them. Drop it on someone in ${r.department}.`;
     case "live": return `${name} can't be moved: someone is clocked into it.`;
     case "locked": return `${name} is locked and can't be moved.`;
     case "overdue": return `${name} is running over its estimate, so it can't be moved with the others. Deselect it, or wait until it is finished.`;

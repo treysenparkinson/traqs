@@ -150,10 +150,14 @@ console.log("\n6. Order is the whole difference — most constrained first");
     { id: "named", team: [1], hpd: 2 },                       // exactly 1
   ];
   const order = orderOps(ops, CREW).map(o => o.id);
+  // MEMBERSHIP FIRST (R4). `indexOf` returns -1 when an id is absent, and -1 is
+  // less than everything, so "cut comes before wire" passes if orderOps DROPS cut
+  // entirely — the assertion would go green on an op vanishing from the plan.
+  ok("every op is in the order", [...order].sort(), ["cut", "free", "named", "wire"]);
+  const before = (a, b2) => { const i = order.indexOf(a), j = order.indexOf(b2); return i >= 0 && j >= 0 && i < j; };
   ok("the one-candidate ops come before the many-candidate ones",
-    order.indexOf("cut") < order.indexOf("wire") && order.indexOf("wire") < order.indexOf("free"), true);
-  ok("...and an op with a named person is at the front too",
-    order.indexOf("named") < order.indexOf("free"), true);
+    before("cut", "wire") && before("wire", "free"), true);
+  ok("...and an op with a named person is at the front too", before("named", "free"), true);
   // Determinism: a re-run over an unchanged selection must produce the same
   // order, or the preview reshuffles every time it is opened.
   ok("the order is stable across runs", orderOps(ops, CREW).map(o => o.id), order);

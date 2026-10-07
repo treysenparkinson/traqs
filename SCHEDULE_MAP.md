@@ -121,6 +121,36 @@ call from the tasks payload, then from the people payload — **both read as gre
 a bare `/stripDerived\(/` passed as long as EITHER remained. The fix shipped would not have
 been the fix tested.
 
+**THE SAME FAILURE WEARS A SECOND FACE: AN ORDERING ASSERTION THAT ABSENCE SATISFIES.**
+
+```js
+ok("...before it opens the editor", fn.indexOf(GUARD) < fn.indexOf(ACTION), true);
+```
+
+`indexOf` returns **-1** when the string is absent, and -1 is less than everything — so
+"A comes before B" is TRUE whenever **A is missing**, which is precisely the state the
+assertion exists to catch. Delete the guard and the test goes greener.
+
+It is the same defect as the unscoped one above: an assertion that passes without the code
+being right. One asks "is the string somewhere else", the other asks "does absence satisfy
+the comparison", and both answer yes for the wrong reason. **SWEPT 2026-10-07: five live
+instances**, plus the one in `assign-refusal-test` that was written this way and caught by
+its own mutation run.
+
+  - `placement-test:154` and `:156` — **unguarded.** `order.indexOf("cut") < order.indexOf("wire")`
+    over an array of op ids: if `orderOps` ever DROPS an op, the assertion passes while the
+    op has vanished from the plan. Both now assert the full membership first.
+  - `basic-lanes-test:197`, `undo-scope-test:97` and `:102` — **safe only by a neighbour.**
+    The line immediately above each one asserts the left operand exists, so -1 is unreachable
+    today. That is correctness by adjacency: delete the line above and the one below starts
+    passing for free, with nothing to say so.
+
+The fix is a two-line helper rather than a convention to remember:
+
+```js
+const order = (a, b) => { const i = s.indexOf(a), j = s.indexOf(b); return i >= 0 && j >= 0 && i < j; };
+```
+
 **THE CHECK, before writing a presence assertion: count the matches in the file.** More than
 one means scope it or anchor it to its enclosing function:
 
@@ -2644,4 +2674,32 @@ Three defects fall out of it.
 
     The trap is quiet because the precedence rule RESOLVES the disagreement rather than reporting it: once an op states a department, its panel's value stops meaning anything for that op, permanently and with nothing on screen to say so. Set a panel to "Wire" expecting its ops to follow, and the ones a drag has touched will not — and the panel picker will keep showing "Wire" as though it applied.
 
-    Costs nothing today (two panels state a department: one has no live ops, the other's three ops already restate it). Bites the first time someone uses the panel-level picker after this ships. Worth a decision then rather than now: either the panel picker cascades to its ops, or it says that ops with their own department are unaffected.
+    Costs nothing today (two panels state a department: one has no live ops, the other's three ops already restate it). Bites the first time someone uses the panel-level picker after #427 ships.
+
+    **THE FIX IS PROBABLY THE PICKER, NOT THE PRECEDENCE.** Precedence is right: the nearest statement wins, which is what makes an override an override. What is missing is that the picker shows a value without saying whether it still APPLIES — it renders the panel's set with no indication that three of its ops have overridden it. Showing inherited-vs-overridden (a count, a muted "2 ops override this", anything) turns a silent resolution into a visible one, and leaves the rule alone. Changing precedence instead would make an op's own department stop meaning what it says, which is a worse trade. NOT BUILT — logged so the decision is made deliberately rather than discovered.
+
+427. **FIXED 2026-10-07 — DEPARTMENT FOLLOWS THE WORK. Reverses root cause 7 chunk B.** A drop that put someone outside the unit's required department on it was REFUSED and the department named. It now SUCCEEDS and the department becomes where the work went: if it moves to someone in Cut, it is Cut work.
+
+    **THE MEASUREMENT DECIDED TWO OF THE THREE RULINGS BY MAKING THEM MOOT.** Of Matrix's 112 live ops, 23 state their own department, **ZERO inherit**, and **ZERO name more than one** (#425). So "union or replace" and "the op or its parent" are both questions about machinery no live data exercises, and the rulings made on them will be the first things that ever do.
+
+    **REPLACE, NOT UNION.** Trey: *"union produces a value nobody can read as intent"* — "Wire or Cut or Layout" is indistinguishable from someone having ticked three boxes. The new set is the added people's departments. What it loses is real and worth stating: if an op genuinely was "Wire or Cut", a drop onto Cut discards "Wire" and nothing records that the op was ever flexible — except the moveLog, which is the point below.
+
+    **THE REPLACED SET GOES IN THE moveLog, AND THAT IS THE WHOLE DIFFERENCE FROM #341.** `fromDepartments`/`toDepartments` sit beside the `fromTeam`/`toTeam` that caused the change. #341 wrote a guess into the data and left 87 ops carrying a constraint nobody typed and **nowhere to look afterwards**; this writes a constraint from a gesture and says what it replaced. The keys are ABSENT when nothing changed, so the log does not fill with entries that read like a change.
+
+    **ON THE REFUSAL PATH ONLY — the ruling the measurement forced.** A drop onto an op that said "anyone" writes NOTHING. **89 of 112 ops (79%) are unconstrained**, so a rewrite on every drop would take the board from 79% free to 0% one drag at a time, which is #341 exactly. Narrowing a stated department in the direction the work went is EDITING A FACT; creating one on an unconstrained op is INVENTING A CONSTRAINT FROM A GESTURE. Different operations wearing the same gesture, and only one persists.
+
+    **THE OP ONLY.** Its panel and job keep what they said. Right for the gesture, and also how a panel and its ops begin to disagree — logged as #426, where the conclusion is that the PICKER should show inherited-vs-overridden rather than the precedence changing.
+
+    ONE EDGE WORTH KNOWING: dropping on somebody with **no** department widens the op to "anyone". It is the only case that removes a constraint rather than narrowing, it is coherent (the work went to someone unrestricted), and it is unreachable at Matrix, where all 18 people hold exactly one department.
+
+    **BUILT ON #424, which was the prerequisite.** Without it the rule would have landed on the drag paths only and `commitAssign` would have accepted the drop AND left the department stale — a third behaviour, worse than the two it replaced. `departmentFollow` is applied in `applyDragMove`, so every path that writes a move gets it; all six call sites are asserted to pass `people`, because a caller that forgets it recreates exactly that third behaviour silently.
+
+    THE SERVER ACCEPTS IT, CHECKED RATHER THAN ASSUMED: `scheduleRules`' department rule reads the INCOMING node (`unitDepartments(n, after.panel, after.job)`), so the new set and the new team arrive together and agree. A rule comparing against the stored department would have rejected every rewrite and the feature would have failed on write with nothing to see.
+
+    TESTED red-first, `scripts/department-follow-test.mjs`, 37 assertions, wired (86 suites). **16 mutants, 16 caught** — after five survived and two were skipped, and what they exposed is below.
+
+    **TWO GUARDS WERE DEAD CODE AND MUTATION PROVED IT.** `if (depts.length === 0) return null` and `if (key(to) === key(depts)) return null` could not be told from their own absence: `personDeptMatch` already returns true for every person when the requirement is empty, so nobody is ever "outside" an unconstrained unit; and `outside` is by construction the people with NO overlap with `depts`, so the new set is always disjoint from the old. Two mechanisms for one decision is a place for them to drift (#70's second clamp), so the condition is stated once.
+
+    **AND TWO OF THIS SUITE'S FIXTURES PROVED NOTHING.** "A plain date move leaves the department alone" used the SAME team on both sides, which the added-people filter already empties — so removing the `reassigned` guard changed no assertion. It carries different teams now, which is the real shape: `applyDragMove` only writes `team` when `reassigned`, so a mover with a different `to.team` and no flag must not rewrite the department either. The second was missing entirely: an op already out of department, gaining an in-department person, must not be rewritten on the strength of the member who was already there.
+
+    FIVE EXISTING ASSERTIONS REWRITTEN, NOT DELETED (R3): `day-drag-test`'s whole department section pinned the refusal. It now pins the follow — same conditions, opposite response — including that it happens on Basic too, which this never was a paid rule. `assign-cell-test`'s moveLog literal gained `people`, and two assertions in `assign-refusal-test` from #424 were rewritten the same way.
