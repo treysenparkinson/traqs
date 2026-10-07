@@ -2338,7 +2338,7 @@ private struct StartJobOverlay: View {
                         .tnum()
                 }
                 Spacer()
-                StatusBadge(status: task.status)
+                StatusBadge(status: task.statusRaw)
             }
 
             Text(task.title)
@@ -2484,63 +2484,49 @@ struct JobRow: View {
 
 // MARK: - StatusBadge / PriorityDot (used by JobDetailView)
 
+// SHOWS WHAT THE SERVER HOLDS (#447). This took a `JobStatus`, so a status iOS
+// does not model arrived as `.notStarted` and the badge said "Not Started" —
+// 38 of Matrix's 64 jobs. It takes the raw string now and prints it verbatim.
+//
+// The COLOUR still comes from the enum, because iOS has no palette for a status
+// it has never heard of: a known value keeps its colour, an unknown one gets a
+// neutral chip. Dimmed rather than guessed — a wrong colour on a status the
+// phone cannot name would be a second lie on top of the one just fixed.
 struct StatusBadge: View {
-    let status: JobStatus
+    let status: String
+    private var known: JobStatus? { JobStatus(rawValue: status) }
+    private var tint: Color { known?.color ?? TColors.textDim }
     var body: some View {
-        Text(status.rawValue)
+        Text(status.isEmpty ? "Not Started" : status)
             .font(TTypo.xsBold(11))
             .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(status.color.opacity(0.13)))
-            .overlay(Capsule().stroke(status.color.opacity(0.3), lineWidth: 1))
-            .foregroundStyle(status.color)
+            .background(Capsule().fill(tint.opacity(0.13)))
+            .overlay(Capsule().stroke(tint.opacity(0.3), lineWidth: 1))
+            .foregroundStyle(tint)
     }
 }
 
-/// StatusBadge that changes a JOB's status in place.
+/// A job's status, DISPLAY ONLY (#447, ruled 2026-10-07).
 ///
-/// Tap cycles Pending → In Progress → Finished → Pending. A status outside that
-/// loop (Not Started, On Hold) enters it at the head rather than guessing an
-/// intent — long-press opens the full picker for anything non-linear.
+/// This used to edit. Tap cycled Pending -> In Progress -> Finished, and a long
+/// press opened a picker of `JobStatus.allCases`. Both offered a handful of a
+/// vocabulary the org controls — three of seventeen and five of seventeen at
+/// Matrix — so either gesture overwrote a status the phone cannot express:
+/// tapping a `Shipped/ invoiced` job made it `Pending`.
 ///
-/// Deliberately a wrapper rather than making StatusBadge itself tappable:
-/// the badge is shared with panel and op rows (JobDetailView, ScheduleJobSheet,
-/// TeamView), and cycling a panel's status is not the same action.
+/// RULED: no status edit on the phone beats one that can only produce three
+/// answers. Both gestures are gone rather than widened, because widening them
+/// needs iOS to know the org's list, and it does not — `statusOpts` sits
+/// unmodelled in `OrgSettings`' passthrough and is never fetched. Restoring a
+/// status edit here is a feature that starts with fetching that list.
+///
+/// Kept as a wrapper rather than collapsed into `StatusBadge` so the call sites
+/// do not move, and so the next person to want an editable badge finds this note
+/// instead of the loop.
 struct JobStatusBadge: View {
-    @Environment(AppState.self) private var appState
     let job: Job
-    @State private var showPicker = false
-
-    private static let cycle: [JobStatus] = [.pending, .inProgress, .finished]
-
-    private var mayEdit: Bool { appState.can(.editJobs) }
-
-    private func next(after s: JobStatus) -> JobStatus {
-        guard let i = Self.cycle.firstIndex(of: s) else { return Self.cycle[0] }
-        return Self.cycle[(i + 1) % Self.cycle.count]
-    }
-
-    /// Job writes carry their own rollback (updateJobs → rollbackSnapshot,
-    /// restored by persistJobs on failure), so this doesn't wrap performOptimistic
-    /// — see the note on OperationRow.assignTeam.
-    private func apply(_ s: JobStatus) {
-        guard s != job.status else { return }
-        var next = job
-        next.status = s
-        appState.updateJob(next)
-    }
-
     var body: some View {
-        StatusBadge(status: job.status)
-            .contentShape(Capsule())
-            .opacity(mayEdit ? 1 : 0.9)
-            .onTapGesture { if mayEdit { apply(next(after: job.status)) } }
-            .onLongPressGesture { if mayEdit { showPicker = true } }
-            .confirmationDialog("Set status", isPresented: $showPicker, titleVisibility: .visible) {
-                ForEach(JobStatus.allCases, id: \.self) { s in
-                    Button(s.rawValue) { apply(s) }
-                }
-                Button("Cancel", role: .cancel) { }
-            }
+        StatusBadge(status: job.statusRaw)
     }
 }
 

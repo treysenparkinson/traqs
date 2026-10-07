@@ -170,7 +170,7 @@ struct ScheduleJobSheet: View {
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     Spacer()
-                    StatusBadge(status: panel.status)
+                    StatusBadge(status: panel.statusRaw)
                 }
                 HStack(spacing: 8) {
                     Bar(pct: Double(pPct), height: 5, fill: progressFill(pPct))

@@ -106,7 +106,23 @@ struct Operation: Codable, Identifiable, Equatable {
     var title: String
     var start: String
     var end: String
-    var status: JobStatus
+    // STORED AS THE SERVER SENT IT (#447). This was `var status: JobStatus`, a
+    // five-case enum, decoded with `(try? …) ?? .notStarted` and re-encoded from
+    // the enum. `statusOpts` is org-editable and Matrix has SEVENTEEN, so 38 of
+    // its 64 jobs read as "Not Started" — and because `saveJobs` re-encodes the
+    // WHOLE array on any edit, one tap wrote that back for every one of them.
+    //
+    // The enum is still here, as a COMPUTED view with a setter, so every
+    // `status == .finished` read and every `status = .inProgress` write keeps
+    // working. What changed is only what is STORED and what goes on the wire.
+    // `statusKnown` is for code that must be able to tell "iOS does not model
+    // this" from "it is Not Started", which the non-optional `status` cannot say.
+    var statusRaw: String
+    var status: JobStatus {
+        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
+        set { statusRaw = newValue.rawValue }
+    }
+    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
     var pri: Priority
     var team: [String]
     /// TOTAL estimated productive hours for the whole team — not a per-day
@@ -162,7 +178,7 @@ struct Operation: Codable, Identifiable, Equatable {
         title  = (try? c.decode(String.self, forKey: .title)) ?? ""
         start  = (try? c.decode(String.self, forKey: .start)) ?? ""
         end    = (try? c.decode(String.self, forKey: .end)) ?? ""
-        status = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
+        statusRaw  = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
         pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team   = c.decodeFlexIDs(forKey: .team)
         // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
@@ -190,7 +206,7 @@ struct Operation: Codable, Identifiable, Equatable {
         try c.encode(title, forKey: .title)
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
-        try c.encode(status, forKey: .status)
+        try c.encode(statusRaw, forKey: .status)
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
         // Absent stays absent: an unestimated record the server never gave an
@@ -261,7 +277,23 @@ struct Panel: Codable, Identifiable, Equatable {
     var title: String
     var start: String
     var end: String
-    var status: JobStatus
+    // STORED AS THE SERVER SENT IT (#447). This was `var status: JobStatus`, a
+    // five-case enum, decoded with `(try? …) ?? .notStarted` and re-encoded from
+    // the enum. `statusOpts` is org-editable and Matrix has SEVENTEEN, so 38 of
+    // its 64 jobs read as "Not Started" — and because `saveJobs` re-encodes the
+    // WHOLE array on any edit, one tap wrote that back for every one of them.
+    //
+    // The enum is still here, as a COMPUTED view with a setter, so every
+    // `status == .finished` read and every `status = .inProgress` write keeps
+    // working. What changed is only what is STORED and what goes on the wire.
+    // `statusKnown` is for code that must be able to tell "iOS does not model
+    // this" from "it is Not Started", which the non-optional `status` cannot say.
+    var statusRaw: String
+    var status: JobStatus {
+        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
+        set { statusRaw = newValue.rawValue }
+    }
+    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
     var pri: Priority
     var team: [String]
     /// TOTAL estimated productive hours for the whole team — not a per-day
@@ -308,7 +340,7 @@ struct Panel: Codable, Identifiable, Equatable {
         title       = (try? c.decode(String.self, forKey: .title)) ?? ""
         start       = (try? c.decode(String.self, forKey: .start)) ?? ""
         end         = (try? c.decode(String.self, forKey: .end)) ?? ""
-        status      = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
+        statusRaw       = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
         pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team        = c.decodeFlexIDs(forKey: .team)
         // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
@@ -333,7 +365,7 @@ struct Panel: Codable, Identifiable, Equatable {
         try c.encode(title, forKey: .title)
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
-        try c.encode(status, forKey: .status)
+        try c.encode(statusRaw, forKey: .status)
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
         // Absent stays absent: an unestimated record the server never gave an
@@ -423,7 +455,23 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var start: String
     var end: String
     var dueDate: String?
-    var status: JobStatus
+    // STORED AS THE SERVER SENT IT (#447). This was `var status: JobStatus`, a
+    // five-case enum, decoded with `(try? …) ?? .notStarted` and re-encoded from
+    // the enum. `statusOpts` is org-editable and Matrix has SEVENTEEN, so 38 of
+    // its 64 jobs read as "Not Started" — and because `saveJobs` re-encodes the
+    // WHOLE array on any edit, one tap wrote that back for every one of them.
+    //
+    // The enum is still here, as a COMPUTED view with a setter, so every
+    // `status == .finished` read and every `status = .inProgress` write keeps
+    // working. What changed is only what is STORED and what goes on the wire.
+    // `statusKnown` is for code that must be able to tell "iOS does not model
+    // this" from "it is Not Started", which the non-optional `status` cannot say.
+    var statusRaw: String
+    var status: JobStatus {
+        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
+        set { statusRaw = newValue.rawValue }
+    }
+    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
     var pri: Priority
     var team: [String]
     var color: String
@@ -466,7 +514,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         title     = (try? c.decode(String.self, forKey: .title)) ?? ""
         start     = (try? c.decode(String.self, forKey: .start)) ?? ""
         end       = (try? c.decode(String.self, forKey: .end)) ?? ""
-        status    = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
+        statusRaw     = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
         pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team      = c.decodeFlexIDs(forKey: .team)
         color     = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
@@ -493,7 +541,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
     init(id: String, title: String, jobNumber: String? = nil, poNumber: String? = nil,
          start: String, end: String, dueDate: String? = nil,
-         status: JobStatus = .notStarted, pri: Priority = .medium,
+         status: String = "Not Started", pri: Priority = .medium,
          team: [String] = [], color: String = "#3d7fff", hpd: Double = 0,
          notes: String = "", clientId: String? = nil, deps: [String] = [],
          subs: [Panel] = [], moveLog: [MoveLogEntry]? = nil, jobType: String? = nil,
@@ -501,7 +549,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
          finishRequest: FinishRequestStamp? = nil, finishRequests: [FinishRequestEntry]? = nil) {
         self.id = id; self.title = title; self.jobNumber = jobNumber; self.poNumber = poNumber
         self.start = start; self.end = end; self.dueDate = dueDate
-        self.status = status; self.pri = pri; self.team = team; self.color = color
+        self.statusRaw = status; self.pri = pri; self.team = team; self.color = color
         self.hpd = hpd; self.notes = notes; self.clientId = clientId
         self.deps = deps; self.subs = subs; self.moveLog = moveLog; self.jobType = jobType
         self.loggedHours = loggedHours; self.projectManagerId = projectManagerId
@@ -515,7 +563,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         try c.encode(title, forKey: .title)
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
-        try c.encode(status, forKey: .status)
+        try c.encode(statusRaw, forKey: .status)
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
         try c.encode(color, forKey: .color)

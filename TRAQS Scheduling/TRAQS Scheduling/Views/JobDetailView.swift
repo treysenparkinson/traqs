@@ -298,7 +298,7 @@ struct PanelCard: View {
                         HStack(spacing: 6) {
                             Text(panel.start.shortDate + " → " + panel.end.shortDate)
                                 .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
-                            StatusBadge(status: panel.status)
+                            StatusBadge(status: panel.statusRaw)
                         }
                         // Hours-weighted panel progress: aggregate of child ops'
                         // logged vs. estimated hours.

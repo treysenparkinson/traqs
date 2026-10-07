@@ -342,7 +342,7 @@ struct JobDetailPopup: View {
                                 .lineLimit(1)
                             if isHighlighted { TagPill(label: "YOU", kind: .sky) }
                             Spacer(minLength: 6)
-                            StatusBadge(status: panel.status)
+                            StatusBadge(status: panel.statusRaw)
                             Image(systemName: isOpen ? "chevron.up" : "chevron.down")
                                 .font(.caption)
                                 .foregroundStyle(Color(hex: T.muted))

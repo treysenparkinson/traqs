@@ -447,7 +447,7 @@ struct PersonDetailView: View {
                                         .font(TTypo.sm(12)).foregroundStyle(Color(hex: T.muted))
                                 }
                                 Spacer()
-                                StatusBadge(status: item.op.status)
+                                StatusBadge(status: item.op.statusRaw)
                             }
                             .padding(T.insetMd)
                             .frostedCard(radius: T.cornerMd)
