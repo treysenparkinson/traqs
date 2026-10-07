@@ -303,6 +303,63 @@ console.log("\n9. THE HANDLER ITSELF — the guard, exercised end to end");
   reset(SIXTY_FOUR);
   ok("a junk body is refused", (await post({ nonsense: true })).statusCode, 400);
   ok("...and still nothing was written", globalThis.__WRITES.length, 0);
+
+  // ── #449. THE HOP BETWEEN THEM: the REAL saveTasks ──────────────────────
+  //
+  // Everything above drives deltaWrite.js or the handler. Neither is the step
+  // that lost the edits. src/api.js `saveTasks` sat between them with a 2026-04
+  // guard that refused anything but an array and returned `{ ok: true }`, so
+  // from 2026-10-07 18:04Z every envelope -- every web save after a session's
+  // first -- was dropped in the browser and reported as saved. This drives the
+  // real export, with `fetch` routed into the real handler, so a guard that
+  // swallows the body shows up as an edit missing from the store.
+  console.log("\n9b. #449 — the envelope goes through the REAL saveTasks");
+  const { saveTasks } = await import(new URL("../src/api.js", import.meta.url).href);
+  const realFetch = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, init = {}) => {
+    sent.push({ url: String(url), method: init.method, body: init.body });
+    const r = await tasksFn({ httpMethod: init.method || "GET", headers: init.headers || {}, queryStringParameters: {}, body: init.body });
+    const text = typeof r.body === "string" ? r.body : JSON.stringify(r.body ?? {});
+    return { ok: r.statusCode >= 200 && r.statusCode < 300, status: r.statusCode, json: async () => JSON.parse(text), text: async () => text };
+  };
+  const token = async () => "t";
+  try {
+    // THE INCIDENT, as a user made it: an edit to one job after the first save.
+    reset(SIXTY_FOUR);
+    const edited = { ...SIXTY_FOUR[7], title: "edited after the first save" };
+    let threw = null, reply = null;
+    try { reply = await saveTasks({ upsert: [edited], delete: [] }, token, "TESTORG"); } catch (e) { threw = e.message; }
+    ok("RED: saveTasks does not refuse the {upsert, delete} envelope", threw, null);
+    ok("...it actually POSTs it (one request, to /tasks)", sent.map(s => `${s.method} ${s.url}`), ["POST /.netlify/functions/tasks"]);
+    ok("...the body on the wire is the envelope, not an array", (() => { const b = JSON.parse(sent[0]?.body || "null"); return !!b && !Array.isArray(b) && b.upsert?.[0]?.id; })(), "j7");
+    ok("...and the edit is in the store", storedNow().find(r => r.id === "j7")?.title, "edited after the first save");
+    ok("...without touching the other 63", liveNow(), 64);
+    // The server's reply, not a client-made one: it carries `stamps` (empty here,
+    // where the loader stubs timestamps) -- the old guard's fake had none.
+    ok("...and the reply is the server's", [reply?.ok, "stamps" in (reply || {})], [true, true]);
+
+    // An envelope that only deletes is the same shape and must also go.
+    reset(SIXTY_FOUR); sent.length = 0;
+    await saveTasks({ upsert: [], delete: ["j3"] }, token, "TESTORG");
+    ok("a delete-only envelope is sent", sent.length, 1);
+    ok("...and the deletion lands", storedNow().find(r => r.id === "j3")?.deletedAt ? "deleted" : "live", "deleted");
+
+    // The bare array -- the first save of a session -- is unchanged.
+    reset(SIXTY_FOUR); sent.length = 0;
+    await saveTasks(SIXTY_FOUR.map(j => j.id === "j9" ? { ...j, title: "full write" } : j), token, "TESTORG");
+    ok("the bare array still goes, and lands", [sent.length, storedNow().find(r => r.id === "j9")?.title], [1, "full write"]);
+
+    // Neither shape: refused LOUDLY. The silent `{ ok: true }` is what let this
+    // run for hours with nobody told; a caller must see the refusal.
+    reset(SIXTY_FOUR); sent.length = 0;
+    let junk = null;
+    try { await saveTasks({ nonsense: true }, token, "TESTORG"); } catch (e) { junk = "threw"; }
+    ok("a body of neither shape throws instead of reporting success", junk, "threw");
+    ok("...and nothing was sent", sent.length, 0);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 console.log("\n10. iOS IS UNTOUCHED");

@@ -51,9 +51,17 @@ export async function fetchTasks(getToken, orgCode) {
 }
 
 export async function saveTasks(tasks, getToken, orgCode, actionSource) {
-  if (!Array.isArray(tasks)) {
-    console.warn("saveTasks blocked — not an array", tasks);
-    return { ok: true };
+  // Two shapes are valid, the same two netlify/functions/tasks.js accepts: the
+  // bare array, and the #339 delta envelope `{ upsert, delete }`. This guard
+  // predates the envelope and refused it as "not an array" (#449), so every save
+  // after a session's first was dropped here -- and reported as `{ ok: true }`,
+  // which is why nothing noticed. Anything else is still refused, but LOUDLY:
+  // a silent ok on a body that never left the browser is how the edit was lost.
+  const isDelta = !!tasks && typeof tasks === "object" && !Array.isArray(tasks)
+    && (Array.isArray(tasks.upsert) || Array.isArray(tasks.delete));
+  if (!Array.isArray(tasks) && !isDelta) {
+    console.warn("saveTasks blocked — neither an array nor a {upsert, delete} envelope", tasks);
+    throw new Error("saveTasks blocked — body is neither an array nor a {upsert, delete} envelope");
   }
   const headers = await authHeaders(getToken, orgCode);
   // #400 item 1. WHO TRIGGERED THIS SAVE, when it was not a person's own hand.
