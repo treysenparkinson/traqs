@@ -2704,7 +2704,7 @@ Three defects fall out of it.
 
     FIVE EXISTING ASSERTIONS REWRITTEN, NOT DELETED (R3): `day-drag-test`'s whole department section pinned the refusal. It now pins the follow — same conditions, opposite response — including that it happens on Basic too, which this never was a paid rule. `assign-cell-test`'s moveLog literal gained `people`, and two assertions in `assign-refusal-test` from #424 were rewritten the same way.
 
-428. [MEASURED 2026-10-07, NOT FIXED] **DELETING A COLUMN ON THE JOBS LIST COMES BACK ON RELOAD, AND THE CAUSE IS THAT "HIDDEN" AND "NEWLY SHIPPED" ARE THE SAME STATE.** Reported by Trey.
+428. **FIXED 2026-10-07 — DELETING A COLUMN ON THE JOBS LIST CAME BACK ON RELOAD, AND THE CAUSE IS THAT "HIDDEN" AND "NEWLY SHIPPED" ARE THE SAME STATE.** Reported by Trey.
 
     Hiding a standard column removes its id from `colOrder` (`:27911`). On load, both readers run it through:
 
@@ -2747,7 +2747,7 @@ Three defects fall out of it.
 
     So the work is not moving things OUT of org settings. It is deciding which of these belong in the per-account blob that already exists, and fixing the encoding that makes hiding unrepresentable (#428).
 
-430. [MEASURED 2026-10-07, NOT FIXED] **ONE BUTTON LABELLED "Delete Column" DOES TWO DIFFERENT THINGS, AND NOTHING ON SCREEN SAYS WHICH.**
+430. **FIXED 2026-10-07 — ONE BUTTON LABELLED "Delete Column" DID TWO DIFFERENT THINGS, AND NOTHING ON SCREEN SAYS WHICH.**
 
         custom column    removeCustomCol(colId)  -> drops it from orgSettings.customCols,
                                                     FOR THE WHOLE ORGANISATION, with its data
@@ -2757,3 +2757,38 @@ Three defects fall out of it.
     Same context menu, same label, same icon. One is destructive and shared; the other is a personal view toggle. Under #429's ruling they are not even the same KIND of operation — one changes the value, the other changes the visibility — so a single verb cannot be right for both.
 
     R3's family seen from the other side: not a label that outlived its behaviour, but **one label covering two behaviours that were never the same**. The fix is a naming and UI question ("Hide column" for the personal one, "Delete column" with a confirm for the shared one), and it should be settled in the same pass as #428 because the same menu row is the thing being changed.
+
+    ─── WHAT WAS BUILT (#428 / #429 items 1 and 3 / #430) ───
+
+    **THE ENCODING, which is the whole fix.** `src/columnPrefs.js` splits the two facts that shared one slot:
+
+        colOrder    ORDER ONLY, always complete. Backfill still appends a newly
+                    shipped column, which is all it was ever for.
+        hiddenCols  WHICH ARE HIDDEN. Explicit, so absence from the order no
+                    longer carries a second meaning.
+
+    Both live in the per-account blob, so the preference follows the person to another browser — the second half of #429's bar. The known-column list is passed IN rather than copied into the module: it belongs with the grid that defines it, and a second copy is a second thing to drift.
+
+    **THE MIGRATION IS ONE BOUNDED GUESS, MADE ONCE, AND IT IS STATED RATHER THAN BURIED.** A blob saved before this carries its hidden columns only as gaps in `colOrder` — the last moment the old encoding can be read. `hiddenFromLegacy` reads it and writes the answer down explicitly. **The trade: a column that shipped AFTER that account last saved is indistinguishable from one they hid, and migration reads it as hidden.** That is the same ambiguity that caused the defect, met one final time. What makes it a different thing from #341 is that it happens once, it is visible (the picker lists hidden columns), and it is undone in a click — #341 wrote its guess into SHARED data with nowhere to look afterwards.
+
+    **#429 item 3: `colWidths` now persists.** It was plain `useState` with hard-coded defaults, so resizing a column was lost on every refresh — the one preference in Trey's complaint's family that survived nothing at all. The existing effect that pads or trims it against `customCols.length` still runs, so a blob saved against a different custom-column count self-heals rather than desyncing the grid from its headers.
+
+    **#430: the verb is split, and the destructive one asks.** "Hide Column" for a standard column, "Delete Column" for a custom one, behind a confirm that says what it actually does: *"This removes it and its data for everyone in the organization, not just you."* Trey's reason for doing it in the same pass rather than later: *"one person clicking it on the wrong column loses org data."* The old label gave no hint which of the two you were about to get.
+
+    TESTED red-first, `scripts/col-visibility-test.mjs`, 46 assertions, wired (87 suites). **20 mutants, 20 caught.**
+
+    **THREE SURVIVED THE FIRST RUN AND ALL THREE WERE R4 — IN THE SUITE WRITTEN THE DAY R4 WAS ADDED.** `visibleColOrder(colOrder, hiddenCols)` appears TWICE (the grid and the grouping dropdown), so reverting the grid's call left a bare presence check green. `/remote\.hiddenCols/` also matches the `if` that guards the call, so replacing the call with `setHiddenCols([])` changed nothing the suite could see. And asserting that the confirm block merely CONTAINS `removeCustomCol` let a mutant call it outright and return before opening the dialog — the dead confirm below still satisfied the pattern. Each is now named by site, by call, or by count.
+
+    FOUR EXISTING ASSERTIONS UPDATED, NOT DELETED (R3): `assignee-col-test` pinned the old encoding in four places. One of them SLICED the function body out of TRAQS.jsx with a regex and re-executed it, which broke the moment the body became an expression — it imports the real function from `columnPrefs.js` now, so there is no copy to drift and no slice to re-point.
+
+431. [LOGGED 2026-10-07, NOT BUILT] **THE 26 `usePersistedUI` PREFERENCES ARE LOCALSTORAGE-ONLY, AND MOVING THEM IS A MIGRATION WITH A REAL DECISION IN IT.** `usePersistedUI(name, fallback)` keys on `tq_ui_{orgCode}_{name}` in localStorage: it survives a reload and is lost on a new browser or machine, which meets half of #429's bar. Twenty-six pieces of view state use it.
+
+    NOT MOVED WITH #428, on Trey's ruling: *"what happens when two browsers disagree"* is a question the column fix does not have to answer — `hiddenCols` has one writer at a time in practice — and twenty-six at once would answer it by accident. The per-account blob is replaced wholesale on write, so two tabs or two machines with different view state would overwrite each other last-write-wins, silently. That is tolerable for a theme and not obviously tolerable for everything.
+
+    Its own pass, with the conflict rule decided first.
+
+432. [RECORDED 2026-10-07] **THE MISPLACEMENT RAN THE OPPOSITE WAY TO THE ONE WE WENT LOOKING FOR, AND THAT IS WORTH HAVING WRITTEN DOWN.** The question asked was: *"what else is stored at org level that is really a personal view preference? If one view preference is in the wrong place, others probably are."* It is a good instinct and the measurement said no.
+
+    **Every key in `orgSettings` was checked and NONE is really personal.** `workDays`, `holidays`, `lunch`, `breaks`, `workStart`/`workEnd`, `timeZone`, `payDates`, `payPeriodHourCap`, `trackLunch`/`trackBreaks` are the shop's calendar and payroll. `roles`, `signOffTemplates`, `approvalSteps`, `conditions`, `approverLabel`, `approvalQueueLabel`, `orgLogo`, `iosPayClockEnabled` are org policy. `statusOpts`/`priOpts` are org DELIBERATELY, with the reason recorded where they live — held per-account, an admin's rename was invisible to everyone else. `customCols` is a column's DEFINITION, shared by exactly the logic #429 states about its contents. `exportTemplates` is the one judgement call and Trey ruled it stays: shared presets are right for a team and nobody has complained.
+
+    **THE GAP IS THE OTHER DIRECTION: personal preferences stored NOWHERE or only locally.** `colWidths` and four view toggles (`tMode`, `taskSubView`, `scheduleTeamMode`, `tsAdminTab`) persisted nothing at all; 26 more are localStorage-only (#431). So the correction to the instinct is: the org/personal boundary is sound, and what is missing is the personal side having somewhere to live. Recorded because the shape of the answer is the reverse of the shape of the question, and the next person to ask it should start from here rather than re-auditing `orgSettings`.

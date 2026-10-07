@@ -16,6 +16,7 @@ import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessa
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
+import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -195,11 +196,16 @@ const EMPTY_ARR = Object.freeze([]);
 // from the server a moment later and REPLACES it. Applied to only the first -- which
 // is how it was -- the column appears on load and is then stripped again the instant
 // the account settings land, which looks exactly like the column never shipped.
-const backfillColOrder = (saved) => {
-  const known = STD_COL_DEFS.map(c => c.id);
-  const kept = saved.filter(id => known.includes(id));
-  return [...kept, ...known.filter(id => !kept.includes(id))];
-};
+// #428. The shared rule lives in src/columnPrefs.js; these bind it to the list
+// the grid defines, so the known-column set has exactly one home.
+//
+// `colOrder` is ORDER ONLY now. It used to carry visibility as well — hiding a
+// column meant deleting its id — and backfill could not tell "I hid this" from
+// "this shipped after you last saved", so it restored both. Which is hidden is
+// said out loud in `hiddenCols`.
+const STD_COL_IDS = STD_COL_DEFS.map(c => c.id);
+const backfillColOrder = (saved) => backfillCols(saved, STD_COL_IDS);
+const migrateHiddenCols = (savedOrder, savedHidden) => hiddenFromLegacy(savedOrder, savedHidden, STD_COL_IDS);
 // Std columns offered in the Jobs "Grouping" dropdown (Columns section). Excludes
 // name (one section per job), progress/team (don't bucket well), and client (the
 // dropdown's dedicated Clients section already covers per-client grouping).
@@ -5808,6 +5814,18 @@ Extraction rules:
     catch { return STD_COL_DEFS.map(c => c.id); }
   });
   useEffect(() => { localStorage.setItem("tq_col_order", JSON.stringify(colOrder)); }, [colOrder]);
+  // WHICH COLUMNS THIS PERSON HID (#428). Separate from the order, because
+  // absence from the order already means "shipped after your last save" and one
+  // slot cannot hold two facts. Seeded from the legacy encoding once — see
+  // hiddenFromLegacy for the single bounded guess that migration makes.
+  const [hiddenCols, setHiddenCols] = useState(() => {
+    try {
+      const h = JSON.parse(localStorage.getItem("tq_hidden_cols") || "null");
+      const o = JSON.parse(localStorage.getItem("tq_col_order") || "null");
+      return migrateHiddenCols(o, h);
+    } catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem("tq_hidden_cols", JSON.stringify(hiddenCols)); }, [hiddenCols]);
   // Custom display labels for STANDARD columns (custom columns store their own label).
   // Keyed by std col id → renamed label. Lets every column on the jobs list be renamed.
   const [colLabels, setColLabels] = useState(() => {
@@ -8463,6 +8481,17 @@ Extraction rules:
         // without it a column shipped after this account last saved its order is
         // stripped a moment after appearing, on every single load.
         if (Array.isArray(remote.colOrder) && remote.colOrder.length) setColOrder(backfillColOrder(remote.colOrder));
+        // #428. Read as a PAIR, like themeMode/customTheme above: a blob saved
+        // before hiddenCols existed carries its hidden columns only as gaps in
+        // colOrder, and this is the last moment that can be read.
+        if (Array.isArray(remote.colOrder) || Array.isArray(remote.hiddenCols)) {
+          setHiddenCols(migrateHiddenCols(remote.colOrder, remote.hiddenCols));
+        }
+        // #429 item 3. Column widths persisted NOWHERE before this — resizing a
+        // column was lost on every refresh. The effect on customCols.length still
+        // pads or trims it, so a blob saved against a different custom-column
+        // count self-heals rather than desyncing the grid from its headers.
+        if (Array.isArray(remote.colWidths) && remote.colWidths.length) setColWidths(remote.colWidths);
         if (remote.colLabels && typeof remote.colLabels === "object") setColLabels(remote.colLabels);
         if (remote.groupColPref && typeof remote.groupColPref === "object") setGroupColPref(remote.groupColPref);
         if (remote.userPrefs && typeof remote.userPrefs === "object") setUserPrefs(p => ({ ...p, ...remote.userPrefs }));
@@ -8486,7 +8515,9 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs };
+    // user-settings.js REPLACES THE BLOB WHOLESALE, so every preference has to be
+    // in here every time — a key the client stops sending is deleted, not kept.
+    const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths };
     const snapshot = JSON.stringify(bundle);
     if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
     const t = setTimeout(() => {
@@ -8495,7 +8526,7 @@ Extraction rules:
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -12989,14 +13020,14 @@ ${jobsCtx || "No jobs found."}`;
             back. Rendered only when something is actually hidden, so the picker is
             unchanged for anyone who has not hidden one. */}
         {(() => {
-          const hidden = STD_COL_DEFS.filter(c => !colOrder.includes(c.id));
+          const hidden = STD_COL_DEFS.filter(c => hiddenCols.includes(c.id));
           if (!hidden.length) return null;
           return (
             <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Standard Columns</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {hidden.map((c, ci) => (
-                  <button key={c.id} onClick={() => { setColOrder(prev => [...prev, c.id]); setColPickerOpen(false); }}
+                  <button key={c.id} onClick={() => { setHiddenCols(prev => prev.filter(id => id !== c.id)); setColPickerOpen(false); }}
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; }}
                     onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
@@ -13132,7 +13163,7 @@ ${jobsCtx || "No jobs found."}`;
           <GroupingSelect pill onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
               workers={people.filter(p => groupablePersonIds.has(String(p.id))).map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
               clientOpts={clients.filter(c => groupableClientIds.has(String(c.id))).map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
-              columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]}
+              columnOpts={[...visibleColOrder(colOrder, hiddenCols).map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]}
               />
           {/* Alignment — single cycling toggle */}
           {(() => {
@@ -13418,7 +13449,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* The views + clients column sits on the RIGHT of the table. */}
       {taskSubView === "list" && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 200px", gridTemplateRows: "minmax(0, 1fr)", gap: "0 32px", flex: 1, minHeight: 0 }}>
       {(() => {
-        const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
+        const orderedStdCols = visibleColOrder(colOrder, hiddenCols).map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
         const showAssigneeCol = orderedStdCols.some(c => c.id === "assignee");
         const customWidths = colWidths.slice(CUSTOM_W0, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
@@ -27906,13 +27937,32 @@ ${jobsCtx || "No jobs found."}`;
             Use for grouping
           </button>;
         })()}
+        {/* #430. ONE LABEL USED TO COVER TWO DIFFERENT OPERATIONS, and nothing on
+            screen said which you were about to get. Deleting a CUSTOM column drops
+            it from orgSettings.customCols — for the whole organisation, with its
+            data. Hiding a STANDARD one is a personal view toggle (#429: the value
+            is shared, the visibility is personal). They are not the same kind of
+            act, so they no longer share a word, and the destructive one asks. */}
         {!colCtxMenu.approvalMode && <button onClick={() => {
-          if (colCtxMenu.isCustom) { removeCustomCol(colCtxMenu.colId); }
-          else { setColOrder(prev => prev.filter(id => id !== colCtxMenu.colId)); }
+          const colId = colCtxMenu.colId;
+          if (colCtxMenu.isCustom) {
+            const col = customCols.find(c => c.id === colId);
+            const name = col?.label || "this column";
+            setColCtxMenu(null);
+            setConfirmMove({
+              title: `Delete "${name}"?`,
+              message: `This removes it and its data for everyone in the organization, not just you. Every job loses whatever was entered in this column, and it cannot be undone. To stop seeing it yourself, hide a standard column instead.`,
+              confirmLabel: "Delete for everyone",
+              onConfirm: () => { removeCustomCol(colId); setConfirmMove(null); },
+              onCancel: () => setConfirmMove(null),
+            });
+            return;
+          }
+          setHiddenCols(prev => [...prev.filter(id => id !== colId), colId]);
           setColCtxMenu(null);
         }} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ef4444", fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = "#ef444415"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-          Delete Column
+          {colCtxMenu.isCustom ? "Delete Column" : "Hide Column"}
         </button>}
       </div>
     </div>}</FadeOnClose>

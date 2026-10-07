@@ -92,8 +92,14 @@ ok("...while a standard header still indexes by its own position",
 // the one that wins. Back-filling only the first -- which is how this shipped at
 // first -- makes the column appear on load and vanish again the instant the account
 // settings land, which is indistinguishable from it never having shipped.
+// UPDATED 2026-10-07 (#428). The rule moved to src/columnPrefs.js and this is now
+// the binding that supplies the known-column list, so "one shared function" is
+// more true than it was, not less — and the back-fill no longer decides
+// VISIBILITY, which is what `hiddenCols` says. The assertion follows the shape.
 ok("the back-fill is one shared function, not a local inside the initialiser",
-  /^const backfillColOrder = \(saved\) => \{/m.test(S));
+  /^const backfillColOrder = \(saved\) => backfillCols\(saved, STD_COL_IDS\);/m.test(S));
+ok("...and the rule itself lives in its own module",
+  /from "\.\/columnPrefs\.js"/.test(S));
 ok("the localStorage copy is back-filled", S.includes("backfillColOrder(saved)"));
 ok("the per-account copy from the server is back-filled too",
   S.includes("setColOrder(backfillColOrder(remote.colOrder))"));
@@ -103,8 +109,13 @@ ok("...and no stored order is applied raw", !/setColOrder\(remote\.colOrder\)/.t
 ok("it is called twice and nowhere else", (S.match(/backfillColOrder\(/g) || []).length === 2);
 ok("...and declared once", (S.match(/const backfillColOrder =/g) || []).length === 1);
 
-const backfillSrc = S.match(/const backfillColOrder = \(saved\) => \{[\s\S]*?\n\};/)[0];
-const backfill = new Function("STD_COL_DEFS", backfillSrc + " return backfillColOrder;")(defs);
+// IMPORTED, NOT SLICED (#428). This used to cut the function body out of
+// TRAQS.jsx with a regex and re-execute it, which broke the moment the body
+// became an expression. The rule lives in src/columnPrefs.js now, so the suite
+// runs the real one and binds it to the same list the app binds it to — there is
+// no copy to drift and no slice to re-point.
+const { backfillColOrder: backfillCols } = await import(new URL("../src/columnPrefs.js", import.meta.url).href);
+const backfill = (saved) => backfillCols(saved, defs.map(c => c.id));
 const old = ["name", "jobNum", "client", "status", "pri", "start", "end", "due", "hrs", "progress", "team", "appr"];
 ok("an order saved before today gains the column", backfill(old).includes("assignee"));
 ok("...appended, leaving their arrangement alone", backfill(old).slice(0, 12).join() === old.join());
@@ -122,9 +133,15 @@ ok("...which back-filling that read prevents", backfill(old).includes("assignee"
 // new custom columns, and the + picker offered job fields and templates only.
 // Nothing put a standard column back, which is the other half of "there is no
 // assignee to select".
+// UPDATED 2026-10-07 (#428): hiding no longer deletes the id from the order, so
+// "hidden" is read from hiddenCols rather than inferred from a gap in it. Same
+// door, still open — said explicitly instead of implied by an absence.
 ok("the + picker lists standard columns that are hidden",
-  S.includes("const hidden = STD_COL_DEFS.filter(c => !colOrder.includes(c.id));"));
-ok("...adding one puts it back in the order", S.includes("setColOrder(prev => [...prev, c.id]);"));
+  S.includes("const hidden = STD_COL_DEFS.filter(c => hiddenCols.includes(c.id));"));
+ok("...adding one puts it back by clearing the hidden flag",
+  S.includes("setHiddenCols(prev => prev.filter(id => id !== c.id));"));
+ok("...not by appending to the order, which no longer carries visibility",
+  !S.includes("setColOrder(prev => [...prev, c.id]);"));
 ok("...and the section is absent when nothing is hidden", S.includes("if (!hidden.length) return null;"));
 ok("...showing the user's own name for it if they renamed it", S.includes("{colLabels[c.id] || c.label}"));
 
