@@ -316,19 +316,7 @@ ok("#311: the chip takes its ink from the rule, not a hard-coded amber", !/color
   const ACTIVE = PAINT.slice(PAINT.indexOf("function activeBarFill"), PAINT.indexOf("function barLabelColor"));
   ok("#92: activeBarFill still has no clock-state branch — the fill is progress only",
     !/state === "(running|held|paused|worked|scheduled)"/.test(ACTIVE));
-  // #117 BANS THE opacity PROPERTY, not the word. Animating `opacity` meant the
-  // animation owned it for its whole run, and opacity is where the hover dim, the
-  // finished fade and the drag ghosting live — so a just-dropped bar ignored all
-  // three for 250ms. `filter: opacity()` is a different channel: it composites on
-  // top and leaves the property free, which is how the drop can FADE (#433)
-  // without taking the dim away again. Matched as a declaration so the two cannot
-  // be confused.
-  ok("#117: barDropIn does not animate the opacity PROPERTY",
-    !/@keyframes barDropIn \{[\s\S]{0,200}[;{\s]opacity\s*:/.test(SRC));
-  ok("#433: it fades through the filter channel instead",
-    /@keyframes barDropIn \{[\s\S]{0,200}filter:\s*opacity\(/.test(SRC));
-  ok("#433: ...and no longer moves the bar from above",
-    !/@keyframes barDropIn \{[\s\S]{0,200}transform/.test(SRC));
+  ok("#117: barDropIn no longer animates opacity", !/@keyframes barDropIn \{[\s\S]{0,120}opacity/.test(SRC));
   ok("#117: scheduleGlow no longer animates box-shadow", !/@keyframes scheduleGlow \{[\s\S]{0,200}box-shadow/.test(SRC));
   ok("#118: both row headers label the team number the same way",
     (SRC.match(/label=\{p\.teamNumber \? \(isNaN\(String\(p\.teamNumber\)\)/g) || []).length === 2);

@@ -828,24 +828,15 @@ animStyle.textContent = `
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
 }
-/* A dropped bar FADES IN WHERE IT LANDED (#433). It used to arrive from 6px above with a
-   brightness lift, and the drop-from-above read as a second, smaller drag happening after
-   the one you just did -- the bar you had already placed moved again on its own.
-
-   THE PROPERTY STILL MATTERS, and #117 is why. Animating the opacity PROPERTY meant the
-   animation OWNED it for its whole run, and opacity is where the hover dim, the finished
-   fade and the drag ghosting all live -- so for 250ms a just-dropped bar ignored every one
-   of them. Worse since the dim moved into CSS: an animated declaration outranks a
-   stylesheet rule, so the bar could not be dimmed at all while it played.
-
-   filter: opacity() is a different channel. It composites the finished element rather
-   than claiming the property, so the dim, the fade and the ghosting keep working while this
-   plays, and the two simply multiply. filter was already animated here (brightness), so
-   this introduces no stacking context that was not there before.
-   (No backticks in this note: it lives inside a template literal.) */
+/* A dropped bar announces itself by ARRIVING, not by fading in (#117). Animating opacity
+   meant the animation owned the property for its whole run, and opacity is where the hover
+   dim, the finished fade and the drag ghosting all live -- so for 250ms a just-dropped bar
+   ignored every one of them. Worse since the dim moved into CSS: an animated declaration
+   outranks a stylesheet rule, so the bar could not be dimmed at all while it played.
+   transform and filter are not spoken for, and the movement reads as "it landed here". */
 @keyframes barDropIn {
-  from { filter: opacity(0); }
-  to   { filter: opacity(1); }
+  from { transform: translateY(-6px) scale(0.98); filter: brightness(1.25); }
+  to   { transform: translateY(0)    scale(1);    filter: brightness(1); }
 }
 /* Same rule for the highlight (#117): it rings the bar with an OUTLINE, which nothing else
    uses, instead of box-shadow -- which the locked ring, the selected ring and the drag glow
