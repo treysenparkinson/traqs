@@ -20,7 +20,11 @@ const get = async (k) => JSON.parse(await (await s3.send(
 
 const td = await get(`orgs/${ORG}/tasks.json`);
 const tasks = (Array.isArray(td) ? td : td.tasks || []).filter(j => j && !j.deletedAt);
-const cfg = await get(`orgs/${ORG}/config.json`).catch(() => ({}));
+// settings.json, NOT config.json: config holds the org identity (name,
+// domain, admin emails) and has never held roles or statusOpts. Read from the
+// wrong object these come back undefined and every question about them answers
+// "not set", which is a false negative that looks like a finding.
+const cfg = await get(`orgs/${ORG}/settings.json`).catch(() => ({}));
 
 // Every panel and every op, flat, with its level.
 const nodes = [];
