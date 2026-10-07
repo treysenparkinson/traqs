@@ -17151,7 +17151,6 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetailOrEdit(bar.task); } return; }
-                      const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const effStart = teamDragLiveRef.current?.snapStart ?? _dragBaseStart;
                       const finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
                       const dropPerson = lastDropPid || origPerson;
@@ -17220,6 +17219,14 @@ ${jobsCtx || "No jobs found."}`;
                         _refused({ kind: "overlap", title: bar.task.title || "", other: null });
                         return;
                       }
+                      // #434. THE LANDING ANIMATION BELONGS TO A LANDING. This was the FIRST
+                      // thing mouseup did, and six early returns sit between there and here --
+                      // so a drop refused for overlap, time off, the past, a department, a
+                      // dependency sibling or a missing permission still played the arrival on
+                      // a bar that never moved, while the refusal dialog opened over it. It does
+                      // not even need a remount to do it: the animation style goes from
+                      // undefined to barDropIn, which starts it on the element already there.
+                      const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       setTasks(prev => _build(prev));
                       setTimeout(() => doSaveRef.current(), 0);
                     };

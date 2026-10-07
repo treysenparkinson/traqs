@@ -2792,3 +2792,33 @@ Three defects fall out of it.
     **Every key in `orgSettings` was checked and NONE is really personal.** `workDays`, `holidays`, `lunch`, `breaks`, `workStart`/`workEnd`, `timeZone`, `payDates`, `payPeriodHourCap`, `trackLunch`/`trackBreaks` are the shop's calendar and payroll. `roles`, `signOffTemplates`, `approvalSteps`, `conditions`, `approverLabel`, `approvalQueueLabel`, `orgLogo`, `iosPayClockEnabled` are org policy. `statusOpts`/`priOpts` are org DELIBERATELY, with the reason recorded where they live — held per-account, an admin's rename was invisible to everyone else. `customCols` is a column's DEFINITION, shared by exactly the logic #429 states about its contents. `exportTemplates` is the one judgement call and Trey ruled it stays: shared presets are right for a team and nobody has complained.
 
     **THE GAP IS THE OTHER DIRECTION: personal preferences stored NOWHERE or only locally.** `colWidths` and four view toggles (`tMode`, `taskSubView`, `scheduleTeamMode`, `tsAdminTab`) persisted nothing at all; 26 more are localStorage-only (#431). So the correction to the instinct is: the org/personal boundary is sound, and what is missing is the personal side having somewhere to live. Recorded because the shape of the answer is the reverse of the shape of the question, and the next person to ask it should start from here rather than re-auditing `orgSettings`.
+
+433. [TRIED AND REVERTED 2026-10-07] **THE DROP FADE WAS TOO MUCH.** The schedule bar arrived from 6px above with a brightness lift; Trey asked for a plain fade in place. Built as `filter: opacity()` rather than the `opacity` property, deliberately — #117 records that animating the PROPERTY meant the animation owned it for its whole run, and opacity is where the hover dim, the finished fade and the drag ghosting all live, so a just-dropped bar ignored all three for 250ms.
+
+    **REVERTED ON SIGHT: a bar going to fully transparent and back reads as HEAVIER than the arrival it replaced, not lighter.** Logged rather than deleted because the next person to dislike the drop animation will reach for the same fix, and the useful part is that it was tried, it works technically, and it looks worse. The `filter:` channel trick stands if a fade is ever wanted somewhere else.
+
+    One thing the attempt left behind, worth knowing before anyone revisits it: **#117's guard matches the WORD `opacity` anywhere in the keyframe**, so `filter: opacity()` tripped it while the property stayed free. That is a real imprecision, and it is back as it was. Tighten it to the declaration first.
+
+434. **FIXED 2026-10-07 — A REFUSED DROP PLAYED THE LANDING ANIMATION.** Found while reviewing #433, predates it, and is independent of which animation is used.
+
+    `setDroppedBarId` was the FIRST statement in the schedule's mouseup handler, and **six early returns sit between it and the commit**:
+
+        setDroppedBarId(_dropId)              <- fired immediately
+        ...
+        return;                          x2   no-op / missing reassign permission
+        showDepSiblingError(...); return;     dependency sibling
+        if (_refusal) { ... return; }         overlap, time off, the past, department
+        _refused({ splitPermission }); return;
+        setTasks(prev => _build(prev));       <- the bar actually moves HERE
+
+    So a drop refused for any of those reasons still animated a bar that never moved, while the refusal dialog opened over it. **It does not even need a remount:** React changes the `animation` style from `undefined` to `barDropIn`, which starts it on the element already there.
+
+    **IT MATTERS MORE NOW THAN IT DID.** #424 put the department and time-off rules on the assign path, and #427 turned a cross-department drop into a rewrite rather than a refusal — so the refusals that remain are the ones a user hits by accident, and every one of them was being congratulated with a landing animation.
+
+    The flag now sits with `setTasks`. TESTED red-first, `scripts/drop-flash-order-test.mjs`, 15 assertions, wired (88 suites). **THE TEST PINS THE ORDER, NOT THE LINE:** it locates the flag and asserts that NO `return;` survives after it, so the flag may move anywhere the commit is and may not drift back above a refusal. A count guard on the number of early returns rides along — if the handler is restructured, the assertions are reasoning about something else and should be re-read rather than quietly still passing.
+
+    8 mutants, 8 caught, including the two that put the flag back at the top of mouseup and just above the last refusal. Three were SKIPPED on a first run because the anchors were written with the wrong indentation — re-anchored rather than left, since a skipped mutant proves nothing and these three were the defect itself.
+
+435. [LOGGED 2026-10-07, NOT FIXED] **`barDropIn` IGNORES `prefers-reduced-motion`.** The reduced-motion block disables `.msg-in-mine`, `.msg-in-other`, `.msg-read-pop`, `.msg-time-in`, `.msg-time-out` and `.tq-liquid-blob`, and shortens `.rv-hero`/`.rv-hgrid`. The schedule drop animation is in none of them, so a bar still travels 6px and lifts in brightness for someone who has asked the OS not to animate things.
+
+    A 250ms nudge is mild, which is presumably why nobody has noticed — but **the inconsistency is the finding, not the severity**: this file has a reduced-motion policy and one animation sits outside it. Left unfixed on Trey's ruling. Worth taking with whatever next touches that keyframe, alongside #433's note about tightening #117's guard.
