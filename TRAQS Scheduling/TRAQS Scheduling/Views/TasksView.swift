@@ -482,7 +482,7 @@ struct TasksView: View {
                 // whole org's job list.
                 LazyVStack(spacing: 0) {
                     ForEach(others) { job in
-                        AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
+                        AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
                 .padding(.horizontal, Rv.side)
@@ -502,13 +502,18 @@ struct TasksView: View {
         }
     }
 
-    /// Every non-finished job the user is NOT assigned to (search-filtered),
-    /// shown in the "All Jobs" browse section regardless of date.
+    /// Every non-finished job (search-filtered), shown in the "All Jobs" browse
+    /// section regardless of date.
+    ///
+    /// #451: jobs you are assigned on are INCLUDED. This used to drop any job you
+    /// were on anywhere ("so it never appears twice"), which made the OTHER tasks
+    /// on your own job unreachable — exactly the ones you would cover for a
+    /// colleague. Your own tasks still lead the page in YOUR TASKS; here they sit
+    /// under their job beside everyone else's. The Active tab keeps "not yours".
     private var allJobsList: [Job] {
         let q = searchText.lowercased()
         return appState.jobs.filter { job in
             if job.status == .finished { return false }
-            if isMineJob(job) { return false }
             if workingJobIds.contains(job.id) { return false }   // shown up top instead
             if !q.isEmpty {
                 let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
@@ -538,7 +543,7 @@ struct TasksView: View {
             var ids = Set(workingTasks.map { $0.job.id })
             ids.formUnion(inProgressTasks.map { $0.job.id })
             ids.formUnion(inProgressJobs.map(\.id))
-            ids.formUnion(allJobsList.filter { $0.status == .inProgress }.map(\.id))
+            ids.formUnion(allJobsList.filter { $0.status == .inProgress && !isMineJob($0) }.map(\.id))
             return ids.count
         case .done:
             return appState.jobs.filter { $0.status == .finished && matchesSearch($0) }.count
@@ -559,7 +564,7 @@ struct TasksView: View {
     /// search applied) narrowed to In Progress.
     @ViewBuilder
     private var activeOthersSection: some View {
-        let jobs = allJobsList.filter { $0.status == .inProgress }
+        let jobs = allJobsList.filter { $0.status == .inProgress && !isMineJob($0) }
         let hasMine = !workingTasks.isEmpty || !inProgressTasks.isEmpty || !inProgressJobs.isEmpty
         VStack(spacing: 0) {
             if jobs.isEmpty && !hasMine {
@@ -575,7 +580,7 @@ struct TasksView: View {
                 }
                 LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
-                        AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
+                        AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
                 .padding(.horizontal, Rv.side)
@@ -601,18 +606,12 @@ struct TasksView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
-                        AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
+                        AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
                 .padding(.horizontal, Rv.side)
             }
         }
-    }
-
-    /// A job's panels as TaskAssignments (not the current user's) for the
-    /// collapsible All Jobs card.
-    private func panelsFor(_ job: Job) -> [TaskAssignment] {
-        job.subs.map { TaskAssignment(job: job, panel: $0, op: nil, isMine: false) }
     }
 
     /// Header label for the top (scheduled-window) section.
@@ -686,7 +685,11 @@ struct TasksView: View {
                         out.append(TaskAssignment(job: job, panel: panel, op: op))
                     }
                 } else if panel.team.contains(me) {
-                    out.append(TaskAssignment(job: job, panel: panel, op: nil))
+                    // #451. On the job's team but on none of its tasks: the job's
+                    // TASKS are the work, so each is offered on its own and Start
+                    // clocks the task. Only a job with no tasks is itself the unit
+                    // (the deepest-node rule; a simple job is shaped that way).
+                    out.append(contentsOf: TaskUnits.forJobTeamMember(job: job, panel: panel))
                 }
             }
         }
@@ -743,7 +746,7 @@ struct TasksView: View {
         if !jobs.isEmpty {
             VStack(spacing: 0) {
                 ForEach(jobs) { job in
-                    AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
+                    AllJobsCard(job: job, onOpenJob: onOpenJob)
                 }
             }
             .padding(.horizontal, Rv.side)
@@ -2086,20 +2089,38 @@ struct TaskCardV1: View {
 }
 
 
-// MARK: - AllJobsCard (collapsible parent job — ALL JOBS section)
-// A job the current user is NOT assigned to. Collapsed, it shows the job
-// summary; tapping it drops down to reveal the job's panels (those scheduled
-// in the active window) as standard task cards, so the user can LOG TIME
-// against any of them. Modeled on the expandable panel card in JobDetailView.
+// MARK: - AllJobsCard (collapsible parent — ALL JOBS section)
+// A parent and everything under it. Collapsed, it shows the parent summary;
+// expanded, each of its JOBS (panels), and under each job its TASKS (ops), each
+// a standard task block with its own Start.
+//
+// #451. This used to stop one level short: expanding showed every job as a
+// job-level block, Start clocked in with `opId` nil, and the header counted
+// those jobs as "tasks" ("0 of 3 tasks" over three job cards). Tasks — the level
+// people are scheduled to and clock into — were not on the phone at all.
+//
+// THE CLOCK TARGET IS THE DEEPEST NODE, the rule the schedule, JobShifts and
+// `myAssignments` already share: a job WITH tasks offers Start only on its
+// tasks; a job with NO tasks is itself the unit of work and keeps its own Start
+// (a simple job is shaped exactly that way — SimpleJob.swift).
+
+/// One job (panel) under a parent, and the units that can be clocked into.
+private struct JobUnits: Identifiable {
+    let panel: Panel
+    let units: [TaskAssignment]
+    var id: String { panel.id }
+    var isLeaf: Bool { panel.subs.isEmpty }
+}
 
 private struct AllJobsCard: View {
     @Environment(AppState.self) private var appState
     let job: Job
-    let panels: [TaskAssignment]
-    /// Opens a panel's job detail. Passed down from TasksView — these cards sit
+    /// Opens a job's detail. Passed down from TasksView — these cards sit
     /// several views deep, and the popup is presented all the way up in the hub.
     var onOpenJob: (Job) -> Void = { _ in }
     @State private var isExpanded = false
+    /// Jobs (panels) whose tasks are showing. Collapsed by default.
+    @State private var openJobs: Set<String> = []
 
     /// "401947 – Lloyds Multiplexer", or the title alone with no number.
     private var rowTitle: String {
@@ -2107,23 +2128,30 @@ private struct AllJobsCard: View {
         return job.title.isEmpty ? n : "\(n) – \(job.title)"
     }
 
+    /// Every job under this parent with its clockable units: its tasks, or the
+    /// job itself when it has none. `isMine` marks what YOU are scheduled to.
+    private var jobs: [JobUnits] {
+        let me = appState.currentPersonId
+        return job.subs.map { JobUnits(panel: $0, units: TaskUnits.units(job: job, panel: $0, me: me)) }
+    }
+
     /// "Customer · 2 of 4 tasks" — the client (when set) and how many of the
-    /// panels revealed on expand are finished.
+    /// parent's TASKS are finished (a job with no tasks counts as one).
     private var rowSubtitle: String {
         var parts: [String] = []
         if let cid = job.clientId,
            let n = appState.clients.first(where: { $0.id == cid })?.name, !n.isEmpty {
             parts.append(n)
         }
-        let done = panels.filter { $0.status == .finished }.count
-        parts.append("\(done) of \(panels.count) task\(panels.count == 1 ? "" : "s")")
+        let all = jobs.flatMap(\.units)
+        let done = all.filter { $0.status == .finished }.count
+        parts.append("\(done) of \(all.count) task\(all.count == 1 ? "" : "s")")
         return parts.joined(separator: " · ")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Cardless row: job dot · number – title over its summary · chevron.
-            // Expanded, it drops its hairline and the panels open beneath it.
+            // Cardless row: parent dot · number – title over its summary · chevron.
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
@@ -2135,18 +2163,21 @@ private struct AllJobsCard: View {
             }
             .buttonStyle(.plain)
 
-            // Expanded: each panel as a lavender task block with its own Start.
             if isExpanded {
                 VStack(spacing: 10) {
-                    if panels.isEmpty {
-                        NoJobsPlaceholder(text: "No panels scheduled")
+                    if job.subs.isEmpty {
+                        NoJobsPlaceholder(text: "No jobs yet")
                     } else {
-                        ForEach(panels) { task in
-                            Button { onOpenJob(task.job) } label: {
-                                TaskCardV1(task: task, style: .block)
+                        ForEach(jobs) { entry in
+                            if entry.isLeaf {
+                                // No tasks: the job is the unit, with its own Start.
+                                taskBlock(entry.units[0])
+                            } else {
+                                jobRow(entry)
+                                if openJobs.contains(entry.id) {
+                                    ForEach(entry.units) { taskBlock($0) }
+                                }
                             }
-                            .zoomSource(id: task.job.id)
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -2155,6 +2186,35 @@ private struct AllJobsCard: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
+        .animation(.easeInOut(duration: 0.2), value: openJobs)
+    }
+
+    /// A job with tasks: its title and "1 of 3 tasks"; tapping shows its tasks.
+    private func jobRow(_ entry: JobUnits) -> some View {
+        let open = openJobs.contains(entry.id)
+        let done = entry.units.filter { $0.status == .finished }.count
+        let count = entry.units.count
+        return Button {
+            if open { openJobs.remove(entry.id) } else { openJobs.insert(entry.id) }
+        } label: {
+            RvRow(divider: false) {
+                RvDot(color: Color(hex: job.color), size: 6)
+                RvRowText(title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
+                          subtitle: "\(done) of \(count) task\(count == 1 ? "" : "s")")
+                RvChevron(direction: open ? .up : .down)
+            }
+            .padding(.leading, 12)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A task (or a job with no tasks) as the standard block — Start clocks it.
+    private func taskBlock(_ task: TaskAssignment) -> some View {
+        Button { onOpenJob(task.job) } label: {
+            TaskCardV1(task: task, style: .block)
+        }
+        .zoomSource(id: task.job.id)
+        .buttonStyle(.plain)
     }
 }
 

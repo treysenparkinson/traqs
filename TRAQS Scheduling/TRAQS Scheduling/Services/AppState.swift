@@ -3450,7 +3450,9 @@ extension AppState {
                 if !myOps.isEmpty {
                     for op in myOps { out.append(TaskAssignment(job: job, panel: panel, op: op)) }
                 } else if panel.team.contains(me) {
-                    out.append(TaskAssignment(job: job, panel: panel, op: nil))
+                    // #451, as TasksView.myTasks: a job with tasks offers its
+                    // tasks; only a job with none is itself the unit.
+                    out.append(contentsOf: TaskUnits.forJobTeamMember(job: job, panel: panel))
                 }
             }
         }
