@@ -218,6 +218,45 @@ export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule", d
 }
 
 /**
+ * A moveLog entry from two SNAPSHOTS of a node, for the writers that place work
+ * without going through a drag (#494).
+ *
+ * `moveLogEntry` could not be reused: it takes a MOVER from `planDragMove`, with
+ * `from`/`to` branches that only a drag produces. The scheduler, the AI, the
+ * parent-date cascade and the override each have something simpler — the node
+ * before and the node after — and #492 found all four moving work with no record
+ * at all, which is how 86% of this board's movement came to be invisible.
+ *
+ * SAME SHAPE AS THE DRAG'S, deliberately. #458 showed a narrowing client eating
+ * the detail fields off every entry; a second shape would mean the guard and the
+ * recovery each have two things to understand instead of one.
+ *
+ * RETURNS NULL WHEN NOTHING MOVED. A writer that logs a no-op fills the history
+ * with entries that read like changes, and #493 counted what entries cost.
+ *
+ * `runId` is written only when given. One scheduler run places many ops and
+ * emits one entry EACH — Trey's ruling, because the log's unit is "this op moved
+ * from A to B" everywhere else — so the id is what makes twenty entries readable
+ * as one action. A drag moves a single op and needs none.
+ */
+export function placementEntry(before, after, { date, movedBy, reason = "Moved", runId = null }) {
+  const b = before || {};
+  const same = (k) => (b[k] ?? null) === (after[k] ?? null);
+  if (before && same("start") && same("end") && same("startHour") && same("endHour") && same("hpd")
+    && JSON.stringify(b.team || []) === JSON.stringify(after.team || [])) return null;
+  const reassigned = JSON.stringify(b.team || []) !== JSON.stringify(after.team || []);
+  return {
+    fromStart: b.start ?? null, fromEnd: b.end ?? null, toStart: after.start ?? null, toEnd: after.end ?? null,
+    fromStartHour: b.startHour ?? null, toStartHour: after.startHour ?? null,
+    fromEndHour: b.endHour ?? null, toEndHour: after.endHour ?? null,
+    ...(reassigned ? { fromTeam: b.team || [], toTeam: after.team || [] } : {}),
+    ...(after.hpd != null ? { fromHpd: b.hpd ?? null, toHpd: after.hpd } : {}),
+    date, movedBy, reason,
+    ...(runId ? { runId } : {}),
+  };
+}
+
+/**
  * The department a reassignment moves the work INTO, or null when nothing changes.
  *
  * Fires on exactly the condition that used to REFUSE the drop (#427): the unit

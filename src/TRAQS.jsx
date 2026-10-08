@@ -13,7 +13,7 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -10640,6 +10640,10 @@ Extraction rules:
     setPersonModal(null);
   };
   const updTask = (id, upd, pid = null) => {
+    // #494. Who the cascade entry names. updTask has no actor of its own, so it
+    // takes the signed-in user — the same name every other client-side writer
+    // puts on an entry.
+    const _by = loggedInUser?.name || "Admin";
     // Engineering block: if setting a Wire/Cut/Layout op to In Progress or Finished,
     // check that the parent panel's engineering sign-off is complete.
     if (pid && upd.status && ["In Progress", "Finished"].includes(upd.status)) {
@@ -10745,6 +10749,18 @@ Extraction rules:
               : op)
           }));
         }
+      }
+      // #494. ONE ENTRY, ON THE PARENT. Moving a job shifts every panel and op
+      // under it by the same delta, so an entry per child would record one
+      // gesture as dozens — and the children did not move independently. The
+      // parent's entry says what happened; theirs would only repeat it.
+      //
+      // `upd.moveLog` wins when the caller already wrote one (the AI path above
+      // builds its own), so a date change never produces two entries for one
+      // action.
+      if (upd.moveLog === undefined) {
+        const _pe = placementEntry(t, updated, { date: TD, movedBy: _by, reason: "Moved with its parent" });
+        if (_pe) updated.moveLog = [...(t.moveLog || []), _pe];
       }
       return settle(updated);
     }
@@ -11216,6 +11232,9 @@ ${jobsCtx || "No jobs found."}`;
     // an unknown id and returns the list untouched — and every one of them used
     // to be reported as "Action applied successfully."
     const outcomes = {};
+    // The AI is the actor on this path; its entries say so rather than naming
+    // whoever happened to be signed in when the tool call ran.
+    const _aiBy = "TRAQS AI";
     const jobExists = (id) => tasks.some(t => sameId(t.id, id));
     const nodeExists = (id) => !!findTaskNode(id);
     for (const tu of toolUses) {
@@ -11232,7 +11251,17 @@ ${jobsCtx || "No jobs found."}`;
           if (input.job_number !== undefined) upd.jobNumber = input.job_number;
           if (input.notes !== undefined)      upd.notes = input.notes;
           changed = nodeExists(input.job_id);
-          if (changed) updTask(input.job_id, upd);
+          // #494. An agent moving work is exactly what an audit trail is for, and
+          // this path wrote dates straight into updTask with no entry at all.
+          // No runId: the AI edits one job per tool call, so there is no run to
+          // tie together and 22 bytes that cannot be used is a cost #493 counted.
+          if (changed) {
+            const _wasJob = findTaskNode(input.job_id);
+            const _e = _wasJob && (upd.start !== undefined || upd.end !== undefined)
+              ? placementEntry(_wasJob, { ..._wasJob, ...upd }, { date: TD, movedBy: _aiBy, reason: "Moved by TRAQS AI" })
+              : null;
+            updTask(input.job_id, _e ? { ...upd, moveLog: [...(_wasJob.moveLog || []), _e] } : upd);
+          }
           break;
         }
         case "create_job":
@@ -11262,7 +11291,13 @@ ${jobsCtx || "No jobs found."}`;
           if (input.end !== undefined)              opUpd.end = input.end;
           if (input.assign_person_id !== undefined) opUpd.team = [input.assign_person_id];
           changed = nodeExists(input.operation_id);
-          if (changed) updTask(input.operation_id, opUpd, input.panel_id);
+          if (changed) {
+            const _wasOp = findTaskNode(input.operation_id);
+            const _e = _wasOp && (opUpd.start !== undefined || opUpd.end !== undefined || opUpd.team !== undefined)
+              ? placementEntry(_wasOp, { ..._wasOp, ...opUpd }, { date: TD, movedBy: _aiBy, reason: "Moved by TRAQS AI" })
+              : null;
+            updTask(input.operation_id, _e ? { ...opUpd, moveLog: [...(_wasOp.moveLog || []), _e] } : opUpd, input.panel_id);
+          }
           break;
         }
       }
@@ -24209,6 +24244,9 @@ ${jobsCtx || "No jobs found."}`;
           };
           let newPanel;
           if ((panel.subs || []).length > 0) {
+            // One id for this override, so the ops it places read as one action.
+            const _ovRunId = uid();
+            const _ovBy = loggedInUser?.name || "Admin";
             const placedSubs = [];
             let opEarliestStart = newStartDate;
             for (const sub of (panel.subs || [])) {
@@ -24220,7 +24258,13 @@ ${jobsCtx || "No jobs found."}`;
                 setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
                 return;
               }
-              placedSubs.push({ ...sub, start: ss, end: se, team: subTeam.map(m => m.id) });
+              // #494. EACH OP LOGS, not just the panel. The panel got an
+              // `overrideEntry` and its children got new dates with nothing on
+              // them — and "the panel's entry covers them" is exactly the kind of
+              // understanding that is written nowhere and stops being true.
+              const _placed = { ...sub, start: ss, end: se, team: subTeam.map(m => m.id) };
+              const _oe = placementEntry(sub, _placed, { date: TD, movedBy: _ovBy, reason: "Override start date", runId: _ovRunId });
+              placedSubs.push(_oe ? { ..._placed, moveLog: [...(sub.moveLog || []), _oe] } : _placed);
               subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); _localAvail.book(m.id, ss, se); personCursors[m.id] = sAddBD(se, 1); });
               opEarliestStart = sAddBD(se, 1);
             }
@@ -25125,6 +25169,28 @@ ${jobsCtx || "No jobs found."}`;
                       // reach S3: a scratch field that gets persisted is indistinguishable
                       // from real data the next time something reads it.
                       const _strip = (n) => { const { _outcome:_o, _placed:_pl, ...rest } = n; return rest; };
+                      // #494. THE SCHEDULER PLACES WORK AND SAID NOTHING. It wrote
+                      // new dates for every op it touched and appended no moveLog
+                      // entry anywhere, which is the prime suspect for the 31 ops
+                      // #492 found moving with no record.
+                      //
+                      // ONE ENTRY PER OP, sharing one `_runId` — the log's unit is
+                      // "this op moved from A to B" everywhere else, and a
+                      // run-level entry could not answer "where did this bar come
+                      // from". The id is what makes twenty entries readable as one
+                      // action rather than twenty decisions.
+                      //
+                      // OPS ONLY. A panel's dates are rolled up from its children,
+                      // so an entry on one would record a recomputation rather than
+                      // a move — the one case #492 ruled should NOT log.
+                      const _runId = uid();
+                      const _schedBy = loggedInUser?.name || "Planner";
+                      const _logPlace = (was, op) => {
+                        const e = placementEntry(was, op, { date: TD, movedBy: _schedBy, reason: "Scheduled by the planner", runId: _runId });
+                        return e ? { ...op, moveLog: [...(op.moveLog || []), e] } : op;
+                      };
+                      const _wasOps = new Map();
+                      (p.subs || []).forEach(pn => (pn.subs || []).forEach(o => { if (o?.id != null) _wasOps.set(String(o.id), o); }));
                       if (p.isReschedule && _replanned.size > 0) {
                         const scheduledMap=new Map(newSubs.map(s => [String(s.id), s]));
                         updated.subs=(p.subs||[]).map(orig => {
@@ -25136,11 +25202,12 @@ ${jobsCtx || "No jobs found."}`;
                             const was = (orig.subs||[]).find(o => String(o.id) === String(op.id));
                             if (!_replanned.has(String(op.id))) return was || _strip(op);
                             if (_blockedIds.has(String(op.id)) && was) return was;
-                            return _strip(op);
+                            return _logPlace(was, _strip(op));
                           }) };
                         });
                       } else {
-                        updated.subs=newSubs.map(pn => ({ ..._strip(pn), subs: (pn.subs||[]).map(_strip) }));
+                        updated.subs=newSubs.map(pn => ({ ..._strip(pn),
+                          subs: (pn.subs||[]).map(o => _logPlace(_wasOps.get(String(o.id)), _strip(o))) }));
                       }
                       // The report, in the preview's shape. setTimeout because this runs
                       // inside a state updater and must not set state during render.
