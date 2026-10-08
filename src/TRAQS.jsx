@@ -20,6 +20,7 @@ import { healthState, isJudged, countsAsOnTime } from "./health.js";
 import { changedPrefs } from "./prefsDelta.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { applyBarDelete, planBarDelete } from "./barDelete.js";
+import { holdsDateEdit, withDraftValue, overlayDraft, flushPatch, completionPatch } from "./schedDraft.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -5557,6 +5558,48 @@ Extraction rules:
   }, [confirmDeleteClient]);
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
+  // #456. SCHEDULING FROM THE GRID IS ONE SAVE. Dates typed on an UNSCHEDULED task
+  // (a leaf with neither both dates nor anybody on it) are held here, outside the
+  // tree, and written together with the assignee in one commitDates -- Drop in
+  // Schedule's own write. Ruled: leaving the row SAVES what was typed (one write),
+  // it is never dropped silently; a change to a placed task stays one immediate
+  // save. See src/schedDraft.js.
+  const [schedDraft, setSchedDraft] = useState(null); // { id, start, end }
+  const schedDraftRef = useRef(null);
+  schedDraftRef.current = schedDraft;
+  const schedDraftHitRef = useRef(null);       // the row that claimed the current mousedown
+  const flushSchedDraftRef = useRef(() => {});  // set once flushSchedDraft exists, below
+  // LEAVING THE ROW. A drafted row claims its own mousedowns -- including those in
+  // its portalled date picker and assignee menu, which React routes through the
+  // row -- in onMouseDownCapture; any mousedown it did not claim saves the draft.
+  useEffect(() => {
+    if (!schedDraft) return;
+    // Cleared in the CAPTURE phase, before React's row handler runs, so only THIS
+    // mousedown can claim the row. Without it the click that made the draft (a day
+    // in the picker) left a stale claim, and the first click away was read as the
+    // row's own -- measured in the sandbox: the dates were held and never saved.
+    const reset = () => { schedDraftHitRef.current = null; };
+    const onDown = () => {
+      if (!sameId(schedDraftHitRef.current, schedDraft.id)) flushSchedDraftRef.current();
+      schedDraftHitRef.current = null;
+    };
+    document.addEventListener("mousedown", reset, true);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("mousedown", reset, true); document.removeEventListener("mousedown", onDown); };
+  }, [schedDraft]);
+  // Changing view (or unmounting) saves it too.
+  useEffect(() => () => { flushSchedDraftRef.current(); }, [view]);
+  // Closing the tab saves it into the tree and asks first, so the autosave can run.
+  useEffect(() => {
+    const h = (e) => {
+      if (!schedDraftRef.current) return;
+      flushSchedDraftRef.current();
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, []);
   const [expandedJobs, setExpandedJobs] = usePersistedUI("expandedJobs", new Set(), UI_SET);
   // In Grouping mode rows default to expanded — these sets track per-person collapse state.
   // Keys are `<personId>:<itemId>` so two people sharing a panel/job don't collapse together.
@@ -9305,6 +9348,17 @@ Extraction rules:
       (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason: "Date typed on the Jobs list", people }), movedBy),
       [String(op.id)], op.title || "");
   };
+  // #456. Leaving a drafted row: write the dates typed so far, in ONE save.
+  const flushSchedDraft = () => {
+    const d = schedDraftRef.current;
+    if (!d) return;
+    schedDraftRef.current = null;
+    setSchedDraft(null);
+    const patch = flushPatch(d);
+    const node = patch && findTaskNode(d.id);
+    if (node) commitDates(node, patch);
+  };
+  flushSchedDraftRef.current = flushSchedDraft;
   const selectableOpIdsOf = (panel) => opIdsOf(panel).filter(id => {
     const op = (panel?.subs || []).find(o => String(o.id) === String(id));
     return !op || !opReplanBlock(op);
@@ -12901,6 +12955,15 @@ ${jobsCtx || "No jobs found."}`;
     // overlap it has nothing to do with.
     if (key === "start" || key === "end") {
       const node = findTaskNode(id);
+      // #456. A date typed into ANOTHER row means this one was left: save it first.
+      if (schedDraftRef.current && !sameId(schedDraftRef.current.id, id)) flushSchedDraft();
+      // On an unscheduled task the date is HELD until who is picked (one save).
+      if (node && holdsDateEdit(node, key)) {
+        const d = withDraftValue(schedDraftRef.current, node, key, val);
+        schedDraftRef.current = d;
+        setSchedDraft(d);
+        return;
+      }
       if (node) return commitDates(node, { [key]: val });
     }
     const patch = { [key]: val };
@@ -13860,26 +13923,28 @@ ${jobsCtx || "No jobs found."}`;
                 </span>
               </div>
             );
-            case "start": return (
+            case "start": { const _sd = overlayDraft(item, schedDraft); const _held = !!(schedDraft && sameId(schedDraft.id, item.id)); return (
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: isScheduledLater ? "default" : "text" }}
+                title={_held ? "Not saved yet: pick who to schedule it (one save), or leave the row to save the dates" : undefined}
                 onClick={e => !isScheduledLater && startEdit(e, item.id, "start")}>
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "start")
-                    ? <TraqsDatePicker autoOpen compact portal value={item.start} onChange={v => { commitEdit(item.id, "start", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
-                    : <span style={{ color: T.textSec }}>{safeDate(item.start)}</span>}
+                    ? <TraqsDatePicker autoOpen compact portal value={_sd.start} onChange={v => { commitEdit(item.id, "start", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
+                    : <span style={{ color: _held ? T.accent : T.textSec, fontStyle: _held ? "italic" : "normal" }}>{safeDate(_sd.start)}</span>}
               </div>
-            );
-            case "end": return (
+            ); }
+            case "end": { const _sd = overlayDraft(item, schedDraft); const _held = !!(schedDraft && sameId(schedDraft.id, item.id)); return (
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: isScheduledLater ? "default" : "text" }}
+                title={_held ? "Not saved yet: pick who to schedule it (one save), or leave the row to save the dates" : undefined}
                 onClick={e => !isScheduledLater && startEdit(e, item.id, "end")}>
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "end")
-                    ? <TraqsDatePicker autoOpen compact portal value={item.end} onChange={v => { commitEdit(item.id, "end", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
-                    : <span style={{ color: T.textSec }}>{safeDate(item.end)}</span>}
+                    ? <TraqsDatePicker autoOpen compact portal value={_sd.end} onChange={v => { commitEdit(item.id, "end", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
+                    : <span style={{ color: _held ? T.accent : T.textSec, fontStyle: _held ? "italic" : "normal" }}>{safeDate(_sd.end)}</span>}
               </div>
-            );
+            ); }
             case "due": return (
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: level === 0 ? "text" : "default" }}
                 onClick={e => level === 0 && startEdit(e, item.id, "dueDate")}>
@@ -13953,7 +14018,11 @@ ${jobsCtx || "No jobs found."}`;
               // deliberately describes those two patterns instead of quoting them. A comment
               // that quotes the code a neighbouring assertion counts will break it (#5).
               const _leaf = !(item.subs || []).length;
-              const hasDates = !!(item.start && item.end);
+              // #456. A drafted row's dates are not in the tree yet; the gate and the
+              // busy check read them from the draft.
+              const _draftHere = schedDraft && sameId(schedDraft.id, item.id) ? schedDraft : null;
+              const _ad = overlayDraft(item, schedDraft);
+              const hasDates = !!(_ad.start && _ad.end);
               const canReassign = can("reassign") && _leaf;
               const canQuickAssign = canReassign && hasDates;
               if (canReassign && !hasDates && !who.length) return (
@@ -13970,7 +14039,7 @@ ${jobsCtx || "No jobs found."}`;
                     value={who.length ? who[0].id : ""}
                     trigger={content}
                     options={() => {
-                      const rows = assignPickerFor(item, _panel, _job).map((r, ri) => r.divider
+                      const rows = assignPickerFor(_ad, _panel, _job).map((r, ri) => r.divider
                         ? { divider: true, label: "Others", value: "__div" + ri }
                         : { value: r.id, label: r.name, sub: r.busy ? `busy — ${r.busyWith.title}` : r.dept, color: r.busy ? T.danger : undefined });
                       // Clearing is offered only when there is something to clear.
@@ -13982,10 +14051,21 @@ ${jobsCtx || "No jobs found."}`;
                       // REFUSED AT PICK, with the reason, rather than hidden from the list.
                       // Shown-and-refused answers "why can't I pick Caleb"; hiding leaves
                       // "why isn't Caleb here", which is the worse question to be left with.
-                      const picked = assignPickerFor(item, _panel, _job).find(r => !r.divider && sameId(r.id, v));
+                      const picked = assignPickerFor(_ad, _panel, _job).find(r => !r.divider && sameId(r.id, v));
                       if (picked && picked.busy) {
                         showLandingRefusal({ kind: "overlap", title: item.title || "", other: picked.busyWith.other },
                           `${picked.name} is not free then`);
+                        return;
+                      }
+                      // #456. Picking who on a drafted row schedules it: dates and team
+                      // in ONE commitDates. Refused, the draft stays, so nothing typed is lost.
+                      if (_draftHere) {
+                        const _patch = completionPatch(_draftHere, [v]);
+                        const _node = _patch && findTaskNode(item.id);
+                        if (!_node) return;
+                        schedDraftRef.current = null;
+                        setSchedDraft(null);
+                        if (commitDates(_node, _patch) === false) setSchedDraft(_draftHere);
                         return;
                       }
                       commitAssign(item, [v]);
@@ -14131,6 +14211,7 @@ ${jobsCtx || "No jobs found."}`;
               onDrop={level === 0 ? e => { e.preventDefault(); if (!rowDragRef.current || rowDragRef.current === item.id) return; const dragId = rowDragRef.current; rowDragRef.current = null; setRowDragOverId(null); setTaskOrder(prev => { const base = prev.length ? prev : activeTasks.map(t => t.id); const from = base.indexOf(dragId); const to = base.indexOf(item.id); if (from < 0 || to < 0) return base; const next = [...base]; next.splice(from, 1); next.splice(to, 0, dragId); return next; }); } : undefined}
               onDragEnd={level === 0 ? () => { rowDragRef.current = null; setRowDragOverId(null); } : undefined}
               style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}) }}
+              onMouseDownCapture={() => { schedDraftHitRef.current = item.id; }}
               onMouseEnter={e => { e.currentTarget.style.background = condBg || T.accent + "0d"; }}
               onMouseLeave={e => { e.currentTarget.style.background = condBg || rowBg; }}
               onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); } }}

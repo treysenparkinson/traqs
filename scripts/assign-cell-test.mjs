@@ -255,8 +255,10 @@ console.log("\n11. Dates first — the cell assigns a person, it does not schedu
 {
   ok("an op with no dates is refused with a reason, not a menu",
     /Can't assign until dates are set/.test(J), true);
-  ok("...gated on the op actually having both ends",
-    /const hasDates = !!\(item\.start && item\.end\)/.test(CODE), true);
+  // #456: the dates may be the row's held draft (src/schedDraft.js), which is not
+  // in the tree until who is picked; the gate still demands both ends of them.
+  ok("...gated on the op actually having both ends (its own, or its held draft's)",
+    /const _ad = overlayDraft\(item, schedDraft\);\s*const hasDates = !!\(_ad\.start && _ad\.end\)/.test(CODE), true);
   ok("...and the picker requires them", /canQuickAssign = [^;]*hasDates/.test(CODE), true);
 }
 

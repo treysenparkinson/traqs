@@ -138,8 +138,11 @@ console.log("\n5. #398 — TYPING A DATE DOES WHAT DRAGGING TO IT DOES");
   // satisfies a bare /commitDates\(/ and survived this assertion on the first
   // mutation run — the third time in this campaign an `if (false)` mutant has
   // walked past a wiring check that matched only the call text.
+  // #456 put the unscheduled-task draft (src/schedDraft.js) between the guard and
+  // this call — a placed task still lands here; an unscheduled one reaches the same
+  // commitDates through the draft (grid-batch-test.mjs). Window widened for it.
   ok("start and end route to it",
-    /if \(key === "start" \|\| key === "end"\) \{[\s\S]{0,160}?commitDates\(node, \{ \[key\]: val \}\)/.test(cce), true);
+    /if \(key === "start" \|\| key === "end"\) \{[\s\S]{0,700}?commitDates\(node, \{ \[key\]: val \}\)/.test(cce), true);
   // dueDate is not a schedule field and must stay a plain patch, or typing a due
   // date starts being refused for an overlap it has nothing to do with.
   ok("...and dueDate still does not", /key === "dueDate"[\s\S]{0,120}?commitDates/.test(cce), false);
