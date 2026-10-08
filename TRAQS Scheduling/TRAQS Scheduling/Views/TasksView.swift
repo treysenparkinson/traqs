@@ -2163,15 +2163,13 @@ private struct AllJobsCard: View {
                     if job.subs.isEmpty {
                         NoJobsPlaceholder(text: "No jobs yet")
                     } else {
+                        // Every job is a dropdown. Open, a job with tasks shows its
+                        // tasks; a job with NO tasks shows itself — it is the lowest
+                        // level, so its own card carries the Start.
                         ForEach(jobs) { entry in
-                            if entry.isLeaf {
-                                // No tasks: the job is the unit, with its own Start.
-                                taskBlock(entry.units[0])
-                            } else {
-                                jobRow(entry)
-                                if openJobs.contains(entry.id) {
-                                    ForEach(entry.units) { taskBlock($0) }
-                                }
+                            jobRow(entry)
+                            if openJobs.contains(entry.id) {
+                                ForEach(entry.units) { taskBlock($0) }
                             }
                         }
                     }
@@ -2184,7 +2182,8 @@ private struct AllJobsCard: View {
         .animation(.easeInOut(duration: 0.2), value: openJobs)
     }
 
-    /// A job with tasks: its title and "1 of 3 tasks"; tapping shows its tasks.
+    /// A job as a dropdown row: its title and "1 of 3 tasks" (or "No tasks");
+    /// tapping shows its tasks, or — with none — the job's own clock-in card.
     private func jobRow(_ entry: JobUnits) -> some View {
         let open = openJobs.contains(entry.id)
         let done = entry.units.filter { $0.status == .finished }.count
@@ -2195,7 +2194,7 @@ private struct AllJobsCard: View {
             RvRow(divider: false) {
                 RvDot(color: Color(hex: job.color), size: 6)
                 RvRowText(title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
-                          subtitle: "\(done) of \(count) task\(count == 1 ? "" : "s")")
+                          subtitle: entry.isLeaf ? "No tasks" : "\(done) of \(count) task\(count == 1 ? "" : "s")")
                 RvChevron(direction: open ? .up : .down)
             }
             .padding(.leading, 12)
