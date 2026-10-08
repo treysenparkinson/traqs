@@ -19,6 +19,7 @@ import { businessOnlyVisible } from "./tierVisibility.js";
 import { healthState, isJudged, countsAsOnTime } from "./health.js";
 import { changedPrefs } from "./prefsDelta.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
+import { applyBarDelete, planBarDelete } from "./barDelete.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -31076,21 +31077,36 @@ ${jobsCtx || "No jobs found."}`;
 
 
     {/* Bar Delete Confirmation Modal */}
-    <FadeOnClose open={!!barDeleteConfirmOpen} duration={220}>{barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
+    <FadeOnClose open={!!barDeleteConfirmOpen} duration={220}>{barDeleteConfirmOpen && (() => {
+      // #455. Name what goes, per job, from the SAME walk the Delete uses — a bare
+      // "Delete 18 items?" was, at Matrix, every task on the schedule from today on.
+      const _plan = planBarDelete(tasks, selBars);
+      const _n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 52, height: 52, borderRadius: 30, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
-        <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {selBars.size} {selBars.size === 1 ? "item" : "items"}?</h3>
-        <p style={{ margin: "0 0 24px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This will permanently remove the selected bars from the schedule. This action cannot be undone.</p>
+        <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {_n(_plan.tasks, "task", "tasks")} from {_n(_plan.jobs.length, "job", "jobs")}?</h3>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This permanently removes these tasks from their jobs, not just from the schedule{_plan.panels ? `, including ${_n(_plan.panels, "whole sub-job", "whole sub-jobs")}` : ""}. It cannot be undone.</p>
+        <div style={{ maxHeight: 220, overflowY: "auto", margin: "0 0 20px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
+          {_plan.jobs.map(j => (
+            <div key={String(j.jobId)} style={{ padding: "8px 12px", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+                <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: T.danger }}>{_n(j.tasks, "task", "tasks")}{j.panels ? ` · ${_n(j.panels, "sub-job", "sub-jobs")}` : ""}</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.titles.join(", ")}</div>
+            </div>
+          ))}
+        </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Btn variant="secondary" style={{ flex: 1 }} onClick={() => setBarDeleteConfirmOpen(false)}>Cancel</Btn>
           <Btn style={{ flex: 1 }} onClick={() => {
-            const ids = selBars;
-            setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).filter(panel => !ids.has(panel.id)).map(panel => ({ ...panel, subs: (panel.subs || []).filter(op => !ids.has(op.id)) })) })));
+            setTasks(prev => applyBarDelete(prev, selBars));
             setSelBars(new Set()); setBarSelectMode(false); setBarDeleteConfirmOpen(false);
           }}>Delete</Btn>
         </div>
       </div>
-    </div>}</FadeOnClose>
+    </div>; })()}</FadeOnClose>
 
 
     {/* ── Employee review / note composer ───────────────────────────────────── */}
