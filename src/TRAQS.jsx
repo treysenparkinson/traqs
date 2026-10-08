@@ -9,7 +9,7 @@ import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRu
 // nothing sets — an unset switch is the never-executes shape all over again.
 const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
-import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
+import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIso } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
@@ -20228,6 +20228,11 @@ ${jobsCtx || "No jobs found."}`;
 
     const saveEditEntry = async () => {
       if (!tsEditEntry) return;
+      // #498. The server 400s on a missing clockIn or clockOut, and the alert it
+      // produces — "Missing entryId, clockIn, or clockOut" — reads as a broken
+      // save rather than as a shift that has not ended. Latent today (no open
+      // punch is unconfirmed on this board) and reachable the moment one is.
+      if (!tsEditEntry.clockIn || !tsEditEntry.clockOut) return toast("Clock this shift out before editing its times");
       try {
         const res = await adminEditEntryAction({ entryId: tsEditEntry.id, clockIn: tsEditEntry.clockIn, clockOut: tsEditEntry.clockOut }, getToken, orgCode);
         if (res.ok) {
@@ -20439,14 +20444,10 @@ ${jobsCtx || "No jobs found."}`;
       const { person, sessions, activeEntry, saving, addMenuFor, confirmDelete, deletingId, confirmReopen, reopeningId } = tsPersonEditModal;
 
       // datetime-local <-> ISO. The input shows LOCAL wall-clock time (matching
-      // the board's fmtTime); fromLocal parses it back to a UTC ISO string.
-      const toLocal = (iso) => {
-        if (!iso) return "";
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return "";
-        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      };
-      const fromLocal = (local) => local ? new Date(local).toISOString() : "";
+      // #498. isoToLocalInput / localInputToIso live in src/shopTime.js — there
+      // were two of these, and only one converted the zone (TRAQS.jsx:22478 sliced
+      // the raw UTC string), so a time merely opened and saved moved by the offset.
+      // #498. isoToLocalInput / localInputToIso now live in src/shopTime.js —
 
       // Lunch/break punch metadata. lunchStart = went to lunch ("Lunch Out"),
       // lunchEnd = came back ("Lunch In"); same for breaks.
@@ -20731,7 +20732,7 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ width: 78, flexShrink: 0, fontSize: 10.5, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", color }}>{label}</span>
           {locked
             ? <span style={{ flex: 1, fontFamily: T.mono, fontSize: 12.5, color: T.text }}>{value ? fmtTime(value) : "—"}</span>
-            : <DateField withTime compact value={toLocal(value)} onChange={v => onChange(fromLocal(v))} style={{ flex: 1, minWidth: 0 }} />}
+            : <DateField withTime compact value={isoToLocalInput(value)} onChange={v => onChange(localInputToIso(v))} style={{ flex: 1, minWidth: 0 }} />}
           {onDelete && !locked
             ? <button onClick={onDelete} title="Delete this punch" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
             : <span style={{ width: 26, flexShrink: 0 }} />}
@@ -22475,13 +22476,11 @@ ${jobsCtx || "No jobs found."}`;
                                 const isEditing = tsEditEntry?.id === e.id;
                                 if (isEditing) {
                                   // Convert ISO to datetime-local value
-                                  const toLocal = iso => iso ? iso.slice(0, 16) : "";
-                                  const fromLocal = local => local ? new Date(local).toISOString() : "";
                                   return (
                                     <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 28px", borderTop: `1px solid ${T.border}15`, background: T.accent + "08", flexWrap: "wrap" }}>
-                                      <DateField withTime compact value={toLocal(tsEditEntry.clockIn)} onChange={v => setTsEditEntry(x => ({ ...x, clockIn: fromLocal(v) }))} style={{ minWidth: 190 }} />
+                                      <DateField withTime compact value={isoToLocalInput(tsEditEntry.clockIn)} onChange={v => setTsEditEntry(x => ({ ...x, clockIn: localInputToIso(v) }))} style={{ minWidth: 190 }} />
                                       <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
-                                      <DateField withTime compact value={toLocal(tsEditEntry.clockOut)} onChange={v => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(v) }))} style={{ minWidth: 190 }} />
+                                      <DateField withTime compact value={isoToLocalInput(tsEditEntry.clockOut)} onChange={v => setTsEditEntry(x => ({ ...x, clockOut: localInputToIso(v) }))} style={{ minWidth: 190 }} />
                                       <span style={{ flex: 1 }} />
                                       <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
                                       <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>

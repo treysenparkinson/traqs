@@ -160,3 +160,38 @@ export function endOfDayFor(clockInMs, cfg = {}) {
   }
   return eod;
 }
+
+/**
+ * AN ISO INSTANT AS A `datetime-local` FIELD WANTS IT, and back (#498).
+ *
+ * `<input type="datetime-local">` and TRAQS's `DateField withTime` both speak
+ * "YYYY-MM-DDTHH:mm" in the VIEWER'S OWN CLOCK, with no zone. An ISO timestamp
+ * is UTC. Slicing the first 16 characters off one and handing it to the other
+ * therefore shows the UTC wall time as though it were local — and because the
+ * reverse conversion parses that string as local, a value that is merely opened
+ * and saved moves by the offset. Six or seven hours in Mountain Time.
+ *
+ * That is what "editing a clocked time fails to save" was: it saved, and it
+ * saved an instant nobody chose.
+ *
+ * ONE PAIR, because there were two and only one was right — the timesheet row
+ * editor used the naive slice while the entry editor converted properly, and
+ * both fed the same reverse function.
+ */
+export function isoToLocalInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+/**
+ * The reverse. Returns NULL rather than "" for an absent value: an empty string
+ * reaches the server as a present-but-invalid timestamp, and the open-shift case
+ * (a punch with no clockOut) has to be distinguishable from a cleared field.
+ */
+export function localInputToIso(local) {
+  if (!local) return null;
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
