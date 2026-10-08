@@ -3801,7 +3801,19 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
   // callers pass arrays and are unaffected.
   const listOf = () => (typeof options === "function" ? options() : options) || [];
   const rows = open ? listOf() : [];
-  const sel = rows.find(o => o.value === value);
+  // THE TRIGGER MUST SHOW THE SELECTION WHETHER OR NOT THE MENU IS OPEN, so the
+  // selected row is resolved from the full list and NOT from `rows` — which is
+  // empty while closed, by design, so a thunk stays unresolved.
+  //
+  // #483: resolving `sel` from `rows` made every default-trigger dropdown render
+  // its PLACEHOLDER instead of its value, from 2026-10-05 (99e2785) until this.
+  // The laziness was added for the Jobs-page quick-assign, whose `options` thunk
+  // calls `assignPickerFor` — and that caller is also the only one passing a
+  // CUSTOM trigger, which renders its own content and never reads `sel`. So
+  // skipping it there keeps the laziness exactly where it was wanted, and a
+  // future thunk without a trigger resolves on render, which is correct and
+  // cheap for the array callers that are the other nine.
+  const sel = trigger ? null : listOf().find(o => o.value === value);
   const toggle = () => {
     if (open) { setOpen(false); return; }
     if (portal) {
