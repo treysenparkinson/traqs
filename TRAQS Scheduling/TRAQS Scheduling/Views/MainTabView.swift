@@ -75,8 +75,14 @@ struct MainTabView: View {
                             .shellBlur(\.chromeBlurred)
                     }
 
-                // The tab bar is Apple's own (TabHost) — its native Liquid Glass bar
-                // and selection highlighter. The custom TRAQS pill is gone.
+                // TRAQS floating pill (icon-only).
+                if !appNav.hideTabBar {
+                    TRAQSTabBar()
+                        .padding(.bottom, 1)
+                        .offset(y: 5)    // sits just off the bottom edge
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .shellBlur(\.chromeBlurred)
+                }
             }
 
             // Availability quick-check — HOISTED here, out of the Jobs page, and
@@ -342,12 +348,13 @@ private struct HeaderHost: View {
 
 private struct TabHost: View {
     @Environment(AppNav.self) private var appNav
-    /// Read for the tier (the fourth tab's page and label) and the unread badge.
+    /// Read for the tier only, which picks the fourth tab's page.
     @Environment(AppState.self) private var appState
-    @Environment(\.displayScale) private var displayScale
 
-    /// Pages used to reserve the floating pill's height here. The native tab bar
-    /// insets the safe area itself, so this now only collapses with the bar.
+    /// Reserves bottom space so a page's content ends at the TOP of the floating
+    /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
+    /// NavigationStack (Jobs/Messages reserve it inside their stacks). Collapses
+    /// while the bar is hidden (e.g. inside a message thread).
     @ViewBuilder
     private func reserveBar<Content: View>(_ content: Content) -> some View {
         content.safeAreaInset(edge: .bottom) {
@@ -355,74 +362,27 @@ private struct TabHost: View {
         }
     }
 
-    /// The native tab item: the traced TRAQS glyph as a template image (so the
-    /// system tints it like an SF Symbol) and the tab's name.
-    private func item(_ tab: TTab) -> some View {
-        let business = appState.isBusinessTier
-        return Label {
-            Text(tab.label(business: business))
-        } icon: {
-            TabBarGlyph.image(tab.icon(business: business), scale: displayScale)
-        }
-    }
-
-    /// Shown on every tab, hidden together when a page asks (a message thread,
-    /// the PIN pad).
-    private var barVisibility: Visibility { appNav.hideTabBar ? .hidden : .visible }
-
     var body: some View {
-        // Native TabView with Apple's OWN tab bar (2026-10-08): its Liquid Glass
-        // bar and selection highlighter replace the custom TRAQS pill. Each tab
-        // is built once and kept alive; the other tabs are not re-evaluated on a
-        // switch.
-        //
-        // The selection is written inside an animation because the header's
-        // glass morph interpolates on it — an unanimated write just swaps the
-        // header controls (§10 step 8).
-        return TabView(selection: Binding(
-            get: { appNav.selected },
-            set: { new in withAnimation(.bouncy(duration: 0.4, extraBounce: 0.05)) { appNav.selected = new } }
-        )) {
-            // In bar order: Jobs · Time Clock · Home · Messages · Stats.
-            JobsHubView()                           // reserves bar space inside its own NavigationStack
-                .tabItem { item(.jobs) }.tag(TTab.jobs)
-                .toolbar(barVisibility, for: .tabBar)
-            reserveBar(TimeClockView())
-                .tabItem { item(.hours) }.tag(TTab.hours)
-                .toolbar(barVisibility, for: .tabBar)
-            reserveBar(HomeView())
-                .tabItem { item(.home) }.tag(TTab.home)
-                .toolbar(barVisibility, for: .tabBar)
-            MessagesView()                          // reserves bar space inside its own NavigationStack
-                .tabItem { item(.chat) }.tag(TTab.chat)
-                .badge(appState.totalUnreadMessages)
-                .toolbar(barVisibility, for: .tabBar)
+        // Native TabView backbone: each tab is built once and kept alive, and —
+        // crucially — the OTHER tabs are NOT re-evaluated when you switch. The
+        // old keep-alive ZStack re-ran all five heavy page bodies on every tap,
+        // which was the click→page lag. The system tab bar is hidden; the custom
+        // frosted pill drives `selected`.
+        return TabView(selection: Binding(get: { appNav.selected }, set: { appNav.selected = $0 })) {
+            reserveBar(HomeView()).tag(TTab.home)
+                .toolbar(.hidden, for: .tabBar)
+            JobsHubView().tag(TTab.jobs)            // reserves pill space inside its own NavigationStack
+                .toolbar(.hidden, for: .tabBar)
+            reserveBar(TimeClockView()).tag(TTab.hours)
+                .toolbar(.hidden, for: .tabBar)
             Group {
                 if appState.isBusinessTier { reserveBar(MoreView()) } else { reserveBar(EmployeesView()) }
             }
-            .tabItem { item(.stats) }.tag(TTab.stats)
-            .toolbar(barVisibility, for: .tabBar)
+            .tag(TTab.stats)
+            .toolbar(.hidden, for: .tabBar)
+            MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
+                .toolbar(.hidden, for: .tabBar)
         }
-    }
-}
-
-/// The traced nav glyphs (Icons.swift) rendered once to template images, because
-/// a native tab item takes an Image, not a view. Cached per glyph and scale.
-@MainActor
-private enum TabBarGlyph {
-    private static var cache: [String: Image] = [:]
-
-    static func image(_ icon: TIcon, scale: CGFloat) -> Image {
-        let key = "\(icon)@\(scale)"
-        if let hit = cache[key] { return hit }
-        let renderer = ImageRenderer(content:
-            TIconView(icon: icon, size: 24, color: .black, weight: .regular)
-                .frame(width: 28, height: 28))
-        renderer.scale = scale
-        let image = renderer.uiImage.map { Image(uiImage: $0.withRenderingMode(.alwaysTemplate)) }
-            ?? Image(systemName: "circle")
-        cache[key] = image
-        return image
     }
 }
 
@@ -434,6 +394,7 @@ private enum TabBarGlyph {
 
 /// Display order of the bar (independent of TTab's raw values):
 /// Jobs · Time Clock · Home · Messages · Stats.
+private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 
 /// Bottom space every page reserves so its content ends at the TOP of the
 /// floating nav pill (not the physical screen bottom). Applied by MainTabView
@@ -442,12 +403,249 @@ private enum TabBarGlyph {
 // Space pages reserve at the bottom so their last row clears the floating tab
 // pill. Tracks the bar's outer height — if the bar shrinks and this doesn't,
 // every page just gains dead space at the end of its scroll.
-let tabPillBottomInset: CGFloat = 0   // the native tab bar insets the safe area itself
+let tabPillBottomInset: CGFloat = 99
 
 // NO `headerTopInset` any more. A modal used to reserve the header's band so
 // the keyboard couldn't lift it underneath the header; the band cost it 94pt of
 // the little height it had left with the pad up. Modals that need to clear the
 // header are rendered ABOVE it instead — see the availability popup in `body`.
+
+struct TRAQSTabBar: View {
+    // Reads the selection and the badge count ITSELF rather than taking them
+    // from MainTabView. Handing this view a `Binding` to `appNav.selected`
+    // attached that dependency to MainTabView's body, so every tap re-ran the
+    // parent — which rebuilt the TabView and all five tab structs.
+    @Environment(AppNav.self) private var appNav
+    @Environment(AppState.self) private var appState
+    @Environment(ThemeSettings.self) private var theme
+
+    private var selected: TTab {
+        get { appNav.selected }
+        // The header morph is driven by THIS animation — an unanimated write
+        // gives glassEffectID nothing to interpolate and the controls just swap
+        // (§10 step 8). Historically this was deliberately unanimated because
+        // wrapping it made the page wait on the animation; watch for tap lag.
+        nonmutating set {
+            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.05)) {
+                appNav.selected = newValue
+            }
+        }
+    }
+    private var messagesBadge: Int { appState.totalUnreadMessages }
+
+    // Drag-to-select state.
+    @State private var dragX: CGFloat? = nil       // finger x while actively dragging (drives label + highlighter)
+    @State private var dragStartX: CGFloat? = nil  // where the touch began (nil = no touch down)
+    @State private var isDragging = false          // true once the touch moved past the tap threshold
+
+    // Fixed layout — buttons are fixed-width, so the bar width is deterministic
+    // and we can map a drag x → tab without measuring.
+    // Scaled down as a set — every one of these drives the bar's size, so
+    // shrinking one alone just changes its proportions. ~13% off the previous
+    // 65 / 83 / 62 / 76.
+    private let keyW: CGFloat = 57
+    private let keySpacing: CGFloat = 10   // was 2 — widens the bar 32pt (5 keys, 4 gaps)
+    private let hPad: CGFloat = 15
+    private var tabCount: Int { tabBarOrder.count }
+    private var barWidth: CGFloat { hPad * 2 + CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }
+
+    // Accent highlighter size. It's the tallest thing in the bar, so `highlightH`
+    // sets the bar's inner height — `vPad` absorbs the difference to keep the
+    // pill's outer height fixed at `barHeight` (highlightH + vPad * 2).
+    private let highlightW: CGFloat = 73   // keyW + 16
+    private let highlightH: CGFloat = 54
+    /// The pill's outer height. `vPad` is derived from it, so this is the one
+    /// number to change if the bar wants to be taller or shorter.
+    private let barHeight: CGFloat = 66
+
+    /// The highlighter's slide to a tapped tab: a plain ease, no spring.
+    private let highlightSlide: Animation = .easeInOut(duration: 0.22)
+
+    private var vPad: CGFloat { (barHeight - highlightH) / 2 }
+
+    /// Map a horizontal position (in the bar's local space) to the tab under it.
+    private func tab(atX x: CGFloat) -> TTab {
+        let step = keyW + keySpacing
+        let idx = Int(((x - hPad + keySpacing / 2) / step).rounded(.down))
+        return tabBarOrder[min(max(idx, 0), tabCount - 1)]
+    }
+
+    /// Width of the icon row (inside the horizontal padding).
+    private var contentWidth: CGFloat { CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }
+
+    /// Resting center (in the icon row's local space) of a tab.
+    private func centerX(of tab: TTab) -> CGFloat {
+        let i = tabBarOrder.firstIndex(of: tab) ?? 0
+        return CGFloat(i) * (keyW + keySpacing) + keyW / 2
+    }
+
+    /// Highlighter center: the finger while dragging (clamped inside the row),
+    /// else the selected tab's resting center.
+    private var highlightCenterX: CGFloat {
+        if let x = dragX {
+            return min(max(x - hPad, keyW / 2), contentWidth - keyW / 2)
+        }
+        return centerX(of: selected)
+    }
+
+    /// The tab the highlighter currently sits on (finger's tab while dragging,
+    /// else the selection) — drives which icon reads as active.
+    private var highlightedTab: TTab {
+        if let x = dragX { return tab(atX: x) }
+        return selected
+    }
+
+    var body: some View {
+        // Touch the theme so a live Customize accent/background change re-renders
+        // the frost immediately (T.* tokens aren't observable on their own).
+        // frostedGlass too: the fill and rim below read the T.* global, which
+        // SwiftUI can't see as a dependency.
+        _ = theme.accent; _ = theme.bgPresetId; _ = theme.frostedGlass
+        let shape = Capsule(style: .continuous)
+
+        return ZStack(alignment: .leading) {
+            // The ONE accent highlighter. Its slide is animated INDEPENDENTLY of
+            // the page: `selected` is set with NO transaction (so the page swaps
+            // instantly on tap), and this scoped `.animation` eases only the
+            // highlighter's offset toward the new tab. While dragging (dragX set)
+            // the animation is disabled so it tracks the finger 1:1.
+            // Slightly larger than a key cell so the active tab reads clearly.
+            // The height drives the bar's inner height (the icon row is shorter),
+            // so `.padding(.vertical)` below is reduced by the same amount this
+            // grows — the pill's outer size never changes.
+            // The highlighter: a flat 2D pill in the accent — not Liquid Glass.
+            // It SLIDES to the tab on a plain ease: no spring, no bounce, no
+            // squash-and-stretch (ruled 2026-10-08). While dragging it tracks the
+            // finger 1:1. The selection setter's bouncy animation still drives the
+            // header morph, so the pill's (and the icons') transaction is replaced
+            // HERE rather than at the setter.
+            Capsule(style: .continuous)
+                .fill(Color(hex: T.accent))
+                .frame(width: highlightW, height: highlightH)
+                .offset(x: highlightCenterX - highlightW / 2)
+                .transaction { $0.animation = dragX == nil ? highlightSlide : nil }
+
+            HStack(spacing: keySpacing) {
+                ForEach(tabBarOrder, id: \.self) { tab in
+                    TabBarIcon(tab: tab,
+                               isSelected: highlightedTab == tab,
+                               badge: tab == .chat ? messagesBadge : 0,
+                               keyW: keyW)
+                }
+            }
+            // The icons change ink on the same timing as the pill.
+            .transaction { $0.animation = dragX == nil ? highlightSlide : nil }
+        }
+        .padding(.horizontal, hPad)
+        .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
+        // The bar's paint — native Liquid Glass, and always glass: the
+        // frosted-glass toggle governs the surfaces TRAQS paints, and this is
+        // Apple's material, same as the highlighter above. Everything about WHY
+        // it looks the way it does (its own tint, no rim, no `compositingGroup`)
+        // lives on `NavPillMaterial`.
+        //
+        // It paints BEHIND the content, never as an `.overlay`. This part is
+        // load-bearing and must not change: an overlay is drawn above
+        // everything, so when the highlighter stretched wide enough to reach the
+        // bar's ends — jobs → analytics, the longest throw — the border cut
+        // straight across it and the pill looked like it was travelling INSIDE
+        // the bar's wall. Behind the content, the pill rides over it and reads as
+        // an object sitting on the bar. Both branches of `NavPillMaterial` keep
+        // that: `glassEffect` renders its material under the view it modifies,
+        // exactly as the old `.background` did.
+        //
+        // (Measured on device: replacing this whole stack with a plain opaque
+        // fill did NOT reduce the per-tap stall, so the material is not the cost.)
+        .navPillMaterial(shape)
+        .shadow(color: .black.opacity(T.ambientShadowOpacity),
+                radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
+        // Floating "which page" label that tracks the finger while dragging.
+        .overlay(alignment: .top) {
+            if let x = dragX {
+                Text(tab(atX: x).label(business: appState.isBusinessTier))
+                    .font(.custom(TFontName.bold.rawValue, size: 13))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .fixedSize()
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassControl(in: Capsule(), interactive: false)
+                    // Center on the finger, clamped so it stays over the bar.
+                    .offset(x: min(max(x - barWidth / 2, -(barWidth / 2 - 46)), barWidth / 2 - 46),
+                            y: -50)
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
+            }
+        }
+        // Tap OR press-and-slide anywhere on the pill: the highlighter follows to
+        // the tab under the finger; releasing selects it. (A UIKit touch layer was
+        // tried and REGRESSED render time to 50–167ms — its UIView overlay forced
+        // an expensive layout/compositing pass against the frosted material every
+        // render. The SwiftUI gesture measures ~1ms, so it's the right tool.)
+        .contentShape(Capsule())
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if dragStartX == nil {
+                        dragStartX = value.location.x
+                        // Page changes instantly (no animation transaction) — the
+                        // highlighter eases independently via its scoped animation.
+                        selected = tab(atX: value.location.x)
+                    }
+                    if abs(value.location.x - (dragStartX ?? value.location.x)) > 8 {
+                        isDragging = true
+                    }
+                    if isDragging { dragX = value.location.x }
+                }
+                .onEnded { value in
+                    if isDragging {
+                        let final = tab(atX: value.location.x)
+                        if final != selected { selected = final }
+                    }
+                    dragX = nil          // instant settle, no slide
+                    dragStartX = nil
+                    isDragging = false
+                }
+        )
+        // Haptic as the highlighter crosses onto each tab (preview + release).
+        .sensoryFeedback(.selection, trigger: highlightedTab)
+    }
+}
+
+// Non-interactive icon cell — selection + the highlighter are driven by
+// TRAQSTabBar's drag gesture / manual highlighter behind these icons.
+private struct TabBarIcon: View {
+    @Environment(AppState.self) private var appState
+    let tab: TTab
+    let isSelected: Bool
+    var badge: Int
+    var keyW: CGFloat
+
+    var body: some View {
+        // Via TIconView, not a glyph type directly: four of the five tabs are
+        // traced from the desktop sidebar and Messages is still an SF Symbol, so
+        // the dispatch has to stay in one place. For the traced glyphs the
+        // weight becomes a stroke width; for Messages it stays a symbol weight.
+        TIconView(icon: tab.icon(business: appState.isBusinessTier),
+                  size: 21,
+                  // Readable on the accent fill when the highlighter is on this
+                  // tab; primary ink otherwise.
+                  color: isSelected ? T.onAccent : Color(hex: T.ink),
+                  weight: isSelected ? .semibold : .regular)
+            .frame(width: keyW, height: 42)
+            .overlay(alignment: .topTrailing) {
+                if badge > 0 {
+                    Text(badge > 99 ? "99+" : "\(badge)")
+                        .font(.custom(TFontName.bold.rawValue, size: 10))
+                        .foregroundStyle(T.onColor(T.red))
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Capsule().fill(Color(hex: T.red)))
+                        .offset(x: 6, y: -2)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
 
 // MARK: - Jobs view-mode toggle (header pill)
 // Sits between the search/calendar button and the approval-queue button on the

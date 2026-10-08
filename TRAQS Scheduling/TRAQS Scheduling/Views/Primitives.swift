@@ -295,8 +295,9 @@ private struct ZoomSource: ViewModifier {
 // stays whatever the switch says; TRAQS's own blur-and-tint obeys it. So:
 //
 //   • BUTTONS stay glass — `GlassControl`, `GlassCircleButton`, `GlassCTA`.
-//   • THE TAB BAR is Apple's own (TabView's native bar), so it is glass on
-//     the system's terms, like the buttons.
+//   • THE NAV PILL stays glass — `NavPillMaterial`. It used to flatten, when it
+//     was a hand-rolled `.ultraThinMaterial`; it is native glass now, so it sits
+//     on this side of the line with the buttons.
 //   • EVERYTHING TRAQS PAINTS flattens, popups included — `GlassPanel`,
 //     `GlassSurface`, `glassFill`.
 
@@ -396,6 +397,83 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
                 }
             }
             .overlay { if rim { shape.specularRim() } }
+    }
+}
+
+/// The floating nav pill's paint: NATIVE Liquid Glass, always, and UNTINTED.
+///
+/// The same material as the highlighter riding on top of it (`glassCTA`) and
+/// every glass button in the app (`GlassControl`). It was `.ultraThinMaterial`
+/// under a tint fill — TRAQS painting its own approximation of glass on the one
+/// piece of chrome that is never off screen. Native glass refracts and
+/// specular-lights what is behind it instead of only blurring it, so the bar
+/// reads as a lens over the page rather than a frosted panel laid on it.
+///
+/// ALWAYS GLASS — the Customize frosted-glass toggle does not reach it, which
+/// puts it with `GlassControl` rather than with `GlassSurface`.
+///
+/// This reverses the older rule that the bar flattens with the switch, and the
+/// reasoning behind that rule doesn't survive the move to native glass. The
+/// objection was to TRAQS painting ITS OWN glass on chrome while the app claimed
+/// to be flat — the switch governs the app's own surfaces, and a hand-rolled
+/// blur that ignored it made "flat" look half-applied. Apple's material was
+/// never in scope: a flat app keeps its native glass buttons, and that is
+/// already the documented exception. The bar is now the same material as those
+/// buttons, so it keeps it on the same terms.
+///
+/// Two things here are load-bearing:
+///
+///   * NO TINT, in any preset. A plain `Glass.regular` follows the system Liquid
+///     Glass appearance and Reduce Transparency by itself, and a tint of ours is
+///     precisely what overrode them — a tint that happens to be transparent is
+///     still a tint, so the fix is not calling `.tint` at all. The material's own
+///     refraction and edge are what separate the bar from the page.
+///
+///     The dial that used to live here (a per-preset colour and opacity, set by
+///     `ThemeSettings.applyNavToT`) is gone. Its history, in case the glyphs
+///     ever wash out and it has to come back: the tint was 0.55 of a near-black
+///     when the pill was hand-rolled `.ultraThinMaterial` and the tint did ALL
+///     of the separating; each step down on native glass cost less legibility
+///     than the last, so light went 0.55 -> 0.38 -> 0 and dark 0.45 -> 0. Dark
+///     held its tint longest because on a dark page the bar has to drop BELOW
+///     the surface colour for the light glyphs to bite. The old floor of ~0.22
+///     (`glassSurfaceTint`, where unselected glyphs measurably washed out) was
+///     measured on `.ultraThinMaterial` and does NOT carry over — that fill had
+///     no refraction and no edge of its own to help.
+///
+///   * NO `compositingGroup()`. Every such pairing in this file sits under a
+///     TRAQS-painted surface, where it stops a shadow being applied to each
+///     layer separately. Native glass is one layer and samples its backdrop
+///     live; an offscreen compositing pass is the wrong thing to wrap it in. The
+///     house precedent is the tab highlighter itself — `.glassCTA()` then a
+///     plain `.shadow()`.
+///
+/// No rim either: the lit bevel is for surfaces you look AT, on permanent chrome
+/// it read as a bright wire tracing the pill, and native glass carries its own
+/// edge.
+///
+/// Reads no theme state at all now that the tint is gone — nothing here is
+/// preset-driven, so there is nothing for a live Customize change to re-render.
+/// That also makes it safe in an environment-less host, the same property
+/// `GlassControl` is documented to have.
+struct NavPillMaterial<S: InsettableShape>: ViewModifier {
+    let shape: S
+
+    func body(content: Content) -> some View {
+        // `.interactive()`: the native Liquid Glass press response — the bar
+        // moves and glows under the finger like any system glass control
+        // (ruled 2026-10-08). It used to be off because the highlighter's squash
+        // and stretch answered the tap and two reactions read as one too many;
+        // that hop is gone (the highlighter is a flat pill on a plain slide), so
+        // the glass is now the one thing that reacts to the press.
+        content.glassEffect(.regular.interactive(), in: shape)
+    }
+}
+
+extension View {
+    /// See `NavPillMaterial` — the nav bar's paint: plain, untinted glass.
+    func navPillMaterial<S: InsettableShape>(_ shape: S) -> some View {
+        modifier(NavPillMaterial(shape: shape))
     }
 }
 
