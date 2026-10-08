@@ -13859,7 +13859,7 @@ ${jobsCtx || "No jobs found."}`;
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "start")
-                    ? <TraqsDatePicker autoOpen compact value={item.start} onChange={v => { commitEdit(item.id, "start", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
+                    ? <TraqsDatePicker autoOpen compact portal value={item.start} onChange={v => { commitEdit(item.id, "start", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                     : <span style={{ color: T.textSec }}>{safeDate(item.start)}</span>}
               </div>
             );
@@ -13869,7 +13869,7 @@ ${jobsCtx || "No jobs found."}`;
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "end")
-                    ? <TraqsDatePicker autoOpen compact value={item.end} onChange={v => { commitEdit(item.id, "end", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
+                    ? <TraqsDatePicker autoOpen compact portal value={item.end} onChange={v => { commitEdit(item.id, "end", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                     : <span style={{ color: T.textSec }}>{safeDate(item.end)}</span>}
               </div>
             );
@@ -13877,7 +13877,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: level === 0 ? "text" : "default" }}
                 onClick={e => level === 0 && startEdit(e, item.id, "dueDate")}>
                 {level === 0 && isEdit(item.id, "dueDate")
-                  ? <TraqsDatePicker autoOpen compact value={item.dueDate || ""} onChange={v => { commitEdit(item.id, "dueDate", v || null); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
+                  ? <TraqsDatePicker autoOpen compact portal value={item.dueDate || ""} onChange={v => { commitEdit(item.id, "dueDate", v || null); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                   : level === 0 && item.dueDate
                     ? <span style={{ color: item.dueDate < TD ? "#ef4444" : item.dueDate <= addD(TD, 3) ? "#f59e0b" : T.textSec, fontWeight: item.dueDate < TD ? 700 : 400 }}>{fm(item.dueDate)}{item.dueDate < TD && " !"}</span>
                     : <span style={{ color: T.textDim }}>—</span>}
