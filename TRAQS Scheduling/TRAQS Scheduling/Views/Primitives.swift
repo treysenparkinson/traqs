@@ -460,10 +460,13 @@ struct NavPillMaterial<S: InsettableShape>: ViewModifier {
     let shape: S
 
     func body(content: Content) -> some View {
-        // Not `.interactive()`: that is the press response for a control, and
-        // the thing that answers a tap here is the highlighter's squash and
-        // stretch. Both at once reads as two separate reactions to one tap.
-        content.glassEffect(.regular, in: shape)
+        // `.interactive()`: the native Liquid Glass press response — the bar
+        // moves and glows under the finger like any system glass control
+        // (ruled 2026-10-08). It used to be off because the highlighter's squash
+        // and stretch answered the tap and two reactions read as one too many;
+        // that hop is gone (the highlighter is a flat pill on a plain slide), so
+        // the glass is now the one thing that reacts to the press.
+        content.glassEffect(.regular.interactive(), in: shape)
     }
 }
 
