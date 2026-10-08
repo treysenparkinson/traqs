@@ -7784,7 +7784,6 @@ Extraction rules:
   const [newGroupSaving, setNewGroupSaving] = useState(false);
   const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, memberIds, name }
   const [editJobModal, setEditJobModal] = useState(null);
-  const [editDrag, setEditDrag] = useState(null); // drag-and-drop state for edit-job hierarchy: { kind:"panel"|"op", panelIdx, opIdx } source / over
   const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
   const [editToast, setEditToast] = useState(null); // { msg, key } — transient confirmation toast
   // Universal save/add/change confirmation. This started life scoped inside the
@@ -9906,6 +9905,26 @@ Extraction rules:
   // toggle returns are written: `requiredDepartments` is the set the rules read
   // and `requiredDepartment` is the one name older surfaces print, and writing
   // one without the other is exactly how the two surfaces disagreed in #426.
+  // #495. THE TWO THINGS THE EDIT MODAL ALONE REACHED, moved to the page that
+  // does everything else. Walked from what RENDERS rather than from the source's
+  // shape, which is how the modal's contents were misread for four turns (#496).
+  //
+  // Load a template onto a SAVED job. The edit modal's version wrote into a
+  // draft and the draft was saved later; this one writes the tree and saves at
+  // once, because Job Details has no draft to hold it in. `nodesFromTemplate`
+  // does the id-minting and dep-remapping, so the template's own op ids cannot
+  // leak onto this board (#467).
+  const jdLoadTemplate = (tpl) => {
+    if (!can("editJobs")) return denied(PERM_VERB.editJobs);
+    const _jt = (modal?.data && tasks.find(t => sameId(t.id, modal.data.id))) || null;
+    if (!_jt) return;
+    const _r = nodesFromTemplate(tpl.ops, { uid, nextIndex: (_jt.subs || []).length });
+    setTasks(p => p.map(t => !sameId(t.id, _jt.id) ? t : { ...t, subs: [...(_jt.subs || []), ..._r.ops] }));
+    // No new-row flash: `markNew`/`editAddedIds` belong to the edit modal and
+    // Job Details has no equivalent. The toast is the feedback here.
+    setTimeout(() => doSaveRef.current(), 0);
+    toast(`Template "${tpl.name}" loaded — ${_r.ops.length} sub-job${_r.ops.length === 1 ? "" : "s"} added`);
+  };
   const jdDeptSave = (node, patch, parentId) => {
     commitCellEdit(node.id, "requiredDepartments", patch.requiredDepartments, parentId);
     commitCellEdit(node.id, "requiredDepartment", patch.requiredDepartment, parentId);
@@ -10999,7 +11018,10 @@ Extraction rules:
   // editJobModal, which the page body reads.
   const _editEntry = { type: "editJob", data: null, parentId: null };
   const openEdit = (t) => { _loadEditDraft(t); if (!isMobile) setModal(_editEntry); };
-  const openEditStacked = (t) => { _loadEditDraft(t); if (!isMobile) pushModal(_editEntry); };
+  // `openEditStacked` lived here until 2026-10-08. Its only caller was the Job
+  // Details Edit button (#495). `openEdit` stays: FOUR other surfaces open the
+  // same modal — the Jobs "cards" sub-view, the Clients page, the mobile job
+  // view and the context menu — so retiring one button does not retire it.
   // Closing the Edit page pops one level, so it lands back on the job details page
   // when it was stacked from there, and on the plain view when it wasn't.
   const closeEditJob = () => { setEditJobModal(null); if (!isMobile) popModal(); };
@@ -25725,6 +25747,37 @@ ${jobsCtx || "No jobs found."}`;
       // editable cell over a derived value is a defect — you type, and the next
       // roll-up puts it back — so a panel that owns neither gets the text, not an
       // input, and the rolled-up number still shows.
+      // #495. The panel colour swatch, moved off the Edit modal. PANEL LEVEL
+      // ONLY and behind the same `jobBarMode === "system"` gate it had there —
+      // when the theme owns job colours, the control says so rather than writing
+      // a value the board will not use.
+      const jdColorSave = (node, c) => commitCellEdit(node.id, "color", c, job.id);
+      const jdColorSwatch = (panel) => {
+        const _pc = panel.color || job.color;
+        const _k = `jdPanel-${panel.id}`;
+        const _sys = jobBarMode === "system";
+        return <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <div onClick={() => { if (jobBarMode !== "system") return; setColorDropId(colorDropId === _k ? null : _k); }}
+            title={_sys ? "Click to change colour" : "Job colours are theme-controlled (Customize → Job Cards Color)"}
+            style={{ width: 16, height: 16, borderRadius: 10, background: _pc, border: `1.5px solid ${T.border}`,
+              boxShadow: `0 0 0 2px ${_pc}33`, cursor: _sys && canEdit ? "pointer" : "default" }} />
+          <FadeOnClose open={colorDropId === _k}>{colorDropId === _k && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+            className="anim-drop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 40, width: 208, background: T.card,
+              border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 10px 30px rgba(0,0,0,0.3)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <HexColorPicker color={_pc} onChange={c => jdColorSave(panel, c)} style={{ width: "100%", height: 160 }} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {COLORS.map(c => <button key={c} onClick={() => jdColorSave(panel, c)} title={c}
+                style={{ width: 20, height: 20, borderRadius: T.radiusPill, background: c, border: `1.5px solid ${c === _pc ? T.text : T.border}`, cursor: "pointer" }} />)}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+              <button onClick={() => jdColorSave(panel, job.color)}
+                style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Use job colour</button>
+              <button onClick={() => setColorDropId(null)}
+                style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Done</button>
+            </div>
+          </div>}</FadeOnClose>
+        </div>;
+      };
       const jdCell = (node, key, kind, parentId, own) => {
         const raw = node[key];
         const shown = kind === "date" ? (raw ? fm(raw) : "—") : ((Number(raw) || 0) > 0 ? fmtH(raw) : "—");
@@ -25771,7 +25824,7 @@ ${jobsCtx || "No jobs found."}`;
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? "none" : "rotate(-90deg)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
               {subJobNumber(job.jobNumber, pi) || "—"}
             </div>
-            <div style={{ ...td, cursor: "pointer" }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}><b style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{panel.title || "Untitled"}</b>{ops.length > 0 && countChip(ops.length)}</div>
+            <div style={{ ...td, cursor: "pointer" }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}>{canEdit && jdColorSwatch(panel)}<b style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{panel.title || "Untitled"}</b>{ops.length > 0 && countChip(ops.length)}</div>
             {whoCell(teamIds)}
             <div style={td}>{statusChip(panel, job.id)}</div>
             {/* Editable only where the panel OWNS the value. Both conditions are
@@ -25814,7 +25867,12 @@ ${jobsCtx || "No jobs found."}`;
           </Fragment>;
         })}
         {panels.length === 0 && <div style={{ ...td, gridColumn: "1 / -1", color: T.textDim, justifyContent: "center", padding: 18 }}>No sub-jobs yet.</div>}
-        {canEdit && <div style={{ ...td, gridColumn: "1 / -1", color: T.textDim, fontWeight: 600, cursor: "pointer" }} onClick={() => jdAddPhase(job.id)}>+ Add sub-job</div>}
+        {canEdit && <div style={{ ...td, gridColumn: "1 / -1", color: T.textDim, fontWeight: 600, display: "flex", alignItems: "center", gap: 14, overflow: "visible" }}>
+          <span style={{ cursor: "pointer" }} onClick={() => jdAddPhase(job.id)}>+ Add sub-job</span>
+          {/* #495. Load Template, off the retired Edit modal and onto the page
+              that does everything else. */}
+          <TemplateDrop templates={templates} onLoad={jdLoadTemplate} onDeleteRequest={tpl => setTemplateDeleteConfirm(tpl)} />
+        </div>}
       </div></div>;
 
       // ── Hours (also the History card and the rail's activity) ───────────────
@@ -25945,7 +26003,6 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ flex: 1 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Btn size="sm" variant="secondary" onClick={() => openJobExport(fresh)}>Export</Btn>
-              {canEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
             </div>
           </div>
           {/* Tabs */}
@@ -30518,9 +30575,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h est.` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {/* Basic: this pencil "Edit" folds into the Reschedule→Edit context-menu
-                  item below, which opens the simple modal — no separate button. */}
-              {billingTier === "business" && can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {/* #495. The round pencil "Edit" is removed from the context menu: it
+                  opened the same modal the Job Details Edit button did, and that
+                  button is gone. Three openers remain — the Jobs cards sub-view,
+                  the Clients page and the mobile job view. */}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {billingTier === "business" && can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && can("editJobs") && <button
@@ -31789,24 +31847,17 @@ ${jobsCtx || "No jobs found."}`;
                 {(ej.subs || []).length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim, background: T.surface, borderRadius: T.radiusSm, border: `1px dashed ${T.border}`, fontFamily: T.font }}>No panels yet — click "Add Operation" to start.</div>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {(ej.subs || []).map((panel, pi) => {
-                    const isPanelDragOver = editDrag && editDrag.kind === "panel-over" && editDrag.panelIdx === pi;
-                    const isPanelBeingDragged = editDrag && editDrag.kind === "panel" && editDrag.panelIdx === pi;
                     return (
                     <div key={panel.id || pi}
-                      onDragOver={e => { if (editDrag && editDrag.kind === "panel") { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setEditDrag({ kind: "panel-over", panelIdx: pi, srcIdx: editDrag.panelIdx }); } }}
-                      onDrop={e => { e.preventDefault(); if (editDrag && (editDrag.kind === "panel" || editDrag.kind === "panel-over")) { const srcIdx = editDrag.srcIdx ?? editDrag.panelIdx; if (srcIdx !== pi) setEj(p => { const subs = [...p.subs]; const [moved] = subs.splice(srcIdx, 1); subs.splice(pi, 0, moved); return { ...p, subs }; }); setEditDrag(null); } }}
-                      onDragLeave={() => { if (isPanelDragOver) setEditDrag(d => d && d.kind === "panel-over" ? { kind: "panel", panelIdx: d.srcIdx } : d); }}
-                      style={{ position: "relative", background: T.surface, border: `1px solid ${isPanelDragOver ? T.accent : T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: isPanelBeingDragged ? 0.5 : 1, transition: "border-color 0.15s, opacity 0.15s" }}>
+
+                      style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: 1, transition: "border-color 0.15s, opacity 0.15s" }}>
                       {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 16, background: brandGrad(T.accent), color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         {(() => { const pColor = panel.color || ej.color; return (
                         <div style={{ position: "relative", flexShrink: 0 }}>
                           <div
-                            draggable
-                            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "panel", panelIdx: pi }); }}
-                            onDragEnd={() => setEditDrag(null)}
                             onClick={e => { e.stopPropagation(); if (jobBarMode !== "system") return; setColorDropId(colorDropId === `editPanel-${panel.id}` ? null : `editPanel-${panel.id}`); }}
-                            title={jobBarMode === "system" ? "Click to change color · Drag to reorder" : "Job colors are theme-controlled (Customize → Job Cards Color)"}
+                            title={jobBarMode === "system" ? "Click to change colour" : "Job colors are theme-controlled (Customize → Job Cards Color)"}
                             style={{ width: 22, height: 22, borderRadius: 12, background: pColor, border: `1.5px solid ${T.border}`, boxShadow: `0 0 0 2px ${pColor}33`, cursor: jobBarMode === "system" ? "grab" : "not-allowed", opacity: jobBarMode === "system" ? 1 : 0.4, flexShrink: 0 }} />
                           <FadeOnClose open={colorDropId === `editPanel-${panel.id}`}>{colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
                             <HexColorPicker color={pColor} onChange={c => updPanel(pi, { color: c })} style={{ width: "100%", height: 160 }} />
@@ -31827,21 +31878,10 @@ ${jobsCtx || "No jobs found."}`;
                       {/* Operations */}
                       <div style={{ paddingLeft: 26, display: "flex", flexDirection: "column", gap: 5 }}>
                         {(panel.subs || []).map((op, oi) => {
-                          const isOpDragOver = editDrag && editDrag.kind === "op-over" && editDrag.panelIdx === pi && editDrag.opIdx === oi;
-                          const isOpBeingDragged = editDrag && editDrag.kind === "op" && editDrag.panelIdx === pi && editDrag.opIdx === oi;
                           return (
                           <div key={op.id || oi}
-                            onDragOver={e => { if (editDrag && editDrag.kind === "op" && editDrag.panelIdx === pi) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setEditDrag({ kind: "op-over", panelIdx: pi, opIdx: oi, srcIdx: editDrag.opIdx }); } }}
-                            onDrop={e => { e.preventDefault(); e.stopPropagation(); if (editDrag && (editDrag.kind === "op" || editDrag.kind === "op-over") && editDrag.panelIdx === pi) { const srcIdx = editDrag.srcIdx ?? editDrag.opIdx; if (srcIdx !== oi) setEj(p => ({ ...p, subs: p.subs.map((pn, i) => { if (i !== pi) return pn; const subs = [...(pn.subs || [])]; const [moved] = subs.splice(srcIdx, 1); subs.splice(oi, 0, moved); return { ...pn, subs }; }) })); setEditDrag(null); } }}
-                            style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", background: T.bg, border: `1px solid ${isOpDragOver ? T.accent : T.border}`, borderRadius: T.radiusXs, fontFamily: T.font, opacity: isOpBeingDragged ? 0.5 : 1, transition: "border-color 0.12s, opacity 0.12s" }}>
-                            <div
-                              draggable
-                              onDragStart={e => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "op", panelIdx: pi, opIdx: oi }); }}
-                              onDragEnd={() => setEditDrag(null)}
-                              title="Drag to reorder"
-                              style={{ cursor: "grab", color: T.textDim, padding: "2px 1px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none", flexShrink: 0 }}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
-                            </div>
+                            style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, fontFamily: T.font, opacity: 1, transition: "border-color 0.12s, opacity 0.12s" }}>
+                            {/* the drag handle went with the reorder behaviour (#495) */}
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
                               {/* Resolved against its OPERATION AND ITS JOB, not `null, null` (#426).

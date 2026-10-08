@@ -84,8 +84,16 @@ check("tabs: Details, Hours, Files, Approvals -- and no Invoicing or Comments", 
 // product. Export and Edit are still asserted, and Duplicate is asserted ABSENT
 // rather than simply dropped from the list — a removal that stops being checked
 // is a removal that can come back unnoticed.
-check("header: Export and Edit", () => /openJobExport\(/.test(PAGE) && /openEditStacked\(/.test(PAGE) || "a header action is missing");
+// RE-RULED AGAIN 2026-10-08 (#495). Edit has now gone the way Duplicate did:
+// everything it reached is on this page, bar Load Template and the colour
+// swatch, which moved here. Export is the only header action left, and both
+// removals are asserted ABSENT rather than dropped from the list — a removal
+// that stops being checked can come back unnoticed.
+check("header: Export", () => /openJobExport\(/.test(PAGE) || "Export is missing");
 check("header: Duplicate is gone", () => !/duplicateJobAction\(/.test(PAGE) || "the Duplicate action is still in the header");
+check("header: Edit is gone", () => !/openEditStacked\(|openEdit\(/.test(PAGE) || "the Edit action is still in the header");
+check("...and the page reaches a template and a colour instead", () =>
+  /<TemplateDrop templates=\{templates\}/.test(PAGE) && /jdColorSwatch\(panel\)/.test(PAGE) || "the two moved controls are not on the page");
 check("General fields save through commitCellEdit on the job", () =>
   ["title", "jobNumber", "poNumber", "clientId", "projectManagerId", "status", "pri", "hpd", "dueDate", "notes"].every(k => new RegExp(`jdField\\("${k}"`).test(PAGE)) || "a General field is not wired");
 check("...and that writer is commitCellEdit", () => /const jdSave = \(key, val\) => commitCellEdit\(job\.id, key, val\)/.test(PAGE) || "jdSave is not commitCellEdit");

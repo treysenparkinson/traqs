@@ -59,7 +59,11 @@ console.log("\n3. WHAT MUST SURVIVE, so the removal is not over-broad");
     /export const ENGAGEMENT_IDENTITY/.test(CR) && /\.\.\.ENGAGEMENT_IDENTITY/.test(CR), true);
   ok("WORK_RECORD survives", /export const WORK_RECORD/.test(CR), true);
   // The Job Details header keeps its other actions.
-  ok("the job header still has its other controls", /canEdit && <Btn size="sm"/.test(TQ), true);
+  // RE-ANCHORED 2026-10-08 (#495): this pinned the header's Edit button, which
+  // has since been retired too. Export is what remains, and it is the thing this
+  // assertion exists to prove — that removing Duplicate did not take the rest of
+  // the header with it.
+  ok("the job header still has Export", /onClick=\{\(\) => openJobExport\(fresh\)\}>Export<\/Btn>/.test(TQ), true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
