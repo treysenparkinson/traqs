@@ -9,9 +9,16 @@
 //   TASK_CONFLICT_MODE  — the per-job stale-copy check on /tasks
 //   OVERLAP_RULE_MODE   — the one overlap rule on /tasks (src/overlapRules.js),
 //                         Business orgs only
-//   PERMISSION_GATES_MODE — root cause 4's permission changes, loosening and
-//                         tightening alike: in log both behave exactly as before
-//                         and the change is only recorded
+//   PERMISSION_GATES_MODE — NOW READ BY clients.js ALONE. It began as root cause
+//                         4's rollout switch across /tasks and /clients; /tasks
+//                         retired it with the legacy classifier on 2026-10-08.
+//                         On /clients it decides one thing: whether a NO-OP save
+//                         from a caller without manageClients is let through.
+//                         DELETING THE VARIABLE IS NOT A NO-OP — absent means
+//                         "log" below, and in log that branch calls requirePerm
+//                         every time, so every worker's client autosave would
+//                         start returning 403. Make that allowance unconditional
+//                         in clients.js first, then remove the variable.
 //   IDENTITY_PROVIDER_MODE — the org's identity-provider allowlist, checked in
 //                         requireOrgMember (tag `identity-provider`)
 //

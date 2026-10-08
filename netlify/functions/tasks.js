@@ -1,6 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
-import { classifyTaskChanges } from "./_utils/task-perms.js";
 import { recordRuleEvents, diffFields } from "./_utils/rule-log.js";
 import { pendingFinishOf } from "../../src/finishRequests.js";
 import { classifyTaskActions } from "../../src/taskActions.js";
@@ -75,7 +74,6 @@ export async function handler(event) {
       const orgCode = orgCodeFromHeader(event);
       const rulesMode = ruleMode("SCHEDULE_RULES_MODE");
       const conflictMode = ruleMode("TASK_CONFLICT_MODE");
-      const gateMode = ruleMode("PERMISSION_GATES_MODE");
       // One overlap rule (src/overlapRules.js), Business only — Basic allows a double-booked
       // shift by design. Its own switch, so it can be enforced independently of the rest.
       let overlapMode = ruleMode("OVERLAP_RULE_MODE");
@@ -100,7 +98,7 @@ export async function handler(event) {
       let attempt;
       const result = await updateJson(s3Key, (stored) => {
         const existing = stored;
-        attempt = { conflicts: [], violations: [], gateDiff: null, hpdDefaults: [], overlaps: [], counterKeeps: [] };
+        attempt = { conflicts: [], violations: [], hpdDefaults: [], overlaps: [], counterKeeps: [] };
 
         // THE EMPTY-TASKS GUARD MOVED FROM SHAPE TO INTENT (#339) — see
         // _utils/write-guard.js for the reasoning and the three properties the
@@ -199,20 +197,21 @@ export async function handler(event) {
         //
         // An unchanged tree is always allowed — autosave re-POSTs constantly and
         // a no-op save must never 403.
-        // Two classifiers during the rollout: the original field-by-field one, and
-        // src/taskActions.js, which classifies side effects by the action they belong
-        // to (root cause 4). PERMISSION_GATES_MODE picks which one decides; in log
-        // the original still decides and any disagreement is recorded.
+        //
+        // ONE CLASSIFIER. There were two during root cause 4's rollout: the
+        // original field-by-field `task-perms.js`, and `src/taskActions.js`, which
+        // classifies side effects by the ACTION they belong to. PERMISSION_GATES_MODE
+        // picked which one decided, and it ran on `enforce` in production for
+        // several days of real use with no 403s reported, so the legacy one and its
+        // flag were retired together on 2026-10-08. `task-perms.js` is deleted.
+        //
+        // The flag itself still EXISTS, because `clients.js` reads the same variable
+        // for an unrelated gate — see the note there — but nothing on this endpoint
+        // reads it any more, and this decision is no longer conditional on anything.
         const me = member.personId != null ? String(member.personId) : null;
-        const legacyCls = classifyTaskChanges(incoming, prev);
         const actionCls = classifyTaskActions(incoming, prev);
-        const legacyErr = legacyCls.changed ? permissionError(legacyCls, member, me) : null;
         const actionErr = actionCls.changed ? permissionError(actionCls, member, me) : null;
-        if (gateMode !== "off" && !!legacyErr !== !!actionErr) {
-          attempt.gateDiff = { legacy: legacyErr ? "refuse" : "allow", next: actionErr ? "refuse" : "allow",
-            reason: (actionErr || legacyErr).message, perms: [...actionCls.perms] };
-        }
-        const decision = gateMode === "enforce" ? actionErr : legacyErr;
+        const decision = actionErr;
         if (decision) return { abort: err(decision.status, decision.message) };
 
         // ── Schedule rules (src/scheduleRules.js, shared with the web) ─────
@@ -316,14 +315,11 @@ export async function handler(event) {
         durable.push({ tag: "overlap-rule", mode: overlapMode, refused: overlapMode === "enforce",
           rule: v.rule, opId: v.id, withOpId: v.withId, jobId: v.jobId, personId: v.personId, day: v.day, detail: v.detail });
       }
-      if (attempt.gateDiff) {
-        logRule("permission-gate", { mode: gateMode, gate: "taskPerms", ...attempt.gateDiff, ...who });
-        // Only written when the two classifiers DISAGREE, so the record is the disagreement:
-        // which way each went, the permission at stake, and the reason given.
-        durable.push({ tag: "permission-gate", mode: gateMode, refused: gateMode === "enforce" && attempt.gateDiff.next === "refuse",
-          gate: "taskPerms", legacy: attempt.gateDiff.legacy, next: attempt.gateDiff.next,
-          perms: attempt.gateDiff.perms, reason: attempt.gateDiff.reason });
-      }
+      // The `permission-gate` record is gone from this endpoint with the legacy
+      // classifier that produced it (2026-10-08). It only ever recorded a
+      // DISAGREEMENT between two classifiers, and there is one now. `clients.js`
+      // still writes a record under the same tag for its own gate, so a reader of
+      // rule-events.json will keep seeing the tag with `gate: "clientsNoop"`.
       if (rulesMode !== "off") {
         for (const v of attempt.violations) logRule("schedule-rule", { mode: rulesMode, rule: v.rule, id: v.id, jobId: v.jobId, detail: v.detail, ...who });
         for (const v of attempt.violations) durable.push({

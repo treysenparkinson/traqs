@@ -24,6 +24,7 @@
 import { register } from "module";
 register("./timeclock-itest-loader.mjs", import.meta.url);
 import { readFileSync } from "node:fs";
+import { codeOf } from "./_code-view.mjs";
 
 let A, tasksFn;
 try {
@@ -183,23 +184,63 @@ seed("enforce", { personId: "7", isAdmin: false, email: "w@x" });
   ok("enforce: a worker's panel photo is accepted", (await post(t)).statusCode, 200);
 }
 
+// RE-RULED 2026-10-08: THE LEGACY CLASSIFIER IS GONE, SO THE FLAG NO LONGER
+// CHANGES ANYTHING HERE. These three asserted that an UNSET flag fell back to
+// `task-perms.js` — that it refused the moveJobs-only resize (#42), allowed a
+// Complete Now it should not have, and logged the disagreement. After the
+// retirement `src/taskActions.js` decides unconditionally, so the behaviour that
+// used to need `enforce` is now the only behaviour. That is the point of the
+// retirement rather than a regression, and the same three cases are kept, with
+// the opposite expectation, so the change is visible instead of deleted.
 seed(undefined, MOVER);
 {
   const res = await post(resized());
-  ok("log (default): decided exactly as before — the resize is refused", res.statusCode, 403);
-  ok("log: the difference is logged", logs.filter(l => l.tag === "permission-gate").map(l => [l.mode, l.gate, l.legacy, l.next]),
-     [["log", "taskPerms", "refuse", "allow"]]);
+  ok("flag unset: the moveJobs-only resize is ACCEPTED (#42 is closed for good)", res.statusCode, 200);
+  ok("flag unset: nothing is logged, because there is no second opinion",
+     logs.filter(l => l.tag === "permission-gate").length, 0);
 }
 seed(undefined, EDITOR_NO_APPROVE);
 {
   const res = await post(completed());
-  ok("log: Complete Now still accepted as before, would-be refusal logged",
-     [res.statusCode, logs.filter(l => l.tag === "permission-gate").map(l => [l.legacy, l.next])], [200, [["allow", "refuse"]]]);
+  ok("flag unset: Complete Now without approveCompletions is REFUSED",
+     [res.statusCode, node(globalThis.__S3[K.tasks], "OP").status], [403, "In Progress"]);
 }
-seed(undefined, { personId: "1", isAdmin: true, adminPerms: null, email: "a@x" });
+seed("log", MOVER);
+ok("the flag is inert on /tasks: 'log' decides the same as unset", (await post(resized())).statusCode, 200);
+seed("off", MOVER);
+ok("...and so does 'off'", (await post(resized())).statusCode, 200);
+
+// ──────────────────────────────────────────────────────
+console.log("\n8b. task-perms.js is retired");
 {
-  const res = await post(resized());
-  ok("log: nothing logged when both decide the same", [res.statusCode, logs.filter(l => l.tag === "permission-gate").length], [200, 0]);
+  // CODE, NOT COMMENTS. The retirement is explained in prose inside this file,
+  // and a bare /task-perms/ over the raw source matches that explanation and
+  // fails forever. `codeOf` strips comments and strings, so these assert what
+  // the file DOES rather than what it says about itself.
+  const raw = readFileSync(new URL("../netlify/functions/tasks.js", import.meta.url), "utf8");
+  const fn = codeOf(raw);
+  ok("tasks.js does not import task-perms", /task-perms/.test(fn), false);
+  ok("...has no legacy classifier", /legacyCls|legacyErr|classifyTaskChanges/.test(fn), false);
+  ok("...has no gateDiff block", /gateDiff/.test(fn), false);
+  ok("...no longer reads PERMISSION_GATES_MODE", /PERMISSION_GATES_MODE/.test(fn), false);
+  ok("...and taskActions decides unconditionally", /const decision = actionErr;/.test(fn), true);
+  // ...and the prose explaining why is still there, so the next reader finds it.
+  ok("the retirement is explained in the file", /task-perms\.js` is deleted/.test(raw), true);
+  let gone = false;
+  try { readFileSync(new URL("../netlify/functions/_utils/task-perms.js", import.meta.url)); }
+  catch { gone = true; }
+  ok("the file itself is deleted", gone, true);
+
+  // THE FLAG IS NOT FREE TO DELETE, and this assertion is the reason written
+  // down rather than left to a commit message. `clients.js` reads the SAME
+  // variable for something else: whether a no-op client-list save from someone
+  // without `manageClients` is let through. `ruleMode` defaults to "log" when a
+  // variable is absent, and in "log" that branch calls `requirePerm` every time
+  // — so deleting PERMISSION_GATES_MODE from Netlify would start 403ing every
+  // worker's client autosave, which `enforce` currently allows.
+  const cl = readFileSync(new URL("../netlify/functions/clients.js", import.meta.url), "utf8");
+  ok("clients.js STILL reads the flag, so the variable must stay", /ruleMode\("PERMISSION_GATES_MODE"\)/.test(cl), true);
+  ok("...and its no-op allowance is conditional on enforce", /gateMode !== "enforce"/.test(cl), true);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
