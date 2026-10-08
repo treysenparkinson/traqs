@@ -11799,23 +11799,21 @@ ${jobsCtx || "No jobs found."}`;
     const jobLevel = !panelId && !opId;   // iOS / whole-job completion request
     // Mark an item and ALL descendants Finished (used for whole-job completion).
     const finishTree = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finishTree) });
-    // Upsert, NOT map. A request that never had a finishRequests[] row — an iOS
-    // request writes only pendingFinish — matched nothing here, so approving it
-    // recorded who approved it NOWHERE and the bubble could only say "Approved".
-    // Appending the resolved row means the approver is always stored.
-    const resolveReq = (reqs, item) => {
-      const list = reqs || [];
-      const stamp = r => ({ ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now });
-      if (list.some(r => sameId(r.id, requestId))) return list.map(r => !sameId(r.id, requestId) ? r : stamp(r));
-      const prior = item?.finishRequest;
-      return [...list, stamp({ id: requestId, by: prior?.by ?? null, byName: prior?.byName ?? null, at: prior?.at || now })];
-    };
+    // #476. The upsert that used to live here — "a request that never had a
+    // finishRequests[] row matched nothing, so approving it recorded who approved
+    // it NOWHERE" — is now inside `resolveRequest`, which both approval surfaces
+    // call. It was the only writer that recorded the approver's NAME and a
+    // decline's reason, which is why this path was complete and the schedule's
+    // was not.
+    const resolved = (item) => resolveRequest(item, {
+      requestId, status: "approved", by: loggedInUser.id, byName: loggedInUser.name, at: now,
+    });
     let label;
     let newTasks;
     if (jobLevel) {
       // Finish the entire job: job + every panel + every op.
       newTasks = tasks.map(t => !sameId(t.id, jobId) ? t : {
-        ...finishTree(t), finishRequest: undefined, pendingFinish: false, finishRequests: resolveReq(t.finishRequests, t),
+        ...finishTree(t), ...resolved(t),
       });
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
@@ -11828,7 +11826,7 @@ ${jobsCtx || "No jobs found."}`;
           // finishedOpFields carries the placement -- see approveFinish. Spread FIRST so this path's
           // own finishRequest bookkeeping still wins; the helper deliberately leaves those alone.
           ...item, ...finishedOpFields(item, loggedInUser?.name || "Admin"),
-          finishRequest: undefined, finishRequests: resolveReq(item.finishRequests, item),
+          ...resolved(item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -11859,22 +11857,16 @@ ${jobsCtx || "No jobs found."}`;
     if (!job) return;
     const now = new Date().toISOString();
     const jobLevel = !panelId && !opId;
-    // Upsert for the same reason as resolveReq in adminApproveJobFinish.
-    const declineReq = (reqs, item) => {
-      const list = reqs || [];
-      const stamp = r => ({
-        ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-        ...(reason ? { declineReason: reason } : {}),
-      });
-      if (list.some(r => sameId(r.id, requestId))) return list.map(r => !sameId(r.id, requestId) ? r : stamp(r));
-      const prior = item?.finishRequest;
-      return [...list, stamp({ id: requestId, by: prior?.by ?? null, byName: prior?.byName ?? null, at: prior?.at || now })];
-    };
+    // #476. Same single writer as the approve, carrying the reason. `reason` was
+    // the other thing only this path could record.
+    const declined = (item) => resolveRequest(item, {
+      requestId, status: "declined", by: loggedInUser.id, byName: loggedInUser.name, at: now, reason,
+    });
     let label;
     let newTasks;
     if (jobLevel) {
       newTasks = tasks.map(t => !sameId(t.id, jobId) ? t : {
-        ...t, finishRequest: undefined, pendingFinish: false, finishRequests: declineReq(t.finishRequests, t),
+        ...t, ...declined(t),
       });
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
@@ -11884,7 +11876,7 @@ ${jobsCtx || "No jobs found."}`;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
         if (sameId(item.id, targetId)) return {
-          ...item, finishRequest: undefined, pendingFinish: false, finishRequests: declineReq(item.finishRequests, item),
+          ...item, ...declined(item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -20126,7 +20118,7 @@ ${jobsCtx || "No jobs found."}`;
       // One of the 11 open-request moments in Matrix's history is that residue, on an op that
       // was already Finished. resolveRequest closes the list and the mirror together.
       const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin"),
-        ...resolveRequest(op, { status: "approved", by: loggedInUser?.id ?? null, at: new Date().toISOString() }) };
+        ...resolveRequest(op, { status: "approved", by: loggedInUser?.id ?? null, byName: loggedInUser?.name ?? null, at: new Date().toISOString() }) };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); setTimeout(() => doSaveRef.current(), 0);
@@ -20150,7 +20142,7 @@ ${jobsCtx || "No jobs found."}`;
       const session = op.pendingSession;
       // #175, the decline half: this cleared the mirror and left the list entry pending, so
       // the request came straight back the moment anything read the list.
-      const declined = { pendingSession: undefined, ...resolveRequest(op, { status: "declined", by: loggedInUser?.id ?? null, at: new Date().toISOString() }) };
+      const declined = { pendingSession: undefined, ...resolveRequest(op, { status: "declined", by: loggedInUser?.id ?? null, byName: loggedInUser?.name ?? null, at: new Date().toISOString() }) };
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, ...declined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); setTimeout(() => doSaveRef.current(), 0);
@@ -23367,15 +23359,17 @@ ${jobsCtx || "No jobs found."}`;
                           : frTarget.status === "Finished" ? "approved" : "pending")
                       : "pending";
                     const frStatus = frReq?.status || frFallback;
-                    // Who decided it. resolvedByName is written on every decision, but
-                    // fall back to looking resolvedBy up in people, then to the most
-                    // recent resolved row on the item — requests resolved before that
-                    // name was recorded otherwise render as a bare "APPROVED".
-                    const frResolvedRow = frReq?.resolvedByName || frReq?.resolvedBy != null
-                      ? frReq
-                      : (frTarget?.finishRequests || []).filter(r => r.resolvedByName || r.resolvedBy != null).slice(-1)[0] || frReq;
-                    const frResolvedName = frResolvedRow?.resolvedByName
-                      || (frResolvedRow?.resolvedBy != null ? people.find(p => sameId(p.id, frResolvedRow.resolvedBy))?.name : null)
+                    // Who decided it. `resolvedByName` is now written on every
+                    // decision, by both approval surfaces, because both go through
+                    // `resolveRequest` (#476) — so this reads the request's OWN row
+                    // and nothing else. It used to scan the item for the most recent
+                    // row that had a name, which was a workaround for the schedule
+                    // surface not writing one; the comment asserted the invariant
+                    // while the code beneath it worked around the invariant being
+                    // false. The lookup by id stays, for rows written before the name
+                    // was recorded at all.
+                    const frResolvedName = frReq?.resolvedByName
+                      || (frReq?.resolvedBy != null ? people.find(p => sameId(p.id, frReq.resolvedBy))?.name : null)
                       || null;
                     const isPending = frStatus === "pending";
                     const isApproved = frStatus === "approved";
@@ -23472,7 +23466,7 @@ ${jobsCtx || "No jobs found."}`;
                           {(isApproved || isDeclined) && <div style={{ width: "100%", boxSizing: "border-box", padding: "13px 14px", borderRadius: T.radiusPill, background: isApproved ? "#10b98118" : "#ef444418", border: `1px solid ${isApproved ? "#10b98155" : "#ef444455"}`, textAlign: "center", fontSize: 14, fontWeight: 700, letterSpacing: "-0.045em", color: isApproved ? "#10b981" : "#ef4444", marginTop: 4 }}>
                             {isApproved ? "Approved" : "Denied"}{frResolvedName ? ` by ${frResolvedName}` : ""}
                           </div>}
-                          {isDeclined && frResolvedRow?.declineReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {frResolvedRow.declineReason}</div>}
+                          {isDeclined && frReq?.declineReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {frReq.declineReason}</div>}
                           {/* Undo — admin only, after approval: reopens the job so it returns to the schedule */}
                           {can("approveCompletions") && isApproved && <button onClick={() => adminUndoJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginTop: 4 }}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>

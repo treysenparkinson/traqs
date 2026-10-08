@@ -13,6 +13,8 @@ import { register } from "module";
 register("./itest-loader-real-timestamps.mjs", import.meta.url);
 
 import { pendingFinishOf, pendingEntryOf, openRequest, resolveRequest, normalizeFinishState } from "../src/finishRequests.js";
+import { readFileSync } from "node:fs";
+import { codeOf } from "./_code-view.mjs";
 
 let timeclock;
 try { timeclock = (await import(new URL("../netlify/functions/timeclock.js", import.meta.url).href)).handler; }
@@ -220,6 +222,98 @@ withClock();
 {
   const res = await release({ personId: 7, sessionId: "S1", outcome: "nonsense" });
   ok("an outcome that is neither resume nor clear is refused", res.statusCode, 400);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #476. resolveRequest is the SINGLE WRITER, and it had to grow two things the
+// chat path already had before it could be.
+//
+// THE SHAPE WORTH RECOGNISING: this is not two implementations that grew apart.
+// `finishedOpFields` was extracted from these two surfaces to fix a placement
+// divergence, and its comment says it "deliberately does not touch finishRequest
+// or finishRequests: those are the chat path's own bookkeeping". ONE EXTRACTION
+// THAT DELIBERATELY TOOK HALF. The half it left behind kept diverging, and the
+// shared helper ended up the LESS complete of the two writers — the inverse of
+// the usual collapse-to-one story.
+console.log("\n#476. resolveRequest as the single writer");
+{
+  const base = (extra = {}) => ({ id: "OP", title: "Op", ...extra });
+  const AT = "2026-10-02T09:00:00.000Z";
+
+  // 1. The name. The old helper wrote resolvedBy and resolvedAt and NOT
+  //    resolvedByName, so an approval from the schedule could not say who.
+  const opened = { ...base(), ...openRequest(base(), { requestId: "r1", by: "7", byName: "Worker", at: "2026-10-01T12:00:00.000Z" }) };
+  const approved = { ...opened, ...resolveRequest(opened, { status: "approved", by: "1", byName: "Trey", at: AT }) };
+  ok("resolveRequest records WHO resolved it, by name", approved.finishRequests?.[0]?.resolvedByName, "Trey");
+  ok("...and still the id and the time", [approved.finishRequests[0].resolvedBy, approved.finishRequests[0].resolvedAt], ["1", AT]);
+  ok("...and closes the mirror", approved.pendingFinish, false);
+
+  // 2. The decline reason, which only the chat path could record.
+  const declined = { ...opened, ...resolveRequest(opened, { status: "declined", by: "1", byName: "Trey", at: AT, reason: "Not wired yet" }) };
+  ok("a decline records its reason", declined.finishRequests?.[0]?.declineReason, "Not wired yet");
+  ok("...and no reason means no key, rather than an empty one",
+    "declineReason" in { ...base(), ...resolveRequest(opened, { status: "declined", by: "1", byName: "T", at: AT }) }.finishRequests[0], false);
+
+  // 3. THE UPSERT. A request whose only trace is the mirror — an old iOS build
+  //    wrote pendingFinish and no row — used to be closed by .map() over an
+  //    EMPTY list, which recorded the approval nowhere at all.
+  const mirrorOnly = base({ pendingFinish: true, finishRequest: { requestId: "r9", by: "7", byName: "Worker", at: "2026-10-01T12:00:00.000Z" } });
+  const fixed = { ...mirrorOnly, ...resolveRequest(mirrorOnly, { requestId: "r9", status: "approved", by: "1", byName: "Trey", at: AT }) };
+  ok("a mirror-only request still produces a row", fixed.finishRequests.length, 1);
+  ok("...naming who approved it", [fixed.finishRequests?.[0]?.resolvedByName, fixed.finishRequests?.[0]?.status], ["Trey", "approved"]);
+  ok("...and who had asked, carried off the deprecated stamp",
+    [fixed.finishRequests?.[0]?.by, fixed.finishRequests?.[0]?.byName], ["7", "Worker"]);
+  ok("...keeping the id it was raised under", fixed.finishRequests?.[0]?.id, "r9");
+  ok("...and the mirror is closed", fixed.pendingFinish, false);
+  ok("...and the deprecated pointer is cleared", fixed.finishRequest, undefined);
+
+  // The invented row must not fire when a row already exists — that would double.
+  ok("an existing row is updated, never duplicated", approved.finishRequests.length, 1);
+  // ...nor when there is nothing to close at all.
+  const nothing = { ...base(), ...resolveRequest(base(), { status: "approved", by: "1", byName: "T", at: AT }) };
+  ok("an op with no request and no mirror invents nothing", nothing.finishRequests, []);
+
+  // 4. Only the named entry closes, still.
+  const two = base({ finishRequests: [
+    { id: "a", status: "pending", by: "7", byName: "W", at: "x" },
+    { id: "b", status: "pending", by: "8", byName: "V", at: "y" },
+  ] });
+  const one = { ...two, ...resolveRequest(two, { requestId: "a", status: "approved", by: "1", byName: "T", at: AT }) };
+  ok("the named entry closes and the other stays open",
+    one.finishRequests.map(r => r.status), ["approved", "pending"]);
+  ok("...so the mirror stays true", one.pendingFinish, true);
+}
+
+console.log("\n#476. both approval surfaces go through it");
+{
+  const SRC = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  const src = codeOf(SRC);
+  ok("the chat path no longer has its own resolveReq", /const resolveReq = \(reqs, item\)/.test(src), false);
+  ok("...nor its own declineReq", /const declineReq = \(reqs, item\)/.test(src), false);
+  // PINNED PER CALL SITE, and the count pinned EXACTLY. A loose "at least three
+  // pass a name" survived a mutant that stripped the name from one of the four,
+  // because the other three still matched — the assertion measured the
+  // population, not the site.
+  const flat = src.replace(/\s+/g, " ");
+  const calls = flat.match(/resolveRequest\([^;]*?\)/g) || [];
+  ok("there are exactly four resolveRequest call sites", calls.length, 4);
+  ok("EVERY ONE of them passes a byName", calls.filter(c => /byName:/.test(c)).length, 4);
+  ok("the chat approve names the approver",
+    /status: "approved", by: loggedInUser\.id, byName: loggedInUser\.name/.test(flat), true);
+  ok("the chat decline names the decliner AND carries the reason",
+    /status: "declined", by: loggedInUser\.id, byName: loggedInUser\.name, at: now, reason/.test(flat), true);
+  ok("the schedule approve names the approver",
+    /status: "approved", by: loggedInUser\?\.id \?\? null, byName: loggedInUser\?\.name \?\? null/.test(flat), true);
+  ok("the schedule decline names the decliner",
+    /status: "declined", by: loggedInUser\?\.id \?\? null, byName: loggedInUser\?\.name \?\? null/.test(flat), true);
+
+  // The card's fallback existed only because resolvedByName was not always
+  // written. Its comment asserted an invariant the code immediately worked
+  // around; both go.
+  ok("the resolved-row fallback scan is gone",
+    /filter\(r => r\.resolvedByName \|\| r\.resolvedBy != null\)\.slice\(-1\)/.test(src), false);
+  ok("...and the comment that claimed the invariant while working around it is gone",
+    /resolvedByName is written on every decision, but/.test(SRC), false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

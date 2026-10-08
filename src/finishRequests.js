@@ -80,12 +80,46 @@ export function openRequest(op, { requestId, by, byName, at }) {
  * approve from a surface that never knew the request id has to do, and what stops a second
  * pending entry outliving the decision that was supposed to end it.
  */
-export function resolveRequest(op, { requestId = null, status, by = null, at }) {
+export function resolveRequest(op, { requestId = null, status, by = null, byName = null, at, reason = null }) {
+  const stamp = (r) => ({
+    ...r, status, resolvedBy: by, resolvedByName: byName, resolvedAt: at,
+    // Absent rather than empty when no reason was given, so a card can test the
+    // key instead of distinguishing "" from "no reason".
+    ...(reason ? { declineReason: reason } : {}),
+  });
+  let hit = false;
   const reqs = (op?.finishRequests || []).map((r) => {
     if (!r || r.status !== "pending") return r;
     if (requestId != null && String(r.id) !== String(requestId)) return r;
-    return { ...r, status, resolvedBy: by, resolvedAt: at };
+    hit = true;
+    return stamp(r);
   });
+
+  // UPSERT, NOT MAP. A request whose only trace is the mirror — an old iOS build
+  // wrote `pendingFinish` and no row — matched nothing above, so closing it
+  // recorded the approval NOWHERE: the list stayed empty, the flag went false,
+  // and who decided it was lost. Appending the resolved row means the decider is
+  // always stored. `by`/`byName` come off the deprecated singular stamp, which is
+  // the only place a mirror-only request says who asked.
+  //
+  // SUSPECTED DEAD, AND PORTED ANYWAY — the evidence is in #476 rather than a
+  // guess. On Matrix: 0 nodes carry `pendingFinish === true`, 0 carry the
+  // singular pointer, and all 22 resolved entries have a row. Current iOS writes
+  // the row when it raises (`CompletionRequestRules.addPendingRequest` sets the
+  // stamp, the mirror AND the list). So nothing here can fire at Matrix. The
+  // judgement is about the orgs that are not Matrix: this is a multi-tenant
+  // product with one customer, and a branch that costs nothing and stands behind
+  // a legacy record is cheaper than discovering it was needed.
+  if (!hit && pendingFinishOf(op)) {
+    const prior = op?.finishRequest;
+    reqs.push(stamp({
+      id: requestId ?? prior?.requestId ?? prior?.id ?? null,
+      by: prior?.by ?? null,
+      byName: prior?.byName ?? null,
+      at: prior?.at || at,
+    }));
+  }
+
   return {
     finishRequests: reqs,
     pendingFinish: reqs.some((r) => r && r.status === "pending"),
