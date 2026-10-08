@@ -4513,6 +4513,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.head.appendChild(el);
   }, []);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  // The phone layout's "More" sheet (#452). It lived inside renderMobileApp, which
+  // is a plain function called only when isMobile -- so the hook ran on some
+  // renders and not others, and React threw "Rendered more hooks than during the
+  // previous render" at phone width. Hooks belong here, at the top level, where
+  // they run on every render.
+  const [moreOpen, setMoreOpen] = useState(false);
   // Sidebar icons step down on narrow viewports — at 1366x768 and similar the
   // 17px glyphs read oversized against the rest of the chrome. Tracked as a
   // boolean rather than the raw width so a resize only re-renders when the
@@ -22354,7 +22360,6 @@ ${jobsCtx || "No jobs found."}`;
 
   const renderMobileApp = () => {
     const mobileView = view === "schedule" ? "home" : view; // "home" | "tasks" | "timestamp" | "schedule" | "clients" | "messages"
-    const [moreOpen, setMoreOpen] = useState(false);
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       {/* Toggle + New Task row */}
