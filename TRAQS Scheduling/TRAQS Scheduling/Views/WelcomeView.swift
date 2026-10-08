@@ -433,7 +433,10 @@ struct WelcomeView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             } else {
-                Button { Task { await auth.login() } } label: {
+                // #457. The org's Auth0 connection, as the web's sign-ins send it.
+                // Without it Auth0 shows its default page (email/password, Google),
+                // where an enterprise Microsoft connection has no button.
+                Button { Task { await auth.login(connection: org?.connection) } } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "lock.shield.fill")
                             .font(.system(size: 16, weight: .semibold))
