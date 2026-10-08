@@ -81,7 +81,10 @@ check("Status → Finished needs approveCompletions", SRC, { has: ['if (s === "F
 check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <button className={barSelectMode ? "rv-pill pri" : "rv-pill"}'],
   not: ['{isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'] });
 check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
-check("Dependencies toggle and editor need editJobs", SRC, { has: ["{showDepToggle && can(\"editJobs\") && <button", '{isOp && can("editJobs") && (() => {'] });
+// #478 prefixed the editor's item with `!fromJobsList` — it left the Jobs list
+// menu and stayed on the schedule. The permission is unchanged and still pinned
+// to the same item; only the text in front of it moved.
+check("Dependencies toggle and editor need editJobs", SRC, { has: ["{showDepToggle && can(\"editJobs\") && <button", '{!fromJobsList && isOp && can("editJobs") && (() => {'] });
 
 check("Panel approval-step menu (edit / remove the chain) needs editJobs", SRC, { has: ['const openApprCtx = (ev) => {\n                // Editing or removing a panel\'s steps changes the chain itself: editJobs.\n                if (!can("editJobs")) return'] });
 check("Job Details task Assign needs reassign", SRC.slice(SRC.indexOf("Assigning people is the reassign permission"), SRC.indexOf("Assigning people is the reassign permission") + 400), { has: ['{whoCell(op.team, can("reassign") ? e => {'], not: ['whoCell(op.team, canEdit'] });
