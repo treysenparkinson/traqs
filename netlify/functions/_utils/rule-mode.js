@@ -9,16 +9,14 @@
 //   TASK_CONFLICT_MODE  — the per-job stale-copy check on /tasks
 //   OVERLAP_RULE_MODE   — the one overlap rule on /tasks (src/overlapRules.js),
 //                         Business orgs only
-//   PERMISSION_GATES_MODE — NOW READ BY clients.js ALONE. It began as root cause
-//                         4's rollout switch across /tasks and /clients; /tasks
-//                         retired it with the legacy classifier on 2026-10-08.
-//                         On /clients it decides one thing: whether a NO-OP save
-//                         from a caller without manageClients is let through.
-//                         DELETING THE VARIABLE IS NOT A NO-OP — absent means
-//                         "log" below, and in log that branch calls requirePerm
-//                         every time, so every worker's client autosave would
-//                         start returning 403. Make that allowance unconditional
-//                         in clients.js first, then remove the variable.
+//   (PERMISSION_GATES_MODE was root cause 4's switch, across /tasks and
+//    /clients. RETIRED 2026-10-08 after days on `enforce` in production: the
+//    legacy classifier it chose between is deleted, the /clients no-op allowance
+//    it gated is unconditional, and no code reads the variable. It can be removed
+//    from the Netlify environment. Noted here rather than deleted outright
+//    because `ruleMode` returns "log" for an ABSENT variable, so a flag that is
+//    still read somewhere unnoticed fails quietly in the permissive direction —
+//    which is exactly how this one nearly took /clients down with it.)
 //   IDENTITY_PROVIDER_MODE — the org's identity-provider allowlist, checked in
 //                         requireOrgMember (tag `identity-provider`)
 //

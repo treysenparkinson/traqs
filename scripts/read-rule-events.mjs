@@ -19,8 +19,10 @@
 //                         past the bound: a couple of minutes is phone clock skew, hours is
 //                         a bug.
 //   overlap-rule        → OVERLAP_RULE_MODE. Business orgs only.
-//   permission-gate     → PERMISSION_GATES_MODE. Written only when the two classifiers
-//                         disagree, so every row here is a real difference of opinion.
+//   permission-gate     → no flag since 2026-10-08 (#475). Historical /tasks rows
+//                         were written only when two classifiers disagreed; the
+//                         legacy one is deleted, so no new /tasks rows appear.
+//                         clients.js still writes `gate: "clientsNoop"` here.
 //   hpd-default-write   → not a flag. Names the client build writing 7.5 into an
 //                         unestimated hpd (#301); read the userAgent column.
 //   server-owned-field  → not a flag. Counts how often the autosave race actually fires
@@ -64,7 +66,7 @@ console.log(`window: ${rows[0].at} … ${rows.at(-1).at}\n`);
 const FLAG = {
   "task-conflict": "TASK_CONFLICT_MODE", "schedule-rule": "SCHEDULE_RULES_MODE",
   "session-guard": "SCHEDULE_RULES_MODE", "overlap-rule": "OVERLAP_RULE_MODE",
-  "permission-gate": "PERMISSION_GATES_MODE", "hpd-default-write": "(no flag — #301)",
+  "permission-gate": "(flag retired 2026-10-08 — #475)", "hpd-default-write": "(no flag — #301)",
   "server-owned-field": "(no flag — #323, always prevented)",
 };
 const byTag = new Map();

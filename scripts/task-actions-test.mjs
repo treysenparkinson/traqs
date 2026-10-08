@@ -231,16 +231,16 @@ console.log("\n8b. task-perms.js is retired");
   catch { gone = true; }
   ok("the file itself is deleted", gone, true);
 
-  // THE FLAG IS NOT FREE TO DELETE, and this assertion is the reason written
-  // down rather than left to a commit message. `clients.js` reads the SAME
-  // variable for something else: whether a no-op client-list save from someone
-  // without `manageClients` is let through. `ruleMode` defaults to "log" when a
-  // variable is absent, and in "log" that branch calls `requirePerm` every time
-  // — so deleting PERMISSION_GATES_MODE from Netlify would start 403ing every
-  // worker's client autosave, which `enforce` currently allows.
-  const cl = readFileSync(new URL("../netlify/functions/clients.js", import.meta.url), "utf8");
-  ok("clients.js STILL reads the flag, so the variable must stay", /ruleMode\("PERMISSION_GATES_MODE"\)/.test(cl), true);
-  ok("...and its no-op allowance is conditional on enforce", /gateMode !== "enforce"/.test(cl), true);
+  // THE FLAG WAS NOT FREE TO DELETE WITH THIS ALONE, and the trace is kept
+  // rather than dropped: `clients.js` read the SAME variable for an unrelated
+  // gate — whether a no-op client-list save from someone without `manageClients`
+  // is let through — and `ruleMode` returns "log" for an ABSENT variable, where
+  // that branch called `requirePerm` every time. Deleting the variable while
+  // clients.js still read it would have 403'd every worker's client autosave.
+  // That allowance is unconditional now, so nothing reads the flag anywhere.
+  const cl = codeOf(readFileSync(new URL("../netlify/functions/clients.js", import.meta.url), "utf8"));
+  ok("clients.js no longer reads the flag either", /PERMISSION_GATES_MODE/.test(cl), false);
+  ok("...and its no-op allowance is unconditional", /gateMode/.test(cl), false);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

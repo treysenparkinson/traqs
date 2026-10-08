@@ -1,6 +1,6 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm } from "./_utils/can.js";
-import { ruleMode, logRule } from "./_utils/rule-mode.js";
+import { logRule } from "./_utils/rule-mode.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -35,8 +35,6 @@ export async function handler(event) {
     // page hides its buttons behind can("manageClients"), and now so does the API.
     // Checked below, once the body is known: an UNCHANGED list is not an edit.
     const mayManage = can(member, "manageClients");
-    const gateMode = ruleMode("PERMISSION_GATES_MODE");
-    if (!mayManage && gateMode === "off") return err(403, "Admins only — you do not have permission to add, edit & delete clients");
     try {
       let clients;
       try { clients = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
@@ -66,8 +64,16 @@ export async function handler(event) {
 
       // Without manageClients, only a no-op is allowed — the same rule /tasks has.
       // Every autosave sent the whole list, so refusing it outright 403'd every
-      // save by a worker or restricted admin. Allowed in enforce; in log it is
-      // still refused as before and the would-be allowance recorded.
+      // save by a worker or restricted admin.
+      //
+      // UNCONDITIONAL SINCE 2026-10-08. This sat behind PERMISSION_GATES_MODE,
+      // which ran on `enforce` in production for several days of real use with no
+      // 403s reported; the flag is now deleted and this is the only behaviour.
+      // The condition that remains is `!isNoop`, NOT nothing: `requirePerm` still
+      // runs whenever the list actually changed. Removing the condition outright
+      // would 403 every worker's client autosave — a path an open browser takes
+      // several times a minute — which is the regression the flag existed to
+      // avoid in the first place.
       if (!mayManage) {
         const isNoop = changedIds(reconciled, existing).length === 0;
         // Console only, deliberately NOT written to rule-events.json (#327).
@@ -79,10 +85,11 @@ export async function handler(event) {
         // All it could tell you is a count, and buying that count costs an S3 read-modify-
         // write on a path every worker's client-list autosave takes, several times a minute
         // with a browser left open. The tasks.js permission-gate record is the one that
-        // decides PERMISSION_GATES_MODE, and it is written only when the two classifiers
-        // actually disagree.
-        if (isNoop) logRule("permission-gate", { mode: gateMode, gate: "clientsNoop", personId: member.personId != null ? String(member.personId) : null });
-        if (!isNoop || gateMode !== "enforce") {
+        // decided PERMISSION_GATES_MODE, and it was written only when the two
+        // classifiers actually disagreed. Both are retired; this one carries no
+        // `mode` any more because there is no longer a mode to carry.
+        if (isNoop) logRule("permission-gate", { gate: "clientsNoop", personId: member.personId != null ? String(member.personId) : null });
+        if (!isNoop) {
           try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }
         }
         return json(200, { ok: true });

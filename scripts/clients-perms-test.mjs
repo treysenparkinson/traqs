@@ -12,6 +12,8 @@
 //   off — refused as before, not logged.
 import { register } from "module";
 register("./itest-loader-real-timestamps.mjs", import.meta.url);
+import { readFileSync } from "node:fs";
+import { codeOf } from "./_code-view.mjs";
 
 let clientsFn;
 try { clientsFn = (await import(new URL("../netlify/functions/clients.js", import.meta.url).href)).handler; }
@@ -67,17 +69,46 @@ seed("enforce", MANAGER);
   ok("control: manageClients changes it", [res.statusCode, globalThis.__S3[KEY][0].name], [200, "Acme (renamed)"]);
 }
 
-console.log("\n2. log (default) and off");
+// RE-RULED 2026-10-08 (#475). These asserted the rollout: in `log` and `off` an
+// unchanged list was still refused, and the would-be allowance only recorded.
+// `enforce` was the production value for days with no 403s reported, so the
+// allowance is now unconditional and the flag is deleted. The no-op case keeps
+// calling `requirePerm` only when the list actually CHANGED — dropping the
+// condition entirely would have 403'd every worker's autosave, which is the
+// regression this whole retirement existed to avoid.
+console.log("\n2. the flag is gone — every mode behaves as enforce did");
+for (const mode of [undefined, "log", "off", "enforce"]) {
+  const name = mode === undefined ? "unset" : mode;
+  seed(mode, WORKER);
+  {
+    const res = await post(list());
+    ok(`${name}: worker's unchanged list is 200 and writes nothing`,
+       [res.statusCode, globalThis.__WRITES.length], [200, 0]);
+  }
+  seed(mode, WORKER);
+  {
+    const l = list(); l[0].name = "Acme (renamed)";
+    const res = await post(l);
+    ok(`${name}: a real change is still 403`, [res.statusCode, globalThis.__S3[KEY][0].name], [403, "Acme"]);
+  }
+}
 seed(undefined, WORKER);
 {
-  const res = await post(list());
-  ok("log: unchanged list still refused as before", res.statusCode, 403);
-  ok("log: the would-be allowance is logged", gateLogs(), [["log", "clientsNoop"]]);
+  await post(list());
+  ok("the no-op is still recorded, without a mode it no longer has", gateLogs(), [[undefined, "clientsNoop"]]);
 }
-seed("off", WORKER);
+
+console.log("\n3. clients.js no longer reads the flag");
 {
-  const res = await post(list());
-  ok("off: refused, not logged", [res.statusCode, gateLogs()], [403, []]);
+  const src = codeOf(readFileSync(new URL("../netlify/functions/clients.js", import.meta.url), "utf8"));
+  ok("no PERMISSION_GATES_MODE", /PERMISSION_GATES_MODE/.test(src), false);
+  ok("no gateMode", /gateMode/.test(src), false);
+  ok("the no-op allowance is unconditional", /if \(!isNoop\) \{/.test(src), true);
+  // And the whole variable is gone from the repo's source.
+  for (const f of ["../netlify/functions/tasks.js", "../netlify/functions/_utils/rule-mode.js"]) {
+    const s2 = codeOf(readFileSync(new URL(f, import.meta.url), "utf8"));
+    ok(`${f.split("/").pop()} does not read it either`, /PERMISSION_GATES_MODE/.test(s2), false);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
