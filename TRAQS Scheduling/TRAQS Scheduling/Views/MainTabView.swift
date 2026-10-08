@@ -458,6 +458,9 @@ struct TRAQSTabBar: View {
     /// number to change if the bar wants to be taller or shorter.
     private let barHeight: CGFloat = 66
 
+    /// The highlighter's slide to a tapped tab: a plain ease, no spring.
+    private let highlightSlide: Animation = .easeInOut(duration: 0.22)
+
     private var vPad: CGFloat { (barHeight - highlightH) / 2 }
 
     /// Map a horizontal position (in the bar's local space) to the tab under it.
@@ -510,17 +513,17 @@ struct TRAQSTabBar: View {
             // The height drives the bar's inner height (the icon row is shorter),
             // so `.padding(.vertical)` below is reduced by the same amount this
             // grows — the pill's outer size never changes.
-            // The highlighter: a flat 2D pill in the accent — not Liquid Glass —
-            // and it does not animate. It sits on the selected tab (or under the
-            // finger while dragging) and moves there in one step: no slide, no
-            // squash-and-stretch. Ruled 2026-10-08. The selection setter's
-            // animation still drives the header morph, so the transaction is
-            // cleared HERE, on the pill and the icons, rather than at the setter.
+            // The highlighter: a flat 2D pill in the accent — not Liquid Glass.
+            // It SLIDES to the tab on a plain ease: no spring, no bounce, no
+            // squash-and-stretch (ruled 2026-10-08). While dragging it tracks the
+            // finger 1:1. The selection setter's bouncy animation still drives the
+            // header morph, so the pill's (and the icons') transaction is replaced
+            // HERE rather than at the setter.
             Capsule(style: .continuous)
                 .fill(Color(hex: T.accent))
                 .frame(width: highlightW, height: highlightH)
                 .offset(x: highlightCenterX - highlightW / 2)
-                .transaction { $0.animation = nil }
+                .transaction { $0.animation = dragX == nil ? highlightSlide : nil }
 
             HStack(spacing: keySpacing) {
                 ForEach(tabBarOrder, id: \.self) { tab in
@@ -530,8 +533,8 @@ struct TRAQSTabBar: View {
                                keyW: keyW)
                 }
             }
-            // The icons swap ink with the pill, in the same step.
-            .transaction { $0.animation = nil }
+            // The icons change ink on the same timing as the pill.
+            .transaction { $0.animation = dragX == nil ? highlightSlide : nil }
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
