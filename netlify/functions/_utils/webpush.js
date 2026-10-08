@@ -8,6 +8,7 @@
 // OneSignal targets native iOS/Android, web push targets desktop browsers.
 import webpush from "web-push";
 import { readJson, writeJson } from "./s3.js";
+import { localDevSkip } from "./dev-guard.js";
 
 const PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -40,6 +41,7 @@ export function subsKey(orgCode) {
  * @param {{ title: string, body: string, data?: object }} payload
  */
 export async function sendWebPush(orgCode, personIds, { title, body, data = {} }) {
+  if (localDevSkip("webpush")) return { sent: 0 };   // #454
   if (!ensureConfigured()) return { sent: 0 };
   const ids = [...new Set((personIds || []).map(String))];
   if (ids.length === 0) return { sent: 0 };

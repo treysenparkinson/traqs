@@ -19,6 +19,7 @@
 //      are themselves verified -- an invite to a new employee just vanishes.
 
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { localDevSkip } from "./dev-guard.js";
 
 const ses = new SESClient({
   region: process.env.MY_AWS_REGION,
@@ -72,6 +73,7 @@ export const esc = (s) => String(s ?? "")
  * send means for its own response.
  */
 export async function sendEmail({ to, subject, html, text, replyTo }) {
+  if (localDevSkip("mail")) return { ok: false, reason: "local-dev" };   // #454: no mail to real addresses from local dev
   if (!FROM_EMAIL) {
     console.error("mail: SEND_FROM_EMAIL is not set; refusing to send");
     return { ok: false, reason: "no-sender" };

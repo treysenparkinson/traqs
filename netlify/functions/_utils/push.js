@@ -24,11 +24,13 @@
 // in one `push.js` module instead of a silent-only file.
 
 import { readJson } from "./s3.js";
+import { localDevSkip } from "./dev-guard.js";
 import { filterLive } from "./entities.js";
 
 const OS_URL = "https://onesignal.com/api/v1/notifications";
 
 function creds() {
+  if (localDevSkip("onesignal")) return null;   // #454: no real phones from local dev
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_API_KEY;
   return appId && apiKey ? { appId, apiKey } : null;

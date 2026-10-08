@@ -1,4 +1,5 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { refuseWriteInLocalDev } from "./dev-guard.js";
 
 const client = new S3Client({
   region: process.env.MY_AWS_REGION,
@@ -31,6 +32,7 @@ export async function readJson(key) {
  * Write a value as JSON to S3.
  */
 export async function writeJson(key, value) {
+  refuseWriteInLocalDev(`writeJson ${key}`);   // #454
   await client.send(
     new PutObjectCommand({
       Bucket: BUCKET,
@@ -74,6 +76,7 @@ export class PreconditionFailed extends Error {
  * in flight; both become PreconditionFailed so the caller re-reads and retries.
  */
 export async function writeJsonIfMatch(key, value, etag) {
+  refuseWriteInLocalDev(`writeJsonIfMatch ${key}`);   // #454
   try {
     await client.send(
       new PutObjectCommand({
@@ -118,6 +121,7 @@ export async function listOrgCodes() {
  * Upload raw binary data to S3.
  */
 export async function writeBinary(key, buffer, contentType) {
+  refuseWriteInLocalDev(`writeBinary ${key}`);   // #454
   await client.send(
     new PutObjectCommand({
       Bucket: BUCKET,
@@ -143,6 +147,7 @@ export async function readBinaryWithMeta(key) {
  * Used for renaming an org code.
  */
 export async function copyPrefix(sourcePrefix, destPrefix) {
+  refuseWriteInLocalDev(`copyPrefix ${sourcePrefix}`);   // #454
   const keys = [];
   let token;
   do {
@@ -170,6 +175,7 @@ export async function copyPrefix(sourcePrefix, destPrefix) {
  * Copy a single S3 object from srcKey to destKey (server-side copy).
  */
 export async function copyObject(srcKey, destKey) {
+  refuseWriteInLocalDev(`copyObject ${srcKey}`);   // #454
   await client.send(new CopyObjectCommand({
     Bucket: BUCKET,
     CopySource: encodeURIComponent(`${BUCKET}/${srcKey}`),
@@ -182,6 +188,7 @@ export async function copyObject(srcKey, destKey) {
  * idempotent and does not error on absent keys).
  */
 export async function deleteObject(key) {
+  refuseWriteInLocalDev(`deleteObject ${key}`);   // #454
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 

@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { localDevSkip } from "./_utils/dev-guard.js";
 import { can, personCan } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -49,7 +50,7 @@ async function pushTo(orgCode, people, targetIds, heading, content, data) {
 
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_API_KEY;
-  if (!appId || !apiKey) return;
+  if (!appId || !apiKey || localDevSkip("onesignal")) return;   // #454
 
   const registeredIds = people
     .filter((p) => p.pushToken && ids.includes(String(p.id)))

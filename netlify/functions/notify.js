@@ -20,6 +20,7 @@
 // of the seam. Do not let the job case set the precedent for the shift case.
 
 import { requireOrgMember } from "./_utils/auth.js";
+import { localDevSkip } from "./_utils/dev-guard.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { personCan } from "./_utils/can.js";
@@ -161,7 +162,7 @@ export async function handler(event) {
   // OneSignal → native iOS/Android. Skip cleanly when not configured.
   let oneSignalId = null;
   let osSent = 0;
-  if (appId && apiKey) {
+  if (appId && apiKey && !localDevSkip("onesignal")) {   // #454
     const registeredIds = people
       .filter(p => p.pushToken && targetIds.includes(String(p.id)))
       .map(p => String(p.id));

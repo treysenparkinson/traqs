@@ -15,6 +15,7 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
+import { refuseWriteInLocalDev } from "./_utils/dev-guard.js";
 
 const RETENTION_DAYS = 30;
 
@@ -51,6 +52,7 @@ async function copyIfMissing(srcKey, destKey) {
     const code = e.$metadata?.httpStatusCode;
     if (code !== 404 && e.name !== "NotFound" && e.name !== "NoSuchKey") throw e;
   }
+  refuseWriteInLocalDev(`backup copy ${destKey}`);   // #454: its own S3 client, so its own guard
   await client.send(new CopyObjectCommand({
     Bucket: BUCKET,
     CopySource: encodeURIComponent(`${BUCKET}/${srcKey}`),
@@ -66,6 +68,7 @@ async function pruneOldBackups(cutoffDateStr) {
     const m = key.match(/^backups\/(\d{4}-\d{2}-\d{2})\//);
     if (!m) continue;
     if (m[1] < cutoffDateStr) {
+      refuseWriteInLocalDev(`backup prune ${key}`);   // #454
       await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
       pruned++;
     }

@@ -1,4 +1,5 @@
 import Ably from "ably";
+import { localDevSkip } from "./dev-guard.js";
 
 // Server-side publisher for real-time change signals.
 //
@@ -36,6 +37,7 @@ function rest() {
  * Never throws — a real-time failure must not surface to the write handler.
  */
 export async function publishChange(orgCode, entity, changePayload = {}) {
+  if (localDevSkip("ably")) return;   // #454: a laptop does not broadcast to production clients
   try {
     const client = rest();
     if (!client || !orgCode || !entity) return;
