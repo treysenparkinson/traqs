@@ -107,17 +107,12 @@ function without(node, keys) {
   }
   return out;
 }
-
 /**
- * A node starting a NEW JOB: no history, no engagement identity.
- *
- * Does not touch ids, status, deps or structure — `duplicateJob` owns those,
- * because remapping deps needs the whole subtree and this works on one node.
+ * `copyForDuplicate` lived here until 2026-10-08. It was the duplicate path's
+ * consumer and went out with the Duplicate button (#486), which was its only
+ * caller's only call site. The two remaining consumers keep theirs, and
+ * ENGAGEMENT_IDENTITY stays because the template still drops it.
  */
-export function copyForDuplicate(node, { settings } = {}) {
-  return without(node, [...WORK_RECORD, ...ENGAGEMENT_IDENTITY, ...recordColumnKeys(settings)]);
-}
-
 /**
  * The new half of a SPLIT op: the same work continuing, in the same job.
  *

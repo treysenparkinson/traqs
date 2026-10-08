@@ -1,6 +1,7 @@
 // #466 + #468 — what a copied node inherits, and what it starts clean.
 //
 // RED FIRST, against the three paths as they were:
+// (The duplicate consumer was removed in #486 with the Duplicate button.)
 //   duplicateJob  carried moveLog (16 of 65 live jobs would hand their copy at
 //                 least one; 402057 would be born with 201 entries), placedSubs,
 //                 isReschedule, scheduledLater, notes, poNumber and dueDate.
@@ -18,10 +19,9 @@ import { readFileSync } from "node:fs";
 import {
   WORK_RECORD, ENGAGEMENT_IDENTITY, SCHEDULE_FIELDS, TEMPLATE_KEEPS,
   RECORD_COLUMN_TYPES, recordColumnKeys,
-  copyForDuplicate, copyForSplit, copyForTemplate,
+  copyForSplit, copyForTemplate,
   templateOpFromNode, nodesFromTemplate,
 } from "../src/copyRules.js";
-import { duplicateJob } from "../src/jobDetail.js";
 import { applySplit } from "../src/dragMove.js";
 
 let pass = 0, fail = 0;
@@ -94,71 +94,34 @@ console.log("\n2. CUSTOM COLUMNS RESOLVE BY TYPE, AND BY fieldKey");
 console.log("\n3. THE THREE CONSUMERS DISAGREE ONLY WHERE THEY SHOULD");
 {
   const n = richOp();
-  const d = copyForDuplicate(n, { settings: SETTINGS });
   const s = copyForSplit(n, { settings: SETTINGS });
   const t = copyForTemplate(n, { settings: SETTINGS });
 
-  ok("duplicate drops every work record", WORK_RECORD.some(k => k in d), false);
   ok("split drops every work record", WORK_RECORD.some(k => k in s), false);
   ok("template drops every work record EXCEPT notes",
     WORK_RECORD.filter(k => k in t), ["notes"]);
   ok("...and the notes it keeps are the procedure", t.notes, n.notes);
 
-  ok("duplicate drops engagement identity", ENGAGEMENT_IDENTITY.some(k => k in d), false);
   ok("SPLIT KEEPS the engagement — same job, same PO", copyForSplit({ poNumber: "PO-1", dueDate: "2026-12-01" }).poNumber, "PO-1");
   ok("template drops engagement identity", ENGAGEMENT_IDENTITY.some(k => k in t), false);
 
   ok("template drops the schedule, hours included", SCHEDULE_FIELDS.some(k => k in t), false);
-  ok("duplicate KEEPS the schedule", [d.start, d.startHour], ["2026-09-01", 7]);
   ok("split KEEPS deps", s.deps, ["o0"]);
 
   for (const k of ["hpd", "color", "requiredDepartments", "locked", "title"]) {
-    ok(`every path keeps ${k}`, [k in d, k in s, k in t], [true, true, true]);
+    ok(`both paths keep ${k}`, [k in s, k in t], [true, true]);
   }
-  ok("duplicate and split keep team; the template clears it",
-    [("team" in d), ("team" in s), ("team" in t)], [true, true, false]);
-  ok("the custom-column RECORD values go", [("actHours" in d), ("apprActivity" in d)], [false, false]);
-  ok("the custom-column DESCRIPTION value stays", d._cc_tyngeunym, "PB");
+  ok("the split keeps team; the template clears it",
+    [("team" in s), ("team" in t)], [true, false]);
+  ok("the custom-column RECORD values go", [("actHours" in s), ("apprActivity" in s)], [false, false]);
+  ok("the custom-column DESCRIPTION value stays", s._cc_tyngeunym, "PB");
   ok("the input is not mutated", richOp().moveLog.length, 1);
-  ok("a node with nothing to drop comes back by identity", copyForDuplicate(richOp.call ? { id: "x", hpd: 1 } : {}) .hpd, 1);
+  ok("a node with nothing to drop comes back by identity", copyForSplit({ id: "x", hpd: 1 }).hpd, 1);
 }
 
-console.log("\n4. RED — duplicateJob must not hand a copy somebody else's history");
-{
-  let i = 0; const uid = () => `new${++i}`;
-  const job = {
-    id: "j1", title: "402057", jobNumber: "402057", poNumber: "PO-9", dueDate: "2026-11-01",
-    status: "In Progress", notes: "PB. Status: Shipped. 100%.", clientId: "c1", projectManagerId: "p9",
-    moveLog: [{ date: "d", movedBy: "Max" }], isReschedule: true, scheduledLater: true,
-    subs: [{ id: "p1", title: "402057-01", placedSubs: [{ id: "stale" }],
-      moveLog: [{ date: "d2", movedBy: "Max", fromStartHour: 8 }],
-      subs: [{ id: "o1", title: "Wire", deps: ["o2"], loggedHours: 9, actHours: 2,
-               moveLog: [{ date: "d3", movedBy: "Max" }], finishRequests: [{ id: "fr", status: "pending" }] },
-             { id: "o2", title: "Test" }] }],
-  };
-  const copy = duplicateJob(job, { uid, now: "2026-10-08T00:00:00Z", settings: SETTINGS });
-  const all = []; (function w(n) { all.push(n); (n.subs || []).forEach(w); })(copy);
-
-  ok("no node on the copy carries a moveLog", all.some(n => "moveLog" in n), false);
-  ok("no node carries placedSubs", all.some(n => "placedSubs" in n), false);
-  ok("no node carries loggedHours or actHours", all.some(n => "loggedHours" in n || "actHours" in n), false);
-  ok("no node carries finishRequests", all.some(n => "finishRequests" in n), false);
-  ok("the job's notes stay behind", "notes" in copy, false);
-  ok("the PO stays behind", "poNumber" in copy, false);
-  ok("the due date stays behind", "dueDate" in copy, false);
-  ok("the job number stays behind", "jobNumber" in copy, false);
-  ok("isReschedule and scheduledLater stay behind", ["isReschedule", "scheduledLater"].some(k => k in copy), false);
-
-  // What must still come along, so the drop is not over-broad.
-  ok("the client comes along", copy.clientId, "c1");
-  ok("the PM comes along", copy.projectManagerId, "p9");
-  ok("the structure comes along", [copy.subs.length, copy.subs[0].subs.length], [1, 2]);
-  ok("every status is reset", all.every(n => n.status === "Not Started"), true);
-  ok("ids are fresh", all.every(n => String(n.id).startsWith("new")), true);
-  ok("deps are remapped onto the copy's own ids", copy.subs[0].subs[0].deps, [copy.subs[0].subs[1].id]);
-  ok("the title is marked a copy", copy.title, "402057 (copy)");
-}
-
+// Section 4 covered `duplicateJob`. It was removed with the Duplicate button in
+// #486, along with `copyForDuplicate` — the chain had one caller at each link.
+// The removal is covered by scripts/duplicate-removed-test.mjs.
 console.log("\n5. RED — the split keeps the work, not the record of it");
 {
   const op = { id: "o1", title: "Wire", hpd: 4, start: "2026-09-01", end: "2026-09-02",
@@ -251,8 +214,7 @@ console.log("\n7. THE CALL SITES USE THE RULE RATHER THAN THEIR OWN LIST");
   const dm = readFileSync(new URL("../src/dragMove.js", import.meta.url), "utf8");
   const tq = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 
-  ok("jobDetail imports copyForDuplicate", /import \{[^}]*copyForDuplicate[^}]*\} from "\.\/copyRules\.js";/.test(jd), true);
-  ok("...and calls it", /copyForDuplicate\(/.test(jd), true);
+  ok("jobDetail no longer imports the copy rule at all", /copyRules.js/.test(jd), false);
   ok("...and no longer keeps its own DROP list", /const DROP = \[/.test(jd), false);
   ok("dragMove imports copyForSplit", /import \{[^}]*copyForSplit[^}]*\} from "\.\/copyRules\.js";/.test(dm), true);
   ok("...and no longer destructures its own four", /pendingSession: _s, finishRequest: _f/.test(dm), false);
@@ -267,14 +229,11 @@ console.log("\n7. THE CALL SITES USE THE RULE RATHER THAN THEIR OWN LIST");
   // SETTINGS MUST ACTUALLY FLOW. Every consumer resolves the org's custom columns
   // from it, so a call site that forgets it silently stops dropping `actHours` and
   // `apprActivity` while every other assertion here stays green.
-  ok("duplicateJob is CALLED with settings", /duplicateJob\(job, \{ uid, now: [^}]*settings: orgSettings \}\)/.test(tq), true);
   ok("both applySplit call sites pass settings", (tq.match(/settings: orgSettings \}\)/g) || []).length >= 3, true);
   ok("the template save passes settings", /templateOpFromNode\(o, \{ settings: orgSettings \}\)/.test(tq), true);
-  ok("duplicateJob accepts settings", /export function duplicateJob\(job, \{ uid, now, settings \} = \{\}\)/.test(jd), true);
   // `reasons = {}` sits in this signature, so a [^}]* class cannot reach `settings`.
   ok("applySplit accepts settings", /export function applySplit\(tasks, \{.*reasons = \{\}, settings \}\)/.test(dm), true);
   ok("...and hands it to the rule", /copyForSplit\(orig, \{ settings \}\)/.test(dm), true);
-  ok("duplicateJob hands it to the rule", /copyForDuplicate\(node, \{ settings \}\)/.test(jd), true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

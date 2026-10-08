@@ -50,8 +50,13 @@ console.log("\n1. The department pickers are multi-select");
   ok("the op-level picker uses MultiDrop", /<MultiDrop values=\{resolveDepartments\(op, panel, ej\)\.depts\}/.test(J), true);
   ok("...and resolves against its ancestors, not null, null",
     /<MultiDrop values=\{[^}]*\(op, null, null\)/.test(J), false);
-  ok("...the panel picker toggles through it", /updatePanel\(toggleDept\(panel,r,null,ed\)\)/.test(J), true);
-  ok("...and the sub picker too", /updateSub\(toggleDept\(sub,r,panel,ed\)\)/.test(J), true);
+  // RE-ANCHORED 2026-10-08 (#488), same rule, moved target (R3). Both wizard
+  // pickers were extracted into one `deptPicker`, so the toggle call that used to
+  // be written twice at the call sites now lives once inside it — and each site
+  // is pinned to the arguments it passes, which is what used to distinguish them.
+  ok("...the toggle happens once, inside the shared picker", /onChange\(toggleDept\(node, role, parent, job\)\)/.test(J), true);
+  ok("...the panel site passes its own parent and handler", /deptPicker\(panel, null, ed, p => updatePanel\(p\)\)/.test(J), true);
+  ok("...and the sub site passes the panel as parent", /deptPicker\(sub, panel, ed, p => \{ setAvailCheckPassed\(false\); updateSub\(p\); \}\)/.test(J), true);
   // No single-value writer may survive, or one picker silently overwrites a set.
   ok("no picker writes a bare requiredDepartment string",
     /updatePanel\(\{requiredDepartment:|updateSub\(\{requiredDepartment:/.test(J), false);

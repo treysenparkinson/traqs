@@ -50,7 +50,6 @@ import { readFileSync } from "node:fs";
 import { codeOf } from "./_code-view.mjs";
 import { idKeyViolations } from "./_membership-lint.mjs";
 import * as D from "../src/dragMove.js";
-import { duplicateJob } from "../src/jobDetail.js";
 import { overlapContext } from "../src/overlapRules.js";
 
 let pass = 0, fail = 0;
@@ -106,29 +105,11 @@ console.log("\n2. #444 — the three asymmetric sites in dragMove.js");
   ok("the byId probe still stringifies", /byId\.get\(sid\(node\.id\)\)/.test(DM), true);
   ok("the shares probe still stringifies", /shares\.has\(sid\(u\.id\)\)/.test(DM), true);
 }
-
-console.log("\n3. #444 — jobDetail's idMap, and that duplication still works");
-{
-  ok("idMap is keyed by String(id)", /idMap\.set\(String\(node\.id\), uid\(\)\)/.test(JD), true);
-  ok("...and read the same way", /idMap\.get\(String\(node\.id\)\)/.test(JD), true);
-  ok("...including the dep remap", /idMap\.get\(String\(d\)\) \?\? d/.test(JD), true);
-
-  // Behavioural: a job whose ids are numbers still duplicates with fresh ids and
-  // remapped deps. This is the case the raw map would have dropped on the floor.
-  let n = 0;
-  const job = { id: 1, title: "Job", subs: [
-    { id: 2, title: "Panel", subs: [
-      { id: 3, title: "A" },
-      { id: 4, title: "B", deps: [3] },
-    ] },
-  ] };
-  const copy = duplicateJob(job, { uid: () => `new${++n}`, now: "2026-10-07T00:00:00Z" });
-  ok("every id is replaced", [copy.id, copy.subs[0].id], ["new1", "new2"]);
-  ok("...at every level", copy.subs[0].subs.map(s => s.id), ["new3", "new4"]);
-  ok("a numeric dep is remapped onto the new id, not left dangling",
-    copy.subs[0].subs[1].deps, ["new3"]);
-  ok("...and the title says it is a copy", copy.title, "Job (copy)");
-}
+// ── 3. #444 — jobDetail's idMap: REMOVED 2026-10-08 (#486) ─────────────────
+// Seven assertions, three on the source and four behavioural, covered the
+// duplicate path's String(id) keying. `duplicateJob` is gone, so they are not
+// lost coverage. The ratchet in section 5 still reads jobDetail.js, so a raw-id
+// map key reappearing there is still caught.
 
 console.log("\n4. #444 — the two cross-boundary maps in TRAQS.jsx");
 {

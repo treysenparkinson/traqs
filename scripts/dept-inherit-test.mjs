@@ -162,18 +162,26 @@ console.log("\n4. #426 — BOTH SURFACES STATE THE ORIGIN");
   // The schedule-modal pickers read the node WITH its ancestors now. The
   // `null, null` pair was the whole defect, so the replacement arguments are
   // asserted rather than just the function name.
-  ok("the panel picker's ticks resolve against its job",
-    /const isOn=resolveDepartments\(panel,null,ed\)\.depts\.some/.test(CODE), true);
-  ok("the task picker's ticks resolve against its operation and job",
-    /const isOn=resolveDepartments\(sub,panel,ed\)\.depts\.some/.test(CODE), true);
+  // RE-ANCHORED 2026-10-08 (#488), same rule, one picker instead of two (R3).
+  // The two schedule-modal pickers became one shared `deptPicker`, so the ticks
+  // resolve once against the ancestors it was HANDED. The `null, null` pair that
+  // was the original defect is still asserted absent below, and each call site's
+  // ancestors are pinned per site in scripts/dept-picker-test.mjs.
+  ok("the shared picker's ticks resolve against the ancestors it was given",
+    /const r = resolveDepartments\(node, parent, job\);/.test(CODE), true);
+  ok("...and the ticks read that same resolution, not a fresh one with null",
+    /const isOn = r\.depts\.some\(d => d\.toLowerCase\(\) === role\.toLowerCase\(\)\);/.test(CODE), true);
   ok("no picker still reads a node with null ancestors for its ticks",
     /isOn=(unitDepartments|resolveDepartments)\((panel|sub),null,null\)/.test(CODE), false);
   // Both button LABELS resolve too — they were the two-surfaces problem itself,
   // one saying "Anyone" and the other "Dept" for the same state.
-  ok("the panel label resolves against its job",
-    /const _r = resolveDepartments\(panel, null, ed\);/.test(CODE), true);
-  ok("the task label resolves against its operation",
-    /const _r = resolveDepartments\(sub, panel, ed\);/.test(CODE), true);
+  // One label now, reading the same resolution as the ticks — which is stronger
+  // than the two it replaced: the label and the ticks CANNOT disagree, because
+  // they are the same value rather than two calls that happen to match.
+  ok("the label reads the same resolution as the ticks",
+    /\{r\.depts\.length \? \(r\.from==="own" \?/.test(CODE), true);
+  ok("...and names the ancestor it inherited from",
+    /from \$\{r\.from==="job"\?"job":"operation"\}/.test(CODE), true);
 
   // The edit-form picker passes the ancestors AND both new props.
   const flat = RAW.replace(/\n\s*/g, " ");
@@ -218,8 +226,13 @@ console.log("\n5. #426 — CLEAR TO INHERIT, as an explicit row");
   // row or the limitation line would have RECREATED the two-surfaces problem
   // inside the fix for it — one surface explaining what it cannot do, the others
   // silently unable to do it.
-  ok("every picker offers the clear row", (CODE.match(/<DeptClearRow /g) || []).length, 3);
-  ok("every picker carries the limitation line", (CODE.match(/<DeptInheritNote /g) || []).length, 3);
+  // RE-ANCHORED 2026-10-08 (#488), same rule, fewer pickers (R3). The two
+  // schedule-modal pickers were extracted into one shared `deptPicker` used by
+  // FOUR sites — the two wizard ones and two new Job Details ones — so there are
+  // now two picker implementations, not three, and the rule is unchanged: every
+  // one of them offers the clear row and carries the limitation line.
+  ok("every picker offers the clear row", (CODE.match(/<DeptClearRow /g) || []).length, 2);
+  ok("every picker carries the limitation line", (CODE.match(/<DeptInheritNote /g) || []).length, 2);
   // ONE definition of each, because the wording is the deliverable for #439 and
   // three copies of a sentence is how this field got four disagreeing readers.
   ok("the clear row is defined once", (CODE.match(/function DeptClearRow\(/g) || []).length, 1);
@@ -229,10 +242,15 @@ console.log("\n5. #426 — CLEAR TO INHERIT, as an explicit row");
 
   // Each is wired to the right ancestors: a panel falls back to the JOB, a task
   // to its OPERATION then the job.
-  ok("the panel picker's clear row falls back to the job",
-    /<DeptClearRow parent=\{resolveDepartments\(null, null, ed\)\}/.test(CODE), true);
-  ok("the task picker's clear row falls back to its operation",
-    /<DeptClearRow parent=\{resolveDepartments\(null, panel, ed\)\}/.test(CODE), true);
+  // The shared picker takes the ancestor as a PARAMETER, so one assertion covers
+  // its clear row and the four call sites supply the right ancestor each — a
+  // panel passes null (falling back to the job), an op passes its panel. Those
+  // four are pinned per site in scripts/dept-picker-test.mjs; what matters here
+  // is that the fallback is still resolved from the ancestor and not hardcoded.
+  ok("the shared picker's clear row falls back to whatever ancestor it was given",
+    /<DeptClearRow parent=\{resolveDepartments\(null, parent, job\)\}/.test(CODE), true);
+  ok("...and no caller hardcodes the ancestor into the row",
+    /<DeptClearRow parent=\{resolveDepartments\(null, (null|panel), ed\)\}/.test(CODE), false);
   ok("the edit-form clear row falls back to its operation",
     /parent=\{resolveDepartments\(null, panel, ej\)\}/.test(CODE), true);
 }

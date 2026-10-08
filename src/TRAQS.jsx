@@ -51,7 +51,7 @@ import { placeContextMenu, placeDropMenu } from "./menuPlacement.js";
 import { OUTCOME_APPLIED, OUTCOME_NOCHANGE, toolResultsFor } from "./aiActions.js";
 import { serializeRuns } from "./saveQueue.js";
 import { markDerived, stripDerived } from "./derived.js";
-import { duplicateJob, jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
+import { jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -7872,18 +7872,6 @@ Extraction rules:
     }) }));
     toast("Task added");
   };
-  // Job Details "Duplicate": a fresh copy of the job (src/jobDetail.js says what
-  // carries over), saved the way handleSave saves a new job -- protected from the
-  // next poll, pushed into dataRef and saved at once -- then opened.
-  const duplicateJobAction = (job) => {
-    if (!can("editJobs") || !job) return;
-    const nw = duplicateJob(job, { uid, now: new Date().toISOString(), settings: orgSettings });
-    protectedJobIds.current.add(nw.id);
-    setTasks(p => [...p, nw]);
-    setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0);
-    setModal(m => ({ ...m, data: nw }));
-    toast(`Duplicated as "${nw.title}"`);
-  };
   const jdAddPhase = (jobId) => {
     if (!can("editJobs")) return;
     const nid = uid();
@@ -9844,6 +9832,83 @@ Extraction rules:
   const toggleDept = (node, role, panel = null, job = null) => {
     const set = departmentsAfterToggle(node, panel, job, role, orgSettings.roles || null);
     return { requiredDepartments: set, requiredDepartment: set[0] || "" };
+  };
+
+  // THE DEPARTMENT PICKER, ONCE (#488). It was written twice in the wizard — a
+  // panel copy and a sub-op copy — and the ruling to put it on Job Details at
+  // both levels would have made four. So it is extracted first.
+  //
+  // A COMPLETE extraction, deliberately: the inheritance resolution, the open
+  // state, the add-a-department row and the selection flash all come along. A
+  // picker that left `resolveDepartments` at each call site would be the
+  // partial-extraction defect being written fresh (LESSONS #18).
+  //
+  // What the CALLER keeps is what differs for a real reason: `onChange` takes the
+  // patch, so the wizard's op site can go on clearing its availability flag and
+  // Job Details can route through `commitCellEdit` instead. The label handles
+  // three sources because an op can inherit from its panel; a panel can only
+  // inherit from the job, so it renders exactly what the panel copy did.
+  const deptPicker = (node, parent, job, onChange) => {
+    const r = resolveDepartments(node, parent, job);
+    const open = deptDropId === node.id;
+    return <div style={{ position:"relative", flexShrink:0 }}>
+      <button onClick={e => { e.stopPropagation(); const opening = !open; setDeptDropId(opening ? node.id : null); if (opening) { setDeptAddInput(""); setDeptAddMode(false); } }}
+        style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92,
+          border:`1px solid ${node.requiredDepartment ? T.accent+"55" : T.border}`, background:"transparent", cursor:"pointer", fontFamily:T.font }}>
+        <span style={{ fontSize:13, color:r.from==="own"?T.accent:T.textDim, fontStyle:r.from==="own"?"normal":"italic", fontWeight:600 }}>
+          {r.depts.length ? (r.from==="own" ? r.depts.join(" or ") : `${r.depts.join(" or ")} · from ${r.from==="job"?"job":"operation"}`) : "Dept"}</span>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <FadeOnClose open={open}>{open && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop"
+        style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:40, minWidth:190, background:T.card, border:`1px solid ${T.border}`,
+          borderRadius:T.radiusSm, boxShadow:"0 10px 30px rgba(0,0,0,0.3)", padding:"4px 0", maxHeight:260, overflowY:"auto" }}>
+        {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
+        <DeptClearRow parent={resolveDepartments(null, parent, job)} isOwn={r.from==="own"} onClear={() => onChange(toggleDept(node, null, parent, job))} />
+        {orgSettings.roles.map((role) => {
+          const isOn = r.depts.some(d => d.toLowerCase() === role.toLowerCase());
+          // Keyed by NODE and role. The node matters: only one dropdown is open
+          // at a time, but a 150ms flash can outlive the switch to another one,
+          // and a key without the node would flash the same row there. A third
+          // "panel"/"sub" prefix stood here and was pure decoration — node ids
+          // are unique across the tree, so it could never disambiguate anything.
+          const fk = `dept-${node.id}-${role}`;
+          return <div key={role} onClick={() => { setDropFlashKey(fk); setTimeout(() => { onChange(toggleDept(node, role, parent, job)); setDropFlashKey(null); }, 150); }}
+            style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 14px", cursor:"pointer", background:dropFlashKey===fk ? T.accent+"24" : "transparent", transition:"background 0.12s" }}
+            onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
+            <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+              {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+            <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{role}</span>
+          </div>;
+        })}
+        <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
+          {deptAddMode
+            ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
+                <input value={deptAddInput} autoFocus onChange={e=>setDeptAddInput(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); onChange(toggleDept(node, v, parent, job)); } setDeptAddMode(false); setDeptAddInput(""); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); } }}
+                  placeholder="Department name…" style={{ flex:1, minWidth:0, padding:"5px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, outline:"none" }} />
+                <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); onChange(toggleDept(node, v, parent, job)); } setDeptAddMode(false); setDeptAddInput(""); }}
+                  style={{ padding:"5px 10px", borderRadius:T.radiusXs, border:"none", background:T.accent, color:T.accentText, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:T.font }}>Add</button>
+              </div>
+            : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
+                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <span style={{ fontSize:14 }}>+</span> Create new Department
+              </div>
+          }
+        </div>
+        <DeptInheritNote parent={resolveDepartments(null, parent, job)} />
+      </div>}</FadeOnClose>
+    </div>;
+  };
+
+  // Job Details writes a department the way every other cell on that page does —
+  // through `commitCellEdit`, which carries the editJobs check. BOTH keys the
+  // toggle returns are written: `requiredDepartments` is the set the rules read
+  // and `requiredDepartment` is the one name older surfaces print, and writing
+  // one without the other is exactly how the two surfaces disagreed in #426.
+  const jdDeptSave = (node, patch, parentId) => {
+    commitCellEdit(node.id, "requiredDepartments", patch.requiredDepartments, parentId);
+    commitCellEdit(node.id, "requiredDepartment", patch.requiredDepartment, parentId);
   };
 
   // A SET now (ruled 2026-10-02). [] means anyone — see the note on
@@ -24362,47 +24427,7 @@ ${jobsCtx || "No jobs found."}`;
                         : <input type="number" min="0" step="0.5" value={panel.hpd??""} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd: e.target.value === "" ? null : parseFloat(e.target.value)}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                      {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
-                        <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
-                          style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, justifyContent:"space-between", border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
-                          {/* Resolved against the JOB (#426). It read `panel.requiredDepartment`
-                              alone, so a panel taking its department from the job showed the
-                              "Dept" placeholder — the other half of the two-surfaces problem,
-                              where the edit form said "Anyone" for the same state. */}
-                          {(() => { const _r = resolveDepartments(panel, null, ed); return (
-                            <span style={{ fontSize:13, color:_r.from==="own"?T.accent:T.textDim, fontStyle:_r.from==="job"?"italic":"normal", fontWeight:600 }}>
-                              {_r.depts.length ? (_r.from==="job" ? `${_r.depts.join(" or ")} · from job` : _r.depts.join(" or ")) : "Dept"}</span>); })()}
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                        </button>
-                        <FadeOnClose open={deptDropId===panel.id}>{deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
-                          {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
-                          <DeptClearRow parent={resolveDepartments(null, null, ed)} isOwn={resolveDepartments(panel,null,ed).from==="own"} onClear={() => updatePanel(toggleDept(panel,null,null,ed))} />
-                          {orgSettings.roles.map((r,ri) => {
-                            const isOn=resolveDepartments(panel,null,ed).depts.some(d=>d.toLowerCase()===r.toLowerCase());
-                            const fk=`panel-${panel.id}-${r}`;
-                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r,null,ed)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
-                              onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
-                              <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                                {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                              <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
-                            </div>;
-                          })}
-                          <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
-                            {deptAddMode
-                              ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v,null,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v,null,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
-                                </div>
-                              : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
-                                  onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                                  <span style={{ fontSize:14 }}>+</span> Create new Department
-                                </div>
-                            }
-                          </div>
-                          <DeptInheritNote parent={resolveDepartments(null, null, ed)} />
-                        </div>}</FadeOnClose>
-                      </div>}
+                      {!hasSubs && deptPicker(panel, null, ed, p => updatePanel(p))}
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
                   </div>
@@ -24410,7 +24435,12 @@ ${jobsCtx || "No jobs found."}`;
                   {!collapsedOps[panel.id] && <>
                   {(panel.subs||[]).map((sub,si) => {
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
-                    return <div key={sub.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6, animation:"fadeIn 0.18s ease-out backwards" }}>
+                    {/* #487. Drag-to-reorder removed: at most 4 of 107 multi-op
+                        panels showed a non-title order, and that was an upper
+                        bound on an inferred measure — an op created out of
+                        sequence is indistinguishable from one dragged. Order is
+                        meaningful on the schedule, where it is drawn. */}
+                    return <div key={sub.id} style={{ marginBottom:6, animation:"fadeIn 0.18s ease-out backwards" }}>
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
                         {ed.isReschedule && (() => {
                           const blocked = opReplanBlock(sub);
@@ -24420,53 +24450,14 @@ ${jobsCtx || "No jobs found."}`;
                             title={blocked || "Re-plan this operation"}
                             style={{ width:15, height:15, cursor: blocked ? "not-allowed" : "pointer", accentColor:T.accent, flexShrink:0, opacity: blocked ? 0.4 : 1 }} />;
                         })()}
-                        <Tip label="Drag to reorder"><div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }}>⠿</div></Tip>
+
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
                         <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                         {sub.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                           <input type="number" min="0" step="0.5" value={sub.hpd??""} onChange={e => { setAvailCheckPassed(false); updateSub({hpd: e.target.value === "" ? null : parseFloat(e.target.value)}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                          <div style={{ position:"relative", flexShrink:0 }}>
-                            <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
-                              // Pill, and sized to match the hours and title inputs beside it
-                              // (7px vertical padding, 13px text) rather than the smaller box it was.
-                              style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
-                              {/* Resolved against its OPERATION and the job (#426). */}
-                              {(() => { const _r = resolveDepartments(sub, panel, ed); return (
-                                <span style={{ fontSize:13, color:_r.from==="own"?T.accent:T.textDim, fontStyle:_r.from==="own"?"normal":"italic", fontWeight:600 }}>
-                                  {_r.depts.length ? (_r.from==="own" ? _r.depts.join(" or ") : `${_r.depts.join(" or ")} · from ${_r.from==="job"?"job":"operation"}`) : "Dept"}</span>); })()}
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                            </button>
-                            <FadeOnClose open={deptDropId===sub.id}>{deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
-                              {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
-                              <DeptClearRow parent={resolveDepartments(null, panel, ed)} isOwn={resolveDepartments(sub,panel,ed).from==="own"} onClear={() => updateSub(toggleDept(sub,null,panel,ed))} />
-                              {orgSettings.roles.map((r,ri) => {
-                                const isOn=resolveDepartments(sub,panel,ed).depts.some(d=>d.toLowerCase()===r.toLowerCase());
-                                const fk=`sub-${sub.id}-${r}`;
-                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r,panel,ed)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":undefined }}
-                                  onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
-                                  <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                                    {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                                  </div>
-                                  <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
-                                </div>;
-                              })}
-                              <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
-                                {deptAddMode
-                                  ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v,panel,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v,panel,ed)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
-                                    </div>
-                                  : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
-                                      onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                                      <span style={{ fontSize:14 }}>+</span> Create new Department
-                                    </div>
-                                }
-                              </div>
-                              <DeptInheritNote parent={resolveDepartments(null, panel, ed)} />
-                            </div>}</FadeOnClose>
-                          </div>
+                          {deptPicker(sub, panel, ed, p => { setAvailCheckPassed(false); updateSub(p); })}
                           <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                         </div>
                       </div>
@@ -25639,7 +25630,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
 
       // ── Sub-jobs: one row per panel, expanding (instantly) to its tasks ─────
-      const COLS = "104px minmax(150px, 2fr) minmax(130px, 1fr) 124px 78px 78px 64px 72px 36px";
+      const COLS = "104px minmax(150px, 2fr) minmax(130px, 1fr) 124px 78px 78px 64px 72px 104px 36px";
       const th = { padding: "9px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", background: T.surface, whiteSpace: "nowrap" };
       const td = { padding: "9px 10px", fontSize: 12.5, color: T.text, display: "flex", alignItems: "center", gap: 7, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", borderTop: `1px solid ${T.border}` };
       const statusChip = (node, pid) => {
@@ -25696,8 +25687,8 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /></svg>
         </button>
       </div> : <div style={td} />;
-      const subJobs = <div style={{ overflowX: "auto" }}><div style={{ display: "grid", gridTemplateColumns: COLS, minWidth: 860 }}>
-        {["Sub-job", "Name", "Assignee", "Status", "Start", "End", "Est. h", "Actual h", ""].map((h, i) => <div key={i} style={th}>{h}</div>)}
+      const subJobs = <div style={{ overflowX: "auto" }}><div style={{ display: "grid", gridTemplateColumns: COLS, minWidth: 964 }}>
+        {["Sub-job", "Name", "Assignee", "Status", "Start", "End", "Est. h", "Actual h", "Dept", ""].map((h, i) => <div key={i} style={th}>{h}</div>)}
         {panels.map((panel, pi) => {
           const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
           const open = !!jdOpenPanels[panel.id];
@@ -25731,6 +25722,8 @@ ${jobsCtx || "No jobs found."}`;
               ? jdCell(panel, "hpd", "number", job.id, true)
               : <div style={{ ...td, fontFamily: T.mono }}>{ph.est ? fmtH(ph.est) : "—"}</div>}
             <div style={{ ...td, fontFamily: T.mono, color: ph.est > 0 && ph.logged > ph.est ? "#f59e0b" : T.accent, fontWeight: 600 }}>{fmtH(ph.logged)}</div>
+            {/* Every panel gets one, unlike the wizard, which hides it when a panel has sub-ops: 3 live panels carry a department and some of them have ops. */}
+            <div style={{ ...td, overflow: "visible" }} onClick={e => e.stopPropagation()}>{canEdit ? deptPicker(panel, null, job, p => jdDeptSave(panel, p, job.id)) : <span style={{ color: T.textSec }}>{resolveDepartments(panel, null, job).depts.join(" or ") || "—"}</span>}</div>
             {rowMenu(panel, job.id, "sub-job", ops.length)}
             {open && ops.map(op => {
               const oh = _opHoursPair(op);
@@ -25746,6 +25739,7 @@ ${jobsCtx || "No jobs found."}`;
                 {jdCell(op, "end", "date", panel.id, true)}
                 {jdCell(op, "hpd", "number", panel.id, true)}
                 <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{fmtH(oh.logged)}</div>
+                <div style={{ ...td, overflow: "visible" }} onClick={e => e.stopPropagation()}>{canEdit ? deptPicker(op, panel, job, p => jdDeptSave(op, p, panel.id)) : <span style={{ color: T.textSec }}>{resolveDepartments(op, panel, job).depts.join(" or ") || "—"}</span>}</div>
                 {rowMenu(op, panel.id, "task", 0)}
               </Fragment>;
             })}
@@ -25884,7 +25878,6 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ flex: 1 }} />
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Btn size="sm" variant="secondary" onClick={() => openJobExport(fresh)}>Export</Btn>
-              {canEdit && <Btn size="sm" variant="secondary" onClick={() => duplicateJobAction(job)}>Duplicate</Btn>}
               {canEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
             </div>
           </div>

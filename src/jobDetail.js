@@ -1,41 +1,12 @@
 // Pure pieces of the Job Details page (scripts/job-detail-test.mjs).
-import { copyForDuplicate } from "./copyRules.js";
+// `duplicateJob` lived here until 2026-10-08 and was removed with the Duplicate
+// button (#486) — it had one caller, which had one call site.
 
 // Sub-job number: the job number plus a two-digit index ("402006-01"). Empty when
 // the job has no number, so the cell shows nothing rather than an invented one.
 export const subJobNumber = (jobNumber, idx) =>
   jobNumber ? `${jobNumber}-${String(idx + 1).padStart(2, "0")}` : "";
 
-// A copy of a job to start again from: same client, PM, priority, estimates and
-// assignees, but fresh ids throughout (deps remapped onto them), every status
-// back to Not Started, and NOTHING THAT RECORDS WHAT HAPPENED TO THE ORIGINAL.
-//
-// What that means is no longer decided here. `copyForDuplicate` owns it, shared
-// with the split and the template, because this file having its own list is what
-// let the three disagree: it dropped ten fields and carried `moveLog`, so a copy
-// of 402057 was born with 201 move-log entries describing moves that happened to
-// something else (#466). The engagement goes with the history now too -- the job
-// number was already cleared so two jobs never share one, and the PO and the due
-// date are the same kind of thing.
-//
-// Deleted panels and tasks are left behind.
-export function duplicateJob(job, { uid, now, settings } = {}) {
-  const idMap = new Map();
-  const live = arr => (arr || []).filter(x => x && !x.deletedAt);
-  const assign = node => { idMap.set(String(node.id), uid()); live(node.subs).forEach(assign); };
-  assign(job);
-  const remap = deps => (deps || []).map(d => idMap.get(String(d)) ?? d);
-  const copy = node => {
-    const out = { ...copyForDuplicate(node, { settings }),
-      id: idMap.get(String(node.id)), status: "Not Started", deps: remap(node.deps) };
-    if (node.subs) out.subs = live(node.subs).map(copy);
-    return out;
-  };
-  const out = copy(job);
-  out.title = `${job.title || "Job"} (copy)`;
-  out.createdAt = now;
-  return out;
-}
 
 // The production sessions recorded against a job, newest first. Matched on any
 // level -- a session carries all three ids, but older rows or ones written against
