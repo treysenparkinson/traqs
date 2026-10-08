@@ -20,6 +20,7 @@
 // else. iOS reads it and iOS cannot be changed here, so it has to keep working — but no web
 // code may treat it as the truth. `finishRequest` (singular) is written no more; it is still
 // READ, because records carrying it exist and will for as long as they are not touched.
+import { isClosedStatus } from "./statusText.js";
 
 /** A pending entry is what makes a request open. Newest first, because the UI wants one. */
 export function pendingEntriesOf(op) {
@@ -125,6 +126,42 @@ export function resolveRequest(op, { requestId = null, status, by = null, byName
     pendingFinish: reqs.some((r) => r && r.status === "pending"),
     finishRequest: undefined,
   };
+}
+
+/**
+ * THE STATUS OF ONE NAMED REQUEST, as the finish-request card reads it.
+ *
+ * Different question from `pendingFinishOf`, which asks whether ANY request is
+ * open on an item. This asks what became of a PARTICULAR one, because a chat
+ * bubble names the request it was raised for and has to say what happened to
+ * that one even after later requests came and went.
+ *
+ * Extracted from the card at TRAQS.jsx so `fixtures/finish-parity.json` can be
+ * computed from the REAL implementation rather than a restatement of it, and so
+ * iOS's `CompletionRequestRules.status` has something to be held against (#477).
+ * Behaviour is unchanged from the inline version.
+ *
+ * Returns "pending" | "approved" | "declined" | whatever a stored row says.
+ */
+export function requestStatusOf(target, requestId) {
+  const row = (target?.finishRequests || []).find((r) => same(r?.id, requestId));
+  if (row?.status) return row.status;
+  // No row to read. Every resolution path clears `finishRequest` and
+  // `pendingFinish`, so either one still being set means pending. Falling back to
+  // pending when nothing resolves matches the time-off bubble and errs toward
+  // leaving the admin able to act rather than stranding a request.
+  if (!target) return "pending";
+  if (same(target.finishRequest?.requestId, requestId) || target.pendingFinish) return "pending";
+  // `isClosedStatus`, not `=== "Finished"`. The inline version this was extracted
+  // from compared the literal; the ratchet exists to stop that spreading, and the
+  // normalised comparison is the same answer on every live record (#446 left 0 of
+  // 582 nodes outside the org's list) while also surviving a spelling drift.
+  return isClosedStatus(target.status) ? "approved" : "pending";
+}
+
+/** Both sides null is NOT a match — see TRAQS.jsx's `sameId`, copied deliberately. */
+function same(a, b) {
+  return a != null && b != null && String(a) === String(b);
 }
 
 /**

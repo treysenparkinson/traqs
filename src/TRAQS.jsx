@@ -35,7 +35,7 @@ import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows, mergeInOrder } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
-import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
+import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
@@ -23348,17 +23348,14 @@ ${jobsCtx || "No jobs found."}`;
                     const frClient = frJob?.clientId ? clients.find(c => sameId(c.id, frJob.clientId)) : null;
                     const frPM = frJob?.projectManagerId ? people.find(p => sameId(p.id, frJob.projectManagerId)) : null;
                     const frDecState = finishDeclineState[m.finishRequestId] || {};
-                    // Status without a finishRequests[] row to read. Every resolution
-                    // path clears `finishRequest` and `pendingFinish`, so either one
-                    // still being set means pending. Falling back to pending when
-                    // nothing resolves matches the time-off bubble and errs toward
-                    // leaving the admin able to act rather than stranding a request.
-                    const frFallback = frTarget
-                      ? (sameId(frTarget.finishRequest?.requestId, m.finishRequestId) || frTarget.pendingFinish
-                          ? "pending"
-                          : frTarget.status === "Finished" ? "approved" : "pending")
-                      : "pending";
-                    const frStatus = frReq?.status || frFallback;
+                    // The status of THIS request, now in src/finishRequests.js so the
+                    // parity fixture is computed from the real implementation and iOS's
+                    // CompletionRequestRules.status has something to be held against
+                    // (#477). Unchanged behaviour, including the fallback to "pending"
+                    // when nothing resolves — which errs toward leaving the admin able
+                    // to act rather than stranding a request, and is one of the two
+                    // places iOS deliberately answers differently.
+                    const frStatus = requestStatusOf(frTarget, m.finishRequestId);
                     // Who decided it. `resolvedByName` is now written on every
                     // decision, by both approval surfaces, because both go through
                     // `resolveRequest` (#476) — so this reads the request's OWN row

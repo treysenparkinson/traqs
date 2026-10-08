@@ -105,6 +105,21 @@ If the string being matched appears anywhere else in the file, a bare presence c
 nothing about the site it names. It does not fail when that site breaks — it keeps finding
 one of the others — so it reads as coverage and is not.
 
+**THE SAME RULE COVERS A COUNT OR A THRESHOLD OVER SEVERAL SITES, and it is one rule rather
+than two: both substitute a statement about a POPULATION for a statement about the SITE.** A
+presence check scoped to the file asks "does this string exist somewhere"; a threshold asks
+"do enough of these sites comply". Neither fails when the site under test is the one that
+broke. Added 2026-10-08 after #476: `(src.match(/resolveRequest\([^)]*byName:/g) || []).length >= 3`
+was meant to prove the schedule surface passes an approver's name, and it **survived the
+mutant that removed the name from exactly that site**, because the other three call sites
+still matched. "At least three of four" is green precisely when the fourth is the broken one.
+
+THE FIX IS R4's OWN: pin the site, not the population. There it became an EXACT count
+(`=== 4`, so a site cannot be quietly lost either), a check that ALL of them carry the
+field, and one anchored regex per surface naming the caller it belongs to. If a count is
+genuinely what you mean, assert it exactly and assert the membership separately — a `>=`
+over call sites is never an assertion about any one of them.
+
 **SIX INSTANCES IN THREE SESSIONS, every one found by a mutant rather than by review:**
 
 | assertion | what it claimed | matches in file |
@@ -1393,6 +1408,50 @@ Everything else was read at the cited line. Nothing was run against live data.
       - when the comment and the readers disagree, the readers win, and the comment is
         a finding in its own right: fix it in the same pass or it misleads the next
         person exactly as it misled you.
+
+18. A PARTIAL EXTRACTION IS A DEFECT ALREADY WRITTEN, AND THE TELL IS A SHARED HELPER
+    THINNER THAN THE BESPOKE CODE BESIDE IT.
+
+    Most of this campaign has been about ONE SHAPE: two implementations that grew apart
+    (#384, #349, #458, the two `loadTemplate`s, the four theme ladders). This is the
+    other one, and it hides better, because it LOOKS like the fix for the first.
+
+    Somebody notices two surfaces disagreeing, extracts the shared part, and writes a
+    comment saying what the extraction does NOT take. That sentence is the defect. The
+    half left behind goes on diverging with the boundary now documented, which reads as
+    a decision rather than a gap, and an auditor who sees a shared helper with two
+    callers concludes the collapse was done.
+
+    THE DIAGNOSTIC, which is the valuable half: do not look for two implementations —
+    look for A SHARED HELPER THAT IS LESS COMPLETE THAN THE BESPOKE CODE STILL SITTING
+    BESIDE IT. That inversion is the signature, and it has a mechanism: repairs land
+    where the bug gets REPORTED. #476's bug was always reported against the chat bubble,
+    so the chat path accumulated an upsert, an approver's name and a decline reason,
+    while `resolveRequest` — the thing the codebase NAMED as the single representation —
+    received none of them. The shared helper was the one losing data.
+
+    SO, WHENEVER AN EXTRACTION DOCUMENTS ITS OWN CARVE-OUT, TREAT THE CARVE-OUT AS AN
+    OPEN DEFECT rather than a design note, and either finish it or log it with a number.
+
+    HOW MANY INSTANCES: **ONE CONFIRMED**, not the three guessed at. Said plainly because
+    the guess was reasonable and the measurement disagreed with it.
+      - CONFIRMED: `finishedOpFields` (#476). Extracted from the two approval surfaces to
+        fix a placement divergence; its comment says it "deliberately does not touch
+        finishRequest or finishRequests: those are the chat path's own bookkeeping". The
+        carved-out half then produced #173, #175 and #476.
+      - NOT AN INSTANCE, and the useful counter-example: `HealthIcon`. It takes `health`
+        and renders a dot; every judgement lives in `src/health.js`. That is what a
+        COMPLETE extraction looks like — the caller kept presentation and gave away the
+        rule, rather than keeping half the rule.
+      - NOT INSTANCES, checked and rejected: `missingFromDelta` is the INVERSE — it
+        "deliberately does not trust `buildDelta`" precisely so the check cannot become a
+        tautology, which is independence bought on purpose, not a carve-out; the
+        `dueDate` routing note and the completion cascade's "DOWN only" are behaviour
+        decisions about a field, with no second implementation anywhere; `invite.js`
+        withholding tokens from the list is a security decision.
+      - UNVERIFIED and left as a lead: two CSS rules "opt out of the shared lift and
+        glow" (TRAQS.jsx:1695, 1802). That is a carve-out at the CALL SITE rather than in
+        the helper, which may be a different shape or the same one upside down.
 
 ## DEFECT LIST
 
@@ -2947,3 +3006,6 @@ The upsert is the sharper half. The chat path carries a comment explaining why i
 **RED FIRST, 13 FAILING ASSERTIONS.** 71 assertions, 14 mutants, 14 caught, 0 survived. **TWO SURVIVED THE FIRST RUN AND BOTH WERE MY ASSERTIONS MEASURING THE POPULATION INSTEAD OF THE SITE:** "at least three call sites pass a name" survived a mutant that stripped the name from one of the four, because the other three still matched. Replaced with an exact count of four, a check that all four carry `byName`, and one pinned regex per surface. A threshold over a set of call sites is not an assertion about any of them.
 
 **THE PARITY FIXTURE: WORTH BUILDING, NARROWLY, AND HALF OF IT NEEDS THE MAC.** The `schedule-parity` pattern is: the JS computes expected values from the real source into `fixtures/schedule-parity.json`, the JS suite fails if the JS drifts, and `ScheduleParityTests` fails on the same file if the Swift drifts — neither side can move alone. **IT DOES NOT FIT AS-IS, because that pattern compares PORTS — the same function on both sides — and these two are deliberately different functions:** `pendingFinishOf(op) -> Bool` asks "is any request open on this op"; `CompletionRequestRules.status(target:requestId:) -> String?` asks "what is the status of THIS request". **IT FITS AFTER ONE REFRAMING:** both sides can answer a request-level projection — *given this op and this request id, is it pending, approved, declined, or unknown* — which the web expresses as "the entry's status, else `pendingFinishOf` ⇒ pending, else null". Then the fixture's job is exactly what makes it worth doing: **the documented departure stops being prose and becomes a per-case field**, so iOS returning `nil` for an unfound target instead of "pending" is one row marked as intended rather than a paragraph nobody diffs. COST: ~15 cases covering the 11 historical combinations plus the mirror-only and unfound-target ones; ~100 lines of JS generator and checker modelled line-for-line on `schedule-parity-test.mjs`; ~70 lines of Swift decoding the same file. **I CAN BUILD THE FIXTURE, THE JS HALF AND THE SWIFT SOURCE; I CANNOT RUN THE SWIFT HALF FROM THIS MACHINE**, so it would ship with the same "correct and uncompiled" caveat as #447 and the Mac build would answer whether `ScheduleParityTests` passes. WHAT TIPS IT TOWARDS YES: the handshake this guards runs ACROSS the two platforms — raised on iOS, approved on the web — which is the one place a divergence is guaranteed to be user-visible, and `schedule-parity`'s own header already names a drifting second implementation as the shape behind most of this campaign's defects. WHAT ARGUES FOR KEEPING IT SMALL: the two rules AGREE on every live record today (0 disagreements across 582 nodes), so this buys protection against a future change rather than fixing a present fault.
+
+
+477. [BUILT 2026-10-08, with the Swift half UNCOMPILED] **THE FINISH-REQUEST STATUS RULE IS NOW PINNED ACROSS BOTH PLATFORMS, AND THE FIXTURE FOUND A SECOND DEPARTURE THE PROSE HAD NEVER RECORDED.** `fixtures/finish-parity.json`, 18 cases, written by `scripts/finish-parity-test.mjs` from `src/finishRequests.js` and read by `FinishParityTests.swift`. **IT IS NOT THE `schedule-parity` PATTERN AS-IS, and the difference is the whole design.** That fixture compares PORTS — one function written twice — and fails if either side moves. These two are deliberately DIFFERENT functions: `requestStatusOf(target, requestId) -> String`, which never returns null because it always guesses, against `CompletionRequestRules.status(target:requestId:) -> String?`, which returns nil for "unknown". So this fixture does not assert agreement. **IT ASSERTS THAT THE DOCUMENTED DEPARTURE IS THE ONLY DIFFERENCE**, by carrying iOS's expected answer as a per-case field beside the web's, with `iosDiffers` and a `why` the generator REFUSES to let you omit — a case declaring a departure with no reason, or a reason with no departure, exits 2. Prose in a header is not diffable; a column is. **THE SECOND DEPARTURE, found by building the fixture rather than by reading either side:** iOS's header documents one difference, that an unfound target stays nil instead of falling back to "pending". The real count is **6 of 18 cases**, because iOS also returns nil when the target IS loaded but carries no row, no stamp and no mirror and is not finished — where the web's fallback still ends in "pending". That shape was written down nowhere. All 6 have the same form, iOS declining to guess where the web guesses, and the Swift suite asserts that as a PROPERTY, so a departure of any other shape fails as a new rule instead of passing as an old one. **TO BUILD IT, THE WEB'S RULE HAD TO BECOME REAL CODE.** It was inline in the finish-request card, so a fixture would have restated it rather than computed from it; `requestStatusOf` now lives in `src/finishRequests.js` and the card calls it. On the way out its `status === "Finished"` became `isClosedStatus(...)` — the `statusLiteralViolations` ratchet caught the relocation, which is exactly what it is for — so the TRAQS.jsx baseline drops 69 → 68 and the comparison survives a spelling drift. **GATE PROVEN RATHER THAN ASSUMED:** mutating the web rule's fallback makes the suite fail and NAME the five cases that changed. The fixture also holds eight properties about itself so it cannot rot into a rubber stamp — among them that it contains both agreeing and departing cases, since a fixture of all agreement tests nothing and one of all departure is not parity. Wired into `npm run build` (106 suites). **THE SWIFT HALF IS WRITTEN AND NOT COMPILED**, per the standing rule: it rides with the next Mac build alongside #447, and what that build answers is whether `FinishParityTests` passes against the committed file — in particular whether `CompletionRequestRules.status` really returns nil in all 6 declared cases, which is asserted from READING the Swift, not from running it. **WHY NOW, WHILE THE TWO AGREE ON EVERY LIVE RECORD:** this rule is the one handshake that CROSSES the platforms — raised on iOS, approved on the web — so a divergence is guaranteed to reach a user, and today's agreement is what makes it cheap to pin rather than a reason to skip it.

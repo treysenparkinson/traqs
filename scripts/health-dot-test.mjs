@@ -114,7 +114,9 @@ console.log("\n3. #445 — the ratchet over raw status literals");
   // and stops the eighty-second being written.
   const { readdirSync, statSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const BASELINE = { "TRAQS.jsx": 69, "timeclock.js": 3, "barPaint.js": 2, "dragMove.js": 2,
+  // 69 -> 68: the card's `status === "Finished"` left with `requestStatusOf` (#477),
+  // and became `isClosedStatus` on the way, so it is not merely relocated.
+  const BASELINE = { "TRAQS.jsx": 68, "timeclock.js": 3, "barPaint.js": 2, "dragMove.js": 2,
     "statsMath.js": 2, "taskActions.js": 2, "overlapRules.js": 1 };
   const files = [];
   const walk = (d) => { for (const f of readdirSync(d)) { if (f === "node_modules" || f.startsWith(".")) continue;
