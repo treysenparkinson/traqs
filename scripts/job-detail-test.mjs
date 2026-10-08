@@ -45,8 +45,17 @@ const D = duplicateJob(JOB, { uid, now: "2026-10-03T12:00:00.000Z" });
 const ids = o => [o.id, ...(o.subs || []).flatMap(ids)];
 check("duplicate: every id is fresh", () => !ids(D).some(i => ids(JOB).includes(i)) && new Set(ids(D)).size === ids(D).length || ids(D).join(","));
 check("duplicate: title marked as a copy, job number cleared", () => D.title === "MMD (copy)" && !D.jobNumber || `${D.title} / ${D.jobNumber}`);
-check("duplicate: keeps client, PM, PO, priority, hpd, notes, due", () =>
-  eq([D.clientId, D.projectManagerId, D.poNumber, D.pri, D.hpd, D.notes, D.dueDate], [3, 7, "PO-9", "High", 7.5, "two enclosures", "2026-07-31"]));
+// RE-RULED 2026-10-08 (#466). This asserted that a duplicate keeps the PO, the
+// notes and the due date. It no longer does, and that is the decision rather
+// than a regression: the PO and the due date identify the ENGAGEMENT, not the
+// work — two jobs sharing a PO is a billing problem — and `notes` is a running
+// log on the live board ("PB. Status: Crated. Contact Riley. 100%."), so a copy
+// inheriting it is born announcing someone else's progress. What describes the
+// work still comes along, which is what the first half of this now checks.
+check("duplicate: keeps client, PM, priority and the estimate", () =>
+  eq([D.clientId, D.projectManagerId, D.pri, D.hpd], [3, 7, "High", 7.5]));
+check("duplicate: leaves the engagement and the running log behind", () =>
+  eq([D.poNumber, D.dueDate, D.notes, D.jobNumber], [undefined, undefined, undefined, undefined]));
 check("duplicate: deleted panels are not copied", () => eq(D.subs.map(p => p.title), ["Layout", "Wire A"]));
 check("duplicate: every status starts over", () => [D, ...D.subs, ...D.subs.flatMap(p => p.subs)].every(x => x.status === "Not Started") || "a status carried over");
 check("duplicate: no hours, finish requests, files or sign-offs carried over", () => {

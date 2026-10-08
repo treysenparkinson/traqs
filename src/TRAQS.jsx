@@ -11,6 +11,7 @@ const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
+import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
@@ -7864,7 +7865,7 @@ Extraction rules:
   // next poll, pushed into dataRef and saved at once -- then opened.
   const duplicateJobAction = (job) => {
     if (!can("editJobs") || !job) return;
-    const nw = duplicateJob(job, { uid, now: new Date().toISOString() });
+    const nw = duplicateJob(job, { uid, now: new Date().toISOString(), settings: orgSettings });
     protectedJobIds.current.add(nw.id);
     setTasks(p => [...p, nw]);
     setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0);
@@ -17535,7 +17536,7 @@ ${jobsCtx || "No jobs found."}`;
                         let next = applyDragMove(list, _split ? _plan.slice(1) : _plan, { date: TD, movedBy: movedByName, people });
                         // …and a split grabbed op becomes its two parts, each logged.
                         if (_split) next = applySplit(next, { node: bar.task, keep: _parts.keep, go: { ..._g, hpd: _parts.remainderHpd }, newId: newOpId, date: TD, movedBy: movedByName,
-                          reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${bar.task.title || ""}"` } });
+                          reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${bar.task.title || ""}"` }, settings: orgSettings });
                         return recalcBounds(next, movedByName);
                       };
                       // Backstop: the result goes through the no-overlap guard. Anything the guard
@@ -24187,23 +24188,15 @@ ${jobsCtx || "No jobs found."}`;
 
       const shopCrew = people.filter(p => p.userRole === "user");
 
+      // Both load paths go through `nodesFromTemplate` (#467). They used to be two
+      // near-copies that each minted fresh ids and then wrote `deps: o.deps || []`
+      // verbatim, leaving every dependency pointing at the TEMPLATE's own op ids —
+      // ids that are not on this board. The shared one remaps them.
       const loadTemplate = (tpl) => {
         setEd(p => {
           const existingSubs = p.subs || [];
-          const nextIndex = existingSubs.length;
-          const newOps = (tpl.ops || []).map((o, i) => ({
-            ...o,
-            id: uid(),
-            title: o.title || "Op-" + String(nextIndex + i + 1).padStart(3, "0"),
-            team: o.team || [],
-            subs: (o.subs || []).map(s => ({ ...s, id: uid() })),
-            status: "Not Started",
-            start: "",
-            end: "",
-            notes: o.notes || "",
-            deps: o.deps || [],
-          }));
-          return { ...p, subs: [...existingSubs, ...newOps] };
+          const { ops } = nodesFromTemplate(tpl.ops, { uid, nextIndex: existingSubs.length });
+          return { ...p, subs: [...existingSubs, ...ops] };
         });
       };
       {/* paddingTop 0 as a page: bx() reserves 54px of head-room for the FLOATING Back
@@ -28783,7 +28776,7 @@ ${jobsCtx || "No jobs found."}`;
         const movedByName = loggedInUser?.name || "Split";
         const newOpId = uid();
         const ok = commitLanding((list) => recalcBounds(applySplit(list, { node: op, keep, go: { ..._plan[0], hpd: part2, title: op.title + " (2)", status: "Not Started" }, newId: newOpId, date: TD, movedBy: movedByName,
-          reasons: { keep: "Split: first part", go: `Split from "${op.title || ""}"` } }), movedByName), [String(op.id), newOpId], op.title);
+          reasons: { keep: "Split: first part", go: `Split from "${op.title || ""}"` }, settings: orgSettings }), movedByName), [String(op.id), newOpId], op.title);
         if (ok) toast("Operation split");
         setSplitModal(null);
       };
@@ -29452,13 +29445,16 @@ ${jobsCtx || "No jobs found."}`;
               onClick={() => {
                 const name = templateNameInput.trim();
                 if (!name) return;
-                // Save full panel structure (ops + their sub-ops), cleared of stale schedule data
-                const ops = (saveTemplateModal || []).filter(o => o.title?.trim()).map(o => ({
-                  ...o,
-                  title: o.title.replace(/-\d+$/, "").trimEnd(),
-                  start: "", end: "", team: [], status: "Not Started", qty: undefined,
-                  subs: (o.subs || []).map(s => ({ ...s, start: "", end: "", team: [], status: "Not Started" })),
-                }));
+                // Save full panel structure (ops + their sub-ops). What a template
+                // keeps is `copyForTemplate`'s to decide, shared with the duplicate
+                // and the split (#467): this used to clear five SCHEDULE fields and
+                // no work field at all, so a template captured from a worked panel
+                // carried its hours, history, finish requests and photos. It also
+                // cleared start/end while leaving startHour/endHour — an hour of
+                // day with no date. The procedure in `notes` is the one work-record
+                // field a template keeps, because that is what a template is for.
+                const ops = (saveTemplateModal || []).filter(o => o.title?.trim())
+                  .map(o => templateOpFromNode(o, { settings: orgSettings }));
                 persistTemplates([...templates, { id: uid(), name, ops }]);
                 setSaveTemplateModal(false);
               }}
@@ -31514,27 +31510,12 @@ ${jobsCtx || "No jobs found."}`;
       const removeOp = (panelIdx, opIdx) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.filter((_, j) => j !== opIdx) } : pn) }));
       const updOp = (panelIdx, opIdx, patch) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.map((op, j) => j === opIdx ? { ...op, ...patch } : op) } : pn) }));
       const loadTemplate = (tpl) => {
-        const newIds = [];
+        let newIds = [];
         setEj(p => {
           const existing = p.subs || [];
-          const nextIndex = existing.length;
-          const newOps = (tpl.ops || []).map((o, i) => {
-            const pid = uid();
-            newIds.push(pid);
-            return {
-              ...o,
-              id: pid,
-              title: o.title || "Op-" + String(nextIndex + i + 1).padStart(3, "0"),
-              team: o.team || [],
-              subs: (o.subs || []).map(s => { const oid = uid(); newIds.push(oid); return { ...s, id: oid }; }),
-              status: "Not Started",
-              start: "",
-              end: "",
-              notes: o.notes || "",
-              deps: o.deps || [],
-            };
-          });
-          return { ...p, subs: [...existing, ...newOps] };
+          const r = nodesFromTemplate(tpl.ops, { uid, nextIndex: existing.length });
+          newIds = r.newIds;
+          return { ...p, subs: [...existing, ...r.ops] };
         });
         markNew(...newIds);
         flashToast(`Template "${tpl.name}" loaded`);

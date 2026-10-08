@@ -13,6 +13,7 @@ import { overlapsWith, occupyingUnits } from "./overlapRules.js";
 import { unitDepartments, personDeptMatch, personDepartments, normalizeDepartments } from "./scheduleRules.js";
 import { shopMs } from "./shopTime.js";
 import { leaveOn } from "./timeOff.js";
+import { copyForSplit } from "./copyRules.js";
 
 const sid = (x) => String(x);
 const same = (a, b) => a != null && b != null && sid(a) === sid(b);
@@ -376,7 +377,7 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
  *   newId      the new op's id
  *   reasons    { keep, go } — moveLog wording for each part
  */
-export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reasons = {} }) {
+export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reasons = {}, settings }) {
   const id = sid(node.id);
   const keepLog = {
     fromStart: node.start, fromEnd: node.end, toStart: keep.start, toEnd: keep.end,
@@ -388,10 +389,18 @@ export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reason
     const idx = (panel.subs || []).findIndex(o => same(o.id, id));
     if (idx < 0) return panel;
     const orig = panel.subs[idx];
-    const { actualHours: _a, pendingFinish: _p, pendingSession: _s, finishRequest: _f, ...base } = orig;
+    // What the new half does NOT inherit is `copyForSplit`'s to decide, shared
+    // with the duplicate and the template. This used to destructure off four
+    // fields by hand, and the four included `finishRequest` -- the DEPRECATED
+    // singular pointer -- while keeping `finishRequests`, the authoritative
+    // list. So the half nobody requested inherited the original's open finish
+    // request, since `pendingFinishOf` rule 1 needs no mirror (#468).
+    const base = copyForSplit(orig, { settings });
     const kept = { ...orig, hpd: keep.hpd, start: keep.start, end: keep.end, startHour: keep.startHour, endHour: keep.endHour,
       moveLog: [...(orig.moveLog || []), keepLog] };
-    const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0, deps: [],
+    // `deps` is NOT cleared any more. The new half is the same work continuing,
+    // so a predecessor the op had before the split it still has (#468).
+    const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0,
       ...(go.title ? { title: go.title } : {}),
       status: go.status || (orig.status === "Finished" ? "Not Started" : (orig.status === "In Progress" ? "Not Started" : orig.status || "Not Started")),
       start: go.to.start, end: go.to.end, startHour: go.to.startHour, endHour: go.to.endHour, team: go.to.team,
