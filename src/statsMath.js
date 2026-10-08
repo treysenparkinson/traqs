@@ -183,6 +183,44 @@ export function producedHoursByScope(sessions) {
   return { byOp, byPanel, byJob };
 }
 
+/**
+ * WHO WORKED EACH SCOPE MOST RECENTLY, from the same session rows (#460).
+ *
+ * The Finish Requests cards named the worker by taking the last `timeclock` row
+ * whose `jobRefs` mentioned the op. `jobRefs` is PAYROLL association — the jobs
+ * somebody picked at clock-in — so on Matrix it reached 4 ops out of 55 and the
+ * cards fell back to printing the job's title where a person's name belongs.
+ *
+ * Scoped exactly like `producedHoursByScope`, and for the same reason: hours are
+ * recorded against whatever somebody clocked into, so a panel-level session has
+ * a null `opId` and would otherwise name nobody.
+ *
+ * ORDERED BY WHEN THE WORK ENDED, with a session still running counted as the
+ * most recent — it has no `clockOut`, and treating a missing one as the epoch
+ * would rank the person working right now below everybody who has stopped.
+ */
+export function lastWorkedByScope(sessions) {
+  const byOp = new Map(), byPanel = new Map(), byJob = new Map();
+  const at = (s) => (s.clockOut ? Date.parse(s.clockOut) : Number.POSITIVE_INFINITY);
+  const best = new Map();   // map -> key -> timestamp, so a later row wins
+  const put = (map, key, s) => {
+    if (key == null || key === "" || s.personId == null) return;
+    const k = String(key), t = at(s);
+    const seen = best.get(map);
+    const prev = seen ? seen.get(k) : undefined;
+    if (prev !== undefined && prev > t) return;
+    if (!seen) best.set(map, new Map([[k, t]])); else seen.set(k, t);
+    map.set(k, String(s.personId));
+  };
+  for (const s of sessions || []) {
+    if (!s || s.deletedAt || typeof s !== "object") continue;
+    put(byOp, s.opId, s);
+    put(byPanel, s.panelId, s);
+    put(byJob, s.jobId, s);
+  }
+  return { byOp, byPanel, byJob };
+}
+
 
 /**
  * Pay, production and break hours bucketed by the shop's calendar day.

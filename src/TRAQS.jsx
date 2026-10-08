@@ -37,7 +37,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -7201,6 +7201,24 @@ Extraction rules:
         ?? producedScopes.byJob.get(id)
         ?? 0;
   }, [producedScopes]);
+  // WHO WORKED IT LAST, from the same session rows as the hours (#460).
+  //
+  // The Finish Requests cards resolved this from the last `timeclock` row whose
+  // `jobRefs` mentioned the op. That is PAYROLL association — the jobs somebody
+  // picked at clock-in — and on Matrix only 5 of 177 rows carry any, reaching 4
+  // ops of 55. So `lastWorker` was undefined for nearly every op and the card's
+  // `{worker?.name || job.title}` printed the JOB'S TITLE where the requester's
+  // name belongs. Same scope fallback as producedFor, because a panel-level
+  // clock-in has a null opId and would otherwise name nobody.
+  const lastWorkedScopes = useMemo(() => lastWorkedByScope(productionHours), [productionHours]);
+  const lastWorkerFor = useCallback((t) => {
+    if (!t) return null;
+    const id = String(t.id);
+    const pid = lastWorkedScopes.byOp.get(id)
+             ?? lastWorkedScopes.byPanel.get(id)
+             ?? lastWorkedScopes.byJob.get(id);
+    return pid == null ? null : (people.find(p => sameId(p.id, pid)) || null);
+  }, [lastWorkedScopes, people]);
   // ACTUAL HOURS -- what the crew has really put in, as against the estimate stored on the op.
   // Works for a job, a panel or an op: hours are recorded against whatever somebody clocked
   // into, so only a leaf has any of its own and everything above it is a sum (rollupLeafHours).
@@ -13663,7 +13681,7 @@ ${jobsCtx || "No jobs found."}`;
                       {col.type === "select" && (col.options || []).length > 0
                         ? <div style={{ flex: 1 }}><SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => commitCellEdit(fresh.id, key, v)} /></div>
                         : col.type === "date"
-                        ? <DateField square compact value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => commitCellEdit(fresh.id, key, v)} />
+                        ? <DateField square compact portal value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => commitCellEdit(fresh.id, key, v)} />
                         : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                     </div>;
                   })}
@@ -14328,7 +14346,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div key={col.id} style={{ ...cellBase, cursor: "text", ...ccCond }} onClick={e => { e.stopPropagation(); startEdit(e, item.id, key); }}>
                     {isEdit(item.id, key)
                       ? col.type === "date"
-                      ? <div onClick={e => e.stopPropagation()}><DateField square compact value={val || ""} onChange={v => commitEdit(item.id, key, v, pid)} /></div>
+                      ? <div onClick={e => e.stopPropagation()}><DateField square compact portal value={val || ""} onChange={v => commitEdit(item.id, key, v, pid)} /></div>
                       : <input className="tq-sq tq-bare" autoFocus type={col.type === "number" ? "number" : "text"} defaultValue={val} onBlur={e => commitEdit(item.id, key, e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, padding: "1px 4px" }} />
                       : <span style={{ fontSize: 12, color: val ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{val || "—"}</span>}
                   </div>
@@ -21738,7 +21756,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div>
                       {pendingFinishOps.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No pending finish requests.</div>}
                       {pendingFinishOps.map(({ job, panel, op }) => {
-                        const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
+                        const loggedHours = _opHoursPair(op).logged;
                         return (
                           <div key={op.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid #f59e0b30`, padding: "16px", marginBottom: 10 }}>
                             <div style={{ fontSize: 12, color: T.textDim, marginBottom: 3 }}>{job.title}</div>
@@ -22122,8 +22140,7 @@ ${jobsCtx || "No jobs found."}`;
           // Finish requests (admin): the pending ones, each opening the Finish
           // Requests view on the right.
           const finishList = isAdmin ? rvSx("Finish requests", pendingFinishOps.length ? rvChip(String(pendingFinishOps.length), "r") : "", pendingFinishOps.length ? pendingFinishOps.slice(0, 5).map(({ job, panel, op }) => {
-            const lastWorker = [...timeclock].reverse().find(e => e.jobRefs?.some(r => r.opId === op.id));
-            const worker = lastWorker ? people.find(p => p.id === lastWorker.personId) : null;
+            const worker = lastWorkerFor(op);
             return (
               <div key={op.id} className="rv-row">
                 {worker ? <PersonAvatar person={worker} size={24} /> : <span className="rv-dot" />}
@@ -22372,9 +22389,8 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Op-level pending finish requests (existing behaviour) */}
                   {pendingFinishOps.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No pending finish requests.</div>}
                   {pendingFinishOps.map(({ job, panel, op }) => {
-                    const loggedH = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
-                    const lastWorker = [...timeclock].reverse().find(e => e.jobRefs?.some(r => r.opId === op.id));
-                    const worker = lastWorker ? people.find(p => p.id === lastWorker.personId) : null;
+                    const loggedH = _opHoursPair(op).logged;
+                    const worker = lastWorkerFor(op);
                     return (
                       <div key={op.id} style={{ padding: "14px 16px", marginBottom: 10, background: T.surface, borderRadius: T.radiusSm, border: "1px solid #f59e0b33", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                         <div style={{ flex: 1, minWidth: 180 }}>
@@ -25012,10 +25028,25 @@ ${jobsCtx || "No jobs found."}`;
                           const {_panelScheduled,_panelStart,_panelEnd,_panelTeam,placedSubs,...rest}=op;
                           return {...rest,start:_panelStart,end:_panelEnd,team:_panelTeam};
                         }
-                        const placed=op.placedSubs;
+                        // `placedSubs` IS DROPPED HERE, not just read (#461). The
+                        // branch above destructures it out; this one spread `...op`
+                        // and carried it straight to S3 — 18 panels on Matrix store
+                        // one, 62 of their entries disagree with the real op (one
+                        // names an op that no longer exists), and it is 107 KB,
+                        // 15.6% of tasks.json, on every read.
+                        //
+                        // Nothing ever read a stored copy: `resultSubs` rebuilds
+                        // `placedSubs` fresh from `op.subs` on every run, so the
+                        // read below always sees this run's. It was pure weight.
+                        //
+                        // The scratch convention did not catch it because the
+                        // convention is a LEADING UNDERSCORE (`_outcome`, `_placed`)
+                        // and `placedSubs` has none, so neither `stripDerived` nor
+                        // `_bsClean`'s own destructure applied on this path.
+                        const {placedSubs:placed,...opRest}=op;
                         const opStart=placed[0]?.start||slot.start;
                         const opEnd=placed[placed.length-1]?.end||slot.start;
-                        return {...op,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,...rest}) => rest)};
+                        return {...opRest,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,_outcome,...rest}) => rest)};
                       });
                       // ── THE BACKSTOP, AND IT NO LONGER ABORTS (#344) ──────────────────
                       //

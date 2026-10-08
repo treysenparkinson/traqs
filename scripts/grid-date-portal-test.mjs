@@ -71,5 +71,26 @@ ok("...and in portal mode mounts the calendar on document.body", /portal \? crea
 ok("...positioned fixed, so no ancestor overflow clips it", /portal \? \{ position: "fixed"/.test(comp), true);
 ok("...and a click inside the portalled calendar is not 'outside'", /!popRef\.current\?\.contains\(e\.target\)/.test(comp), true);
 
+console.log("\n4. #459 — THE TWO SITES THIS ENTRY LEFT UNMEASURED");
+{
+  // #450 fixed the three FIXED-column pickers and recorded that the
+  // CUSTOM-column cells remained unmeasured: "same row container, plausibly the
+  // same clip". They are in the same container — `cellBase` carries
+  // `overflow: hidden` — and the select cell four lines above the date cell
+  // escapes it through `placePopover` while the date cell rendered inline.
+  ok("the grid custom-column date cell portals",
+    /<div onClick=\{e => e\.stopPropagation\(\)\}><DateField square compact portal/.test(SRC), true);
+  ok("the job-detail custom-field date picker portals",
+    /<DateField square compact portal value=\{val \|\| ""\} placeholder="—"/.test(SRC), true);
+  ok("no square DateField is left unportaled", /<DateField square compact value=/.test(SRC), false);
+  // The select cell's own escape route must stay — the inconsistency between
+  // the two is what made this visible at all.
+  ok("the custom-column select still escapes via placePopover",
+    /placePopover\(r, \(col\.options/.test(SRC), true);
+  // And the container really does clip, which is the premise of all of it.
+  ok("cellBase still clips, so portalling is still required",
+    /const cellBase = \{[^}]*overflow: "hidden"/.test(SRC), true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -150,5 +150,42 @@ console.log("\n7. The normalisers mark, and the save strips");
     order("const dedupedTasks = stripDerived(", "buildDelta(dedupedTasks,", "saveTasks(_tasksBody"), []);
 }
 
+console.log("\n8. #461/#462 — RUN-LOCAL SCRATCH NEVER REACHES S3");
+{
+  // The convention was a leading underscore and nothing enforced it. Measured
+  // 2026-10-08 on Matrix: `_rescheduleStartDate` — the schedule modal's own
+  // date input — persisted on 4 live nodes, and `placedSubs` (a preview, no
+  // underscore, so outside the convention entirely) on 18 panels at 107 KB,
+  // 15.6% of tasks.json, read by nothing.
+  const tree = [{
+    id: "j", title: "J", _rescheduleStartDate: "2026-10-01", _cc_abc: "a custom column value",
+    subs: [{ id: "p", _placed: true, _outcome: null, _panelScheduled: true, _cc_x: "keep",
+      subs: [{ id: "o", hpd: 4, _derived: ["color"], color: "#fff" }] }],
+  }];
+  const out = stripDerived(tree);
+  const j = out[0], p = j.subs[0], o = p.subs[0];
+  ok("the modal's draft date does not reach S3", "_rescheduleStartDate" in j, false);
+  ok("...nor the replan's run-local flags", ["_placed", "_outcome", "_panelScheduled"].some(k => k in p), false);
+  // `_cc_<uuid>` is REAL DATA under an underscore key, which is why this cannot
+  // simply drop everything starting with one.
+  ok("custom-column values survive at job level", j._cc_abc, "a custom column value");
+  ok("...and below it", p._cc_x, "keep");
+  ok("a derived default is still stripped by its marker", "color" in o, false);
+  ok("...and the marker goes with it", "_derived" in o, false);
+  ok("real fields are untouched", [j.title, o.hpd], ["J", 4]);
+
+  // `placedSubs` has no underscore, so it is NOT the strip's job — it is dropped
+  // where it is created, in the replan's own write path.
+  const { readFileSync } = await import("node:fs");
+  const { codeOf } = await import("./_code-view.mjs");
+  const CODE = codeOf(readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8"));
+  ok("the replan drops placedSubs rather than spreading it",
+    /const \{placedSubs:placed,\.\.\.opRest\}=op;/.test(CODE), true);
+  ok("...and no longer spreads the op wholesale into the write",
+    /return \{\.\.\.op,start:opStart,end:opEnd,team:placed\[0\]\?\.team/.test(CODE), false);
+  ok("...and strips the per-sub scratch too",
+    /subs:placed\.map\(\(\{_placed,_outcome,\.\.\.rest\}\) => rest\)/.test(CODE), true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

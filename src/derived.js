@@ -51,6 +51,22 @@ export function markDerived(node, ...fields) {
  * NEVER THROWS. It runs on the save path, and a stripper that can fail is a
  * stripper that can lose somebody's work.
  */
+// RUN-LOCAL SCRATCH, MADE A MECHANISM RATHER THAN A CONVENTION (#462).
+//
+// This codebase has long marked run-local state with a leading underscore —
+// `_outcome`, `_placed`, `_panelScheduled` — and relied on each write path
+// destructuring them out by hand. Measured 2026-10-08: `_rescheduleStartDate`,
+// the schedule modal's own date input, is persisted on 4 live nodes. It CARRIES
+// the underscore, so the convention named it correctly and still nothing removed
+// it, because there was no single place that removes run-local state before a
+// write — only one probe's local destructure and this function's `_derived`
+// marker. A convention nothing enforces is documentation.
+//
+// `_cc_<uuid>` is the exception and is REAL DATA: custom-column values are
+// stored under dynamic underscore keys, which is why this cannot simply drop
+// everything beginning with one.
+const SCRATCH = (k) => k.startsWith("_") && !k.startsWith("_cc_") && k !== DERIVED_KEY;
+
 export function stripDerived(value) {
   if (Array.isArray(value)) return value.map(stripDerived);
   if (!value || typeof value !== "object") return value;
@@ -61,6 +77,7 @@ export function stripDerived(value) {
   for (const [k, v] of Object.entries(value)) {
     if (k === DERIVED_KEY) continue;
     if (marked.includes(k)) continue;
+    if (SCRATCH(k)) continue;
     out[k] = stripDerived(v);
   }
   return out;
