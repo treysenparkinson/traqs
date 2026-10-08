@@ -2063,7 +2063,9 @@ function AuthGate() {
         const last = Number(sessionStorage.getItem("tq_reauth_at") || 0);
         if (Date.now() - last > 15000) {
           sessionStorage.setItem("tq_reauth_at", String(Date.now()));
-          try { await loginWithRedirect({ appState: { returnTo: window.location.pathname } }); } catch {}
+          // #457. The org's connection, like the other two sign-ins: without it Auth0
+          // shows its default page, where an enterprise (Microsoft) connection has no button.
+          try { await loginWithRedirect({ appState: { returnTo: window.location.pathname }, ...(orgConfig?.connection ? { authorizationParams: { connection: orgConfig.connection } } : {}) }); } catch {}
         }
       }
       throw e;
