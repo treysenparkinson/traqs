@@ -1573,7 +1573,7 @@ extension Panel {
         self.title = title
         self.start = ""
         self.end = ""
-        self.status = .notStarted
+        self.statusRaw = JobStatus.notStarted.rawValue   // not `status`: its setter reads self before init completes
         self.pri = .medium
         self.team = []
         self.hpd = hpd
@@ -1600,7 +1600,7 @@ extension Operation {
         self.title = title
         self.start = ""
         self.end = ""
-        self.status = .notStarted
+        self.statusRaw = JobStatus.notStarted.rawValue   // not `status`: its setter reads self before init completes
         self.pri = .medium
         self.team = []
         self.hpd = hpd

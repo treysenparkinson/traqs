@@ -82,7 +82,7 @@ enum SimpleJob {
 
         return Job(id: newId(), title: title,
                    start: d.start, end: d.end,
-                   status: .notStarted, pri: .medium,
+                   status: JobStatus.notStarted.rawValue, pri: .medium,
                    color: color,
                    subs: [sub],
                    jobType: "general",

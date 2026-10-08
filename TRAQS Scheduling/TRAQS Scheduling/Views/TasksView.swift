@@ -2495,7 +2495,7 @@ struct JobRow: View {
 struct StatusBadge: View {
     let status: String
     private var known: JobStatus? { JobStatus(rawValue: status) }
-    private var tint: Color { known?.color ?? TColors.textDim }
+    private var tint: Color { known?.color ?? Color(hex: T.muted) }
     var body: some View {
         Text(status.isEmpty ? "Not Started" : status)
             .font(TTypo.xsBold(11))

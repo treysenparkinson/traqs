@@ -134,6 +134,7 @@ struct TaskAssignment: Identifiable {
 
     var title: String { op?.title.isEmpty == false ? op!.title : panel.title }
     var status: JobStatus { op?.status ?? panel.status }
+    var statusRaw: String { op?.statusRaw ?? panel.statusRaw }   // what the server holds (#447) — `status` collapses unmodelled values to .notStarted
     var hpd: Double { op?.hpd ?? panel.hpd }
     var startDate: Date? { (op?.start ?? panel.start).asDate }
     var endDate: Date? { (op?.end ?? panel.end).asDate }
