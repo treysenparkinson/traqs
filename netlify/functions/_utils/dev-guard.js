@@ -33,9 +33,29 @@ export class LocalDevWriteRefused extends Error {
 // Recorded so the suite can tell "skipped by the tripwire" from "not configured".
 const record = (kind) => { (globalThis.__DEV_GUARD_SKIPS ??= []).push(kind); };
 
+// #454 option 2(e), built 2026-10-08 (#500). The tripwire made local dev
+// READ-ONLY, "until option 2 exists" — which meant every local save failed and
+// nothing could be tested end to end on a laptop.
+//
+// A write is now allowed when the developer has NAMED the bucket they are
+// writing to as their dev bucket: `DEV_S3_BUCKET` must be set AND equal the
+// `S3_BUCKET` actually in use. Both, because either alone is a way to be wrong —
+// an unset name keeps the tripwire shut (the safe default, and today's
+// behaviour), and a mismatch means the developer believes they are pointed
+// somewhere they are not.
+//
+// PRODUCTION IS REFUSED BY NAME AND NOTHING OVERRIDES IT. Naming it as the dev
+// bucket does not open it; that is a typo away from #453, where one local
+// autosave removed 287 real records. The name is here rather than in an env var
+// so it cannot be edited out of the way from a shell.
+const PRODUCTION_BUCKET = "traqs-bucket";
+
 /** Throws before an S3 write when running under `netlify dev`. */
 export function refuseWriteInLocalDev(what) {
   if (!isLocalDev()) return;
+  const target = String(process.env.S3_BUCKET || "").trim();
+  const dev = String(process.env.DEV_S3_BUCKET || "").trim();
+  if (dev && target && target === dev && target !== PRODUCTION_BUCKET) return;
   record("s3");
   console.warn(`[dev-guard] local dev: refused S3 write (${what}) — #454`);
   throw new LocalDevWriteRefused(what);

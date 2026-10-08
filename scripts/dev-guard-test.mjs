@@ -76,6 +76,7 @@ const backup = await import("../netlify/functions/backup-daily.js");
 let guard;
 try { guard = await import("../netlify/functions/_utils/dev-guard.js"); }
 catch (e) { console.error("could not load _utils/dev-guard.js:", e.message); process.exit(2); }
+const GUARD = readFileSync(new URL("../netlify/functions/_utils/dev-guard.js", import.meta.url), "utf8");
 
 // Runs fn with the guard on/off; returns what went out and how it ended.
 const run = async (on, fn) => {
@@ -186,6 +187,47 @@ console.log("\n6. THE REFUSAL REACHES THE DEVELOPER INSTEAD OF BECOMING A BARE 5
   // Reads keep their plain message: the guard never refuses a read, so a read
   // failure really is just a read failure.
   ok("a READ failure is still a plain 500", /catch \{ return err\(500, "Failed to read/.test(TC), true);
+}
+
+console.log("\n7. OPTION 2(e): A DEV BUCKET MAY BE WRITTEN; PRODUCTION MAY NOT");
+{
+  // #500. The tripwire made local dev read-only, by design and "until option 2
+  // exists" (#454). This is the half of option 2 that is code: writes are
+  // allowed when S3_BUCKET is the bucket the developer NAMED as their dev
+  // bucket, and production is refused BY NAME regardless of what else is set.
+  const env = (o) => { for (const [k, v] of Object.entries(o)) { if (v === null) delete process.env[k]; else process.env[k] = v; } };
+  const refused = (fn) => { try { fn(); return false; } catch (e) { return !!e.localDevRefused; } };
+  const save = { NETLIFY_DEV: process.env.NETLIFY_DEV ?? null, S3_BUCKET: process.env.S3_BUCKET ?? null, DEV_S3_BUCKET: process.env.DEV_S3_BUCKET ?? null };
+
+  env({ NETLIFY_DEV: "true", S3_BUCKET: "traqs-dev", DEV_S3_BUCKET: "traqs-dev" });
+  ok("a write to the named dev bucket is ALLOWED", refused(() => guard.refuseWriteInLocalDev("writeJson orgs/DEV/people.json")), false);
+
+  // The default is unchanged: no DEV_S3_BUCKET means the tripwire stays shut.
+  env({ DEV_S3_BUCKET: null });
+  ok("...but only once it is named — unset still refuses", refused(() => guard.refuseWriteInLocalDev("writeJson orgs/DEV/people.json")), true);
+
+  // The point of the exercise: production is refused by name even if somebody
+  // points DEV_S3_BUCKET at it. A typo must not re-open #453.
+  env({ S3_BUCKET: "traqs-bucket", DEV_S3_BUCKET: "traqs-bucket" });
+  ok("PRODUCTION IS REFUSED BY NAME, even when named as the dev bucket",
+    refused(() => guard.refuseWriteInLocalDev("writeJson orgs/MTX2026TRAQS/people.json")), true);
+
+  // A mismatch is refused too: the developer is pointed at one bucket and thinks
+  // they are writing another.
+  env({ S3_BUCKET: "traqs-bucket", DEV_S3_BUCKET: "traqs-dev" });
+  ok("a mismatch between target and dev bucket refuses", refused(() => guard.refuseWriteInLocalDev("writeJson orgs/X/a.json")), true);
+  // ...and the mismatch must refuse on its OWN account, not because the target
+  // happened to be production. A mutant that allowed any non-production write
+  // survived the case above for exactly that reason.
+  env({ S3_BUCKET: "traqs-somewhere-else", DEV_S3_BUCKET: "traqs-dev" });
+  ok("...even when NEITHER bucket is production", refused(() => guard.refuseWriteInLocalDev("writeJson orgs/X/a.json")), true);
+
+  // And none of it applies off the laptop.
+  env({ NETLIFY_DEV: null, S3_BUCKET: "traqs-bucket", DEV_S3_BUCKET: null });
+  ok("production writes are untouched when not in local dev", refused(() => guard.refuseWriteInLocalDev("writeJson orgs/X/a.json")), false);
+
+  ok("the production bucket is named in one place", /const PRODUCTION_BUCKET = "traqs-bucket";/.test(GUARD), true);
+  env(save);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
