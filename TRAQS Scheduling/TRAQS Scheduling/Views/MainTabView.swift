@@ -437,14 +437,6 @@ struct TRAQSTabBar: View {
     @State private var dragX: CGFloat? = nil       // finger x while actively dragging (drives label + highlighter)
     @State private var dragStartX: CGFloat? = nil  // where the touch began (nil = no touch down)
     @State private var isDragging = false          // true once the touch moved past the tap threshold
-    /// Bumped on each TAP that changes tabs — the squash-and-stretch trigger.
-    /// Deliberately not `selected`: a drag also moves the selection, and there
-    /// the pill is already under the finger with nothing to leap toward.
-    @State private var hopTick = 0
-    /// Which way that tap is travelling: +1 right, -1 left. Anchors the stretch
-    /// so the pill reaches TOWARD the tab you pressed rather than ballooning
-    /// evenly out of both ends.
-    @State private var travelDir: CGFloat = 1
 
     // Fixed layout — buttons are fixed-width, so the bar width is deterministic
     // and we can map a drag x → tab without measuring.
@@ -466,13 +458,6 @@ struct TRAQSTabBar: View {
     /// number to change if the bar wants to be taller or shorter.
     private let barHeight: CGFloat = 66
 
-    /// The ride to a tapped tab. A spring, not a timing curve: the light
-    /// underdamping is what gives the arrival its bounce.
-    ///
-    /// PERCEIVED latency, not CPU — the page swaps instantly, so while the
-    /// highlighter is still travelling the tap reads as "not done yet". Keep
-    /// `response` short; raise `dampingFraction` toward 1 to take the bounce out.
-    private let highlightSpring: Animation = .spring(response: 0.30, dampingFraction: 0.62)
     private var vPad: CGFloat { (barHeight - highlightH) / 2 }
 
     /// Map a horizontal position (in the bar's local space) to the tab under it.
@@ -525,40 +510,17 @@ struct TRAQSTabBar: View {
             // The height drives the bar's inner height (the icon row is shorter),
             // so `.padding(.vertical)` below is reduced by the same amount this
             // grows — the pill's outer size never changes.
-            Color.clear
+            // The highlighter: a flat 2D pill in the accent — not Liquid Glass —
+            // and it does not animate. It sits on the selected tab (or under the
+            // finger while dragging) and moves there in one step: no slide, no
+            // squash-and-stretch. Ruled 2026-10-08. The selection setter's
+            // animation still drives the header morph, so the transaction is
+            // cleared HERE, on the pill and the icons, rather than at the setter.
+            Capsule(style: .continuous)
+                .fill(Color(hex: T.accent))
                 .frame(width: highlightW, height: highlightH)
-                // The same tinted Liquid Glass as Clock In, Start and every other
-                // glass button — it was the last solid-gradient fill left in the
-                // chrome, which made the one thing that moves the odd one out.
-                .glassCTA(in: Capsule(style: .continuous))
-                .shadow(color: Color(hex: T.accent).opacity(0.35), radius: 8, x: 0, y: 3)
-                // Squash and stretch. The pill elongates along its travel and
-                // thins slightly as it goes, then springs back — so it reads as
-                // one piece of liquid being flung to the tab you pressed rather
-                // than a rectangle being repositioned.
-                //
-                // Anchored to the TRAILING side of the motion, so the leading
-                // edge runs ahead toward the target while the back end catches
-                // up. Centre-anchored, it just grows evenly and reads as a pulse.
-                .keyframeAnimator(initialValue: TabHop(), trigger: hopTick) { view, hop in
-                    view.scaleEffect(x: hop.x, y: hop.y,
-                                     anchor: travelDir >= 0 ? .leading : .trailing)
-                } keyframes: { _ in
-                    KeyframeTrack(\.x) {
-                        CubicKeyframe(1.30, duration: 0.13)
-                        SpringKeyframe(1.0, duration: 0.34,
-                                       spring: .init(response: 0.28, dampingRatio: 0.52))
-                    }
-                    KeyframeTrack(\.y) {
-                        CubicKeyframe(0.88, duration: 0.13)
-                        SpringKeyframe(1.0, duration: 0.34,
-                                       spring: .init(response: 0.28, dampingRatio: 0.52))
-                    }
-                }
                 .offset(x: highlightCenterX - highlightW / 2)
-                // While dragging (dragX set) the animation is off so the pill
-                // tracks the finger 1:1.
-                .animation(dragX == nil ? highlightSpring : nil, value: highlightCenterX)
+                .transaction { $0.animation = nil }
 
             HStack(spacing: keySpacing) {
                 ForEach(tabBarOrder, id: \.self) { tab in
@@ -568,6 +530,8 @@ struct TRAQSTabBar: View {
                                keyW: keyW)
                 }
             }
+            // The icons swap ink with the pill, in the same step.
+            .transaction { $0.animation = nil }
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
@@ -622,12 +586,7 @@ struct TRAQSTabBar: View {
                         dragStartX = value.location.x
                         // Page changes instantly (no animation transaction) — the
                         // highlighter eases independently via its scoped animation.
-                        let target = tab(atX: value.location.x)
-                        if target != selected {
-                            travelDir = centerX(of: target) >= centerX(of: selected) ? 1 : -1
-                            hopTick += 1
-                        }
-                        selected = target
+                        selected = tab(atX: value.location.x)
                     }
                     if abs(value.location.x - (dragStartX ?? value.location.x)) > 8 {
                         isDragging = true
@@ -651,14 +610,6 @@ struct TRAQSTabBar: View {
 
 // Non-interactive icon cell — selection + the highlighter are driven by
 // TRAQSTabBar's drag gesture / manual highlighter behind these icons.
-/// The highlighter's squash-and-stretch, as one animatable pair. Separate
-/// tracks so `x` can lead while `y` thins — scaling both together would just
-/// zoom the pill.
-private struct TabHop {
-    var x: CGFloat = 1
-    var y: CGFloat = 1
-}
-
 private struct TabBarIcon: View {
     @Environment(AppState.self) private var appState
     let tab: TTab
