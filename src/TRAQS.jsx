@@ -25642,6 +25642,38 @@ ${jobsCtx || "No jobs found."}`;
             : <><PersonAvatar person={ps[0]} size={20} /><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ps[0].name}</span>{ps.length > 1 && <span style={{ color: T.textDim }}>+{ps.length - 1}</span>}</>}
         </div>;
       };
+      // #479. Start, End and Est. h, inline in the table, through the SAME
+      // `commitCellEdit` the General card uses — so start/end get #398's routing
+      // to `commitDates` for free: the moveJobs check, the refusal chain, the
+      // unscheduled-date hold and the moveLog entry. `hpd` falls through to
+      // updTask and writes no moveLog, which is a real gap logged as #480 rather
+      // than papered over here.
+      //
+      // `own` says whether the node's stored value is the one on screen. It is
+      // not always: `rollUpJobDates` recomputes a panel's dates from its DATED
+      // ops, and `_panelHoursPair` SUMS the ops' estimates when there are any. An
+      // editable cell over a derived value is a defect — you type, and the next
+      // roll-up puts it back — so a panel that owns neither gets the text, not an
+      // input, and the rolled-up number still shows.
+      const jdCell = (node, key, kind, parentId, own) => {
+        const raw = node[key];
+        const shown = kind === "date" ? (raw ? fm(raw) : "—") : ((Number(raw) || 0) > 0 ? fmtH(raw) : "—");
+        if (!(own && canEdit)) return <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{shown}</div>;
+        const commit = e => {
+          const v = e.target.value;
+          const next = v.trim() === "" ? null : Math.max(0, Number(v) || 0);
+          if (String(next ?? "") !== String(raw ?? "")) commitCellEdit(node.id, key, next, parentId);
+        };
+        return <div style={{ ...td, fontFamily: T.mono, overflow: "visible" }} onClick={e => e.stopPropagation()}>
+          {kind === "date"
+            ? <DateField compact portal value={raw || ""} placeholder="—"
+                onChange={v => commitCellEdit(node.id, key, v || null, parentId)} />
+            : <input key={node.id + key + (raw ?? "")} type="number" min={0} step="0.5" defaultValue={raw ?? ""}
+                placeholder="—" onBlur={commit} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                style={{ width: "100%", minWidth: 0, background: "transparent", border: "none", outline: "none",
+                  color: "inherit", font: "inherit", fontFamily: T.mono, padding: 0 }} />}
+        </div>;
+      };
       const rowMenu = (node, parentId, kind, count) => canEdit ? <div style={{ ...td, justifyContent: "center", overflow: "visible" }}>
         <button title="Rename" onClick={e => { e.stopPropagation(); setAskText({ title: `Rename ${kind}`, placeholder: "Name", value: node.title || "", cta: "Rename", onCommit: v => { const nm = String(v || "").trim(); if (nm) updTask(node.id, { title: nm }, parentId); } }); }}
           style={{ width: 24, height: 24, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center" }}>
@@ -25658,6 +25690,11 @@ ${jobsCtx || "No jobs found."}`;
           const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
           const open = !!jdOpenPanels[panel.id];
           const ph = _panelHoursPair(panel);
+          // Does the panel own what its Start/End and Est. h cells show, or are
+          // they rolled up from its ops? Both conditions mirror the code that
+          // computes the roll-up, so the cell and the overwrite cannot disagree.
+          const panelOwnsDates = !(panel.subs || []).some(o => o && !o.deletedAt && isDated(o));
+          const panelOwnsHours = !(panel.subs || []).length;
           const teamIds = [...new Set([...(panel.team || []), ...ops.flatMap(o => o.team || [])].map(String))];
           return <Fragment key={panel.id}>
             <div style={{ ...td, cursor: "pointer", color: T.textDim, fontFamily: T.mono, fontSize: 12 }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}>
@@ -25667,9 +25704,20 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ ...td, cursor: "pointer" }} onClick={() => setJdOpenPanels(o => ({ ...o, [panel.id]: !open }))}><b style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{panel.title || "Untitled"}</b>{ops.length > 0 && countChip(ops.length)}</div>
             {whoCell(teamIds)}
             <div style={td}>{statusChip(panel, job.id)}</div>
-            <div style={{ ...td, fontFamily: T.mono }}>{panel.start ? fm(panel.start) : "—"}</div>
-            <div style={{ ...td, fontFamily: T.mono }}>{panel.end ? fm(panel.end) : "—"}</div>
-            <div style={{ ...td, fontFamily: T.mono }}>{ph.est ? fmtH(ph.est) : "—"}</div>
+            {/* Editable only where the panel OWNS the value. Both conditions are
+                copied from the code that would otherwise overwrite it:
+                rollUpJobDates skips a panel with no dated ops, and
+                _panelHoursPair falls back to the panel's own hpd only when it
+                has no ops at all. */}
+            {panelOwnsDates
+              ? jdCell(panel, "start", "date", job.id, true)
+              : <div style={{ ...td, fontFamily: T.mono }}>{panel.start ? fm(panel.start) : "—"}</div>}
+            {panelOwnsDates
+              ? jdCell(panel, "end", "date", job.id, true)
+              : <div style={{ ...td, fontFamily: T.mono }}>{panel.end ? fm(panel.end) : "—"}</div>}
+            {panelOwnsHours
+              ? jdCell(panel, "hpd", "number", job.id, true)
+              : <div style={{ ...td, fontFamily: T.mono }}>{ph.est ? fmtH(ph.est) : "—"}</div>}
             <div style={{ ...td, fontFamily: T.mono, color: ph.est > 0 && ph.logged > ph.est ? "#f59e0b" : T.accent, fontWeight: 600 }}>{fmtH(ph.logged)}</div>
             {rowMenu(panel, job.id, "sub-job", ops.length)}
             {open && ops.map(op => {
@@ -25680,9 +25728,11 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Assigning people is the reassign permission, not editJobs. */}
                 {whoCell(op.team, can("reassign") ? e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, Math.min(people.length + 1, 9), 35, 300); setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: op.id, pid: panel.id, title: op.title, start: op.start || null, end: op.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight }); } : undefined)}
                 <div style={td}>{statusChip(op, panel.id)}</div>
-                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{op.start ? fm(op.start) : "—"}</div>
-                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{op.end ? fm(op.end) : "—"}</div>
-                <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{oh.est ? fmtH(oh.est) : "—"}</div>
+                {/* An op is the leaf: nothing rolls up over it, so all three are
+                    always its own. `_opHoursPair(op).est` IS `op.hpd`. */}
+                {jdCell(op, "start", "date", panel.id, true)}
+                {jdCell(op, "end", "date", panel.id, true)}
+                {jdCell(op, "hpd", "number", panel.id, true)}
                 <div style={{ ...td, fontFamily: T.mono, color: T.textSec }}>{fmtH(oh.logged)}</div>
                 {rowMenu(op, panel.id, "task", 0)}
               </Fragment>;
