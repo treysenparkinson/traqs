@@ -9,6 +9,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, reconcileDeletions, applyExplicitWrite, changedIds } from "./_utils/timestamps.js";
 import { wouldEmptyOrg } from "./_utils/write-guard.js";
+import { keepMoveLogDetail } from "./_utils/move-log-guard.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { diffTaskEvents } from "./_utils/task-events.js";
@@ -143,6 +144,15 @@ export async function handler(event) {
           const kept = [];
           incoming = keepServerOwned(incoming, idx, kept);
           attempt.counterKeeps = kept;
+          // MOVE HISTORY IS APPEND-ONLY (#465). Same index, same shape as the
+          // counter guard above, and for the same reason: a client that models a
+          // subset of an entry re-encodes the whole array and drops what it does
+          // not know. #458 lost the hour and team detail from 281 of 283 entries
+          // to one photo upload. An appended entry is untouched; only entries
+          // that already exist are protected.
+          const moveKeeps = [];
+          incoming = keepMoveLogDetail(incoming, idx, moveKeeps);
+          attempt.moveLogKeeps = moveKeeps;
         }
         if (conflictMode !== "off" && Array.isArray(existing)) {
           const storedById = new Map(existing.filter(r => r && r.id != null).map(r => [String(r.id), r]));
@@ -283,6 +293,13 @@ export async function handler(event) {
       for (const k of (attempt.counterKeeps || [])) {
         logRule("server-owned-field", { ...k, ...who });
         durable.push({ tag: "server-owned-field", mode: null, refused: true, ...k });
+      }
+      // #465. One record per entry put back, so the volume says how often a
+      // narrowing client is rewriting history — which is the thing nobody could
+      // see before, because no instrument watched move history at all.
+      for (const k of (attempt.moveLogKeeps || [])) {
+        logRule("move-log-detail", { ...k, ...who });
+        durable.push({ tag: "move-log-detail", mode: null, refused: true, ...k });
       }
       for (const id of attempt.hpdDefaults) {
         logRule("hpd-default-write", { id, ...who, userAgent: ua });
