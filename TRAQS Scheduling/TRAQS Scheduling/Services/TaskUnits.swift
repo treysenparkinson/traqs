@@ -17,6 +17,23 @@ import Foundation
 
 enum TaskUnits {
 
+    /// Whether time can be logged against this unit: a TASK, or a job with no
+    /// tasks (then the job IS the lowest level). Never a job that has tasks —
+    /// ruled 2026-10-08: "you should only be able to clock into the tasks, or
+    /// the lowest hierarchy of the job that is created."
+    static func isClockable(_ task: TaskAssignment) -> Bool {
+        task.op != nil || task.panel.subs.isEmpty
+    }
+
+    /// The same rule by ids, for the clock-in itself.
+    static func isClockable(job: Job, panelId: String?, opId: String?) -> Bool {
+        if opId != nil { return true }
+        guard let panelId, let panel = job.subs.first(where: { $0.id == panelId }) else {
+            return job.subs.isEmpty          // a job with no jobs under it is the lowest level
+        }
+        return panel.subs.isEmpty
+    }
+
     /// Every clockable unit under `panel`: its tasks, or the job itself when it
     /// has none. `isMine` is whether `me` is on that unit's team.
     static func units(job: Job, panel: Panel, me: String?) -> [TaskAssignment] {

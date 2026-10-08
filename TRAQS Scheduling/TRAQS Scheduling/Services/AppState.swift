@@ -2533,6 +2533,12 @@ class AppState {
             clockError = "You must clock in before working on a job."
             return nil
         }
+        // #451. Time goes on the lowest level only: a task, or a job with no tasks.
+        if let job = jobs.first(where: { $0.id == jobId }),
+           !TaskUnits.isClockable(job: job, panelId: panelId, opId: opId) {
+            clockError = "Pick a task to start — time is logged against tasks, not the job."
+            return nil
+        }
 
         // Optimistically set the active job clock BEFORE the network round-trip
         // so the card slides up to the hero slot IMMEDIATELY instead of waiting

@@ -62,4 +62,36 @@ struct TaskUnitsTests {
         let units = TaskUnits.forJobTeamMember(job: job([p]), panel: p)
         #expect(units.count == 1 && units[0].op == nil)
     }
+
+    // MARK: Ruled 2026-10-08: only the lowest level is clockable
+
+    @Test func aJobWithTasksIsNeverClockableOnlyItsTasksAre() {
+        let p = panel("p1", team: ["me"], ops: [op("o1"), op("o2")])
+        let j = job([p])
+        #expect(!TaskUnits.isClockable(TaskAssignment(job: j, panel: p, op: nil)))      // the job card: no Start
+        #expect(TaskUnits.isClockable(TaskAssignment(job: j, panel: p, op: p.subs[0]))) // its task: Start
+        #expect(!TaskUnits.isClockable(job: j, panelId: "p1", opId: nil))               // the clock-in refuses too
+        #expect(TaskUnits.isClockable(job: j, panelId: "p1", opId: "o1"))
+    }
+
+    @Test func aJobWithNoTasksIsTheLowestLevelAndClockable() {
+        let p = panel("p1", ops: [])
+        let j = job([p])
+        #expect(TaskUnits.isClockable(TaskAssignment(job: j, panel: p, op: nil)))
+        #expect(TaskUnits.isClockable(job: j, panelId: "p1", opId: nil))
+    }
+
+    @Test func theParentIsNeverClockableWhenItHasJobs() {
+        let j = job([panel("p1", ops: [])])
+        #expect(!TaskUnits.isClockable(job: j, panelId: nil, opId: nil))
+    }
+
+    @Test func everyUnitTheListsOfferIsClockable() {
+        let withTasks = panel("p1", ops: [op("o1"), op("o2")])
+        let noTasks = panel("p2", ops: [])
+        let j = job([withTasks, noTasks])
+        let all = j.subs.flatMap { TaskUnits.units(job: j, panel: $0, me: "me") }
+          + j.subs.flatMap { TaskUnits.forJobTeamMember(job: j, panel: $0) }
+        #expect(!all.isEmpty && all.allSatisfy(TaskUnits.isClockable))
+    }
 }

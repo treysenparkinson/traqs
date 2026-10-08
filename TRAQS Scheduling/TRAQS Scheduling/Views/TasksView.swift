@@ -840,23 +840,15 @@ struct TasksView: View {
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
-    /// Panels of `job` overlapping `range` — the rows revealed when an ALL JOBS
-    /// card is expanded. Each is a panel-level (op == nil), not-mine assignment
-    /// so the existing TaskCardV1 / LOG TIME flow logs time at panel level.
-    private func panelsInWindow(_ job: Job, in range: Range<Date>) -> [TaskAssignment] {
-        job.subs
-            .filter { overlaps($0, range) }
-            .map { TaskAssignment(job: job, panel: $0, op: nil, isMine: false) }
-    }
-
-    /// Merged universe used only by the COUNTS (pills/heatmap) and the Year
-    /// UPCOMING list: every "mine" assignment plus one panel-level entry per
-    /// panel of every not-mine job. Date bounding happens in the consumers.
+    /// Merged universe used only by the COUNTS (pills/heatmap): every "mine"
+    /// assignment plus every clockable unit of every not-mine job — its tasks,
+    /// or a job with none (#451: a job with tasks is never a unit). Date
+    /// bounding happens in the consumers.
     private var allTasks: [TaskAssignment] {
         var out = myTasks
         for job in appState.jobs where !isMineJob(job) {
             for panel in job.subs {
-                out.append(TaskAssignment(job: job, panel: panel, op: nil, isMine: false))
+                out.append(contentsOf: TaskUnits.units(job: job, panel: panel, me: nil))
             }
         }
         return out
@@ -1742,7 +1734,10 @@ struct TaskCardV1: View {
     /// glass card's queued row and the block's.
     @ViewBuilder
     private var startControl: some View {
-        if busyByOther {
+        if !TaskUnits.isClockable(task) {
+            // A job that has tasks is not a clock target — its tasks are (#451).
+            EmptyView()
+        } else if busyByOther {
             // Someone else is clocked into this work — block logging and
             // show who has it, greyed out so it clearly can't be tapped.
             HStack(spacing: 6) {
