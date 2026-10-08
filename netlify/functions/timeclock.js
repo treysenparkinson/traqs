@@ -692,7 +692,7 @@ export async function handler(event) {
 
         const clockIn = clockInTime || new Date().toISOString();
         people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [], source: "kiosk" } };
-        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
 
         await notifyAdminsClockIn(orgCode, people, people[personIdx], clockIn).catch(() => {});
 
@@ -737,7 +737,7 @@ export async function handler(event) {
         // An admin clocking someone out ends their open break too — see closeActiveBreak.
         const acoBreakEnd = closeActiveBreak(person, personId, clockOut, localDayOf);
         if (acoBreakEnd) log.push(acoBreakEnd);
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save clock entry"); }
 
         people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
         try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
@@ -783,7 +783,7 @@ export async function handler(event) {
         });
 
         if (!found) return err(404, "Entry not found");
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
 
         const updated = log.find(e => String(e.id) === String(entryId));
         return json(200, { ok: true, entry: updated });
@@ -810,7 +810,7 @@ export async function handler(event) {
         if (!person.activeClockIn) return err(409, "Not currently clocked in");
 
         people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, clockIn } };
-        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
 
         return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
       }
@@ -929,7 +929,7 @@ export async function handler(event) {
           if (!(openOld && openNew)) return err(409, "Keep the lunch within the same shift.");
           if (newMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
           log = log.map(e => (String(e.id) === String(eventId) ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
-          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(pid);
           return json(200, { ok: true, event: log.find(e => String(e.id) === String(eventId)), entries: [], activeClockIn });
         }
@@ -941,7 +941,7 @@ export async function handler(event) {
         if (newOwner?.confirmed) return err(409, "That time falls inside a confirmed timesheet. Re-open it first.");
 
         const entries = recomputeOwners([oldOwner?.id, newOwner?.id]);
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
         return json(200, { ok: true, event: log.find(e => String(e.id) === String(eventId)), entries });
       }
 
@@ -958,7 +958,7 @@ export async function handler(event) {
           if (tsMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
           const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: localDayOf(timestamp), eventType, timestamp };
           log.push(evt);
-          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(personId);
           return json(200, { ok: true, event: evt, entries: [], activeClockIn });
         }
@@ -970,7 +970,7 @@ export async function handler(event) {
         const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: localDayOf(timestamp), eventType, timestamp };
         log.push(evt);
         const entries = recomputeOwners([owner.id]);
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
         return json(200, { ok: true, event: evt, entries });
       }
 
@@ -987,7 +987,7 @@ export async function handler(event) {
         if (onOpenShift(pid, tsMs)) {
           if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
           log = log.map(e => (String(e.id) === String(eventId) ? { ...e, deletedAt: stamp } : e));
-          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(pid);
           return json(200, { ok: true, eventId, entries: [], activeClockIn });
         }
@@ -999,7 +999,7 @@ export async function handler(event) {
         // the GET already filters tombstones out of the live view.
         log = log.map(e => (String(e.id) === String(eventId) ? { ...e, deletedAt: stamp } : e));
         const entries = recomputeOwners([owner?.id]);
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
         return json(200, { ok: true, eventId, entries });
       }
 
@@ -1038,7 +1038,7 @@ export async function handler(event) {
         );
 
         log = log.map(e => (String(e.id) === String(entryId) || orphanIds.has(e.id)) ? { ...e, deletedAt: stamp } : e);
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
         return json(200, { ok: true, entryId, deletedEventIds: [...orphanIds] });
       }
 
@@ -1094,8 +1094,8 @@ export async function handler(event) {
         people[pIdx] = { ...people[pIdx], activeClockIn: { clockIn: entry.clockIn, jobRefs: entry.jobRefs || [], events, source: entry.source || "kiosk" } };
         log = log.map(e => e.id === entryId ? { ...e, deletedAt: new Date().toISOString() } : e);
 
-        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
-        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+        try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
+        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
         return json(200, { ok: true, entryId, activeClockIn: people[pIdx].activeClockIn });
       }
     }
@@ -1135,7 +1135,7 @@ export async function handler(event) {
       // Nothing matched — skip the write (and dodge the empty-overwrite guard).
       if (count === 0) return json(200, { ok: true, count: 0, confirmed: confirming, start, end });
 
-      try { await writeStampedArray(payKey, next); } catch { return err(500, "Failed to save timeclock"); }
+      try { await writeStampedArray(payKey, next); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
       return json(200, { ok: true, count, confirmed: confirming, start, end, confirmedAt: confirming ? stamp : null, confirmedBy: confirming ? by : null });
     }
 
@@ -1183,7 +1183,7 @@ export async function handler(event) {
         (evtType === "lunchStart" || evtType === "breakStart"),
         albTimestamp
       );
-      try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, albPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: localDayOf(albTimestamp), eventType: evtType, timestamp: albTimestamp };
       let albLog; try { albLog = await readJson(payKey) ?? []; } catch { albLog = []; }
@@ -1379,7 +1379,7 @@ export async function handler(event) {
       // in-flight pause was already billed out of jcoHours above.
       const jcoBreakEnd = closeActiveBreak(jcoPerson, jcoPId, jcoClockOut, localDayOf);
       jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null, activeBreak: null };
-      try { await writeStampedArray(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jcoPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       if (jcoBreakEnd) {
         try {
           const jcoPayLog = await readJson(payKey) ?? [];
@@ -1670,7 +1670,7 @@ export async function handler(event) {
 
       const pausedAt = new Date().toISOString();
       jpPeople[jpIdx] = { ...jpPerson, activeJobClock: { ...jpPerson.activeJobClock, pausedAt } };
-      try { await writeStampedArray(peopleKey, jpPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jpPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       return json(200, { ok: true, pausedAt });
     }
@@ -1698,7 +1698,7 @@ export async function handler(event) {
       const totalPausedMs = (jrPerson.activeJobClock.totalPausedMs || 0) + pausedDuration;
       const { pausedAt: _removed, ...jrJobClock } = jrPerson.activeJobClock;
       jrPeople[jrIdx] = { ...jrPerson, activeJobClock: { ...jrJobClock, totalPausedMs } };
-      try { await writeStampedArray(peopleKey, jrPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jrPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       return json(200, { ok: true, totalPausedMs });
     }
@@ -1802,7 +1802,7 @@ export async function handler(event) {
             toRemove -= adj;
           }
         }
-        try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+        try { await writeStampedArray(prodKey, sessions); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save production hours"); }
         // What was ACTUALLY removed, between the consumed manual rows and the capped
         // adjustment — not the full request, which may have exceeded what existed.
         // (Op counter untouched — the caller already set it.)
@@ -1825,7 +1825,7 @@ export async function handler(event) {
       };
       sessions.push(added);
 
-      try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+      try { await writeStampedArray(prodKey, sessions); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save production hours"); }
       // `date` needs no timezone treatment here: clockIn is noon UTC, which is
       // the same calendar day in every timezone the shop could plausibly be in,
       // and mjhDate is the day the admin actually picked.
@@ -1882,7 +1882,7 @@ export async function handler(event) {
         const { frozenAtMs: _f, unclosedAt: _u, ...resumed } = rjsJc;
         rjsPeople[rjsIdx] = { ...rjsPeople[rjsIdx], activeJobClock: resumed };
       }
-      try { await writeStampedArray(peopleKey, rjsPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, rjsPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       return json(200, { ok: true, released: true, outcome });
     }
 
@@ -1929,7 +1929,7 @@ export async function handler(event) {
           });
           return touched ? { ...job, subs } : job;
         }));
-      } catch { return err(500, "Failed to save worked hours"); }
+      } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save worked hours"); }
       if (!sowFound) return err(404, "Operation not found");
       return json(200, { ok: true, opId: String(sowOpId), loggedHours: sowNext });
     }
@@ -1958,7 +1958,7 @@ export async function handler(event) {
       const bbStart = new Date().toISOString();
       const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
       bbPeople[bbIdx] = applyAutoJobPause({ ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } }, "break", true, bbStart);
-      try { await writeStampedArray(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, bbPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       // Log to payhours.json for payroll records.
       const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: localDayOf(bbStart), eventType: "breakStart", timestamp: bbStart };
@@ -1985,7 +1985,7 @@ export async function handler(event) {
 
       const bcEnd = new Date().toISOString();
       bcPeople[bcIdx] = applyAutoJobPause({ ...bcPeople[bcIdx], activeBreak: null }, "break", false, new Date().toISOString());
-      try { await writeStampedArray(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, bcPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: localDayOf(bcEnd), eventType: "breakEnd", timestamp: bcEnd };
       let bcLog; try { bcLog = await readJson(payKey) ?? []; } catch { bcLog = []; }
@@ -2123,7 +2123,7 @@ export async function handler(event) {
       // Going home ends any open break — see closeActiveBreak.
       const pcBreakEnd = closeActiveBreak(pcPerson, pcPId, clockOut, localDayOf);
       if (pcBreakEnd) pcLog.push(pcBreakEnd);
-      try { await writeStampedArray(payKey, pcLog); } catch { return err(500, "Failed to save clock entry"); }
+      try { await writeStampedArray(payKey, pcLog); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save clock entry"); }
 
       // Clear the open shift on a FRESH read (single-person merge) — same
       // rationale as clock-in. Non-fatal: the punch above is already saved.
@@ -2301,7 +2301,7 @@ export async function handler(event) {
       // Going home ends any open break — see closeActiveBreak.
       const coBreakEnd = closeActiveBreak(person, personId, clockOut, localDayOf);
       if (coBreakEnd) log.push(coBreakEnd);
-      try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
+      try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save clock entry"); }
 
       people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
       try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
@@ -2328,7 +2328,7 @@ export async function handler(event) {
       if (lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
       const timestamp = new Date().toISOString();
       people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } }, true, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchStart", timestamp };
       let log1; try { log1 = await readJson(payKey) ?? []; } catch { log1 = []; }
       log1.push(evt); try { await writeStampedArray(payKey, log1); } catch { }
@@ -2343,7 +2343,7 @@ export async function handler(event) {
       if (!lastLunch || lastLunch.type !== "lunchStart") return err(409, "Not on lunch");
       const timestamp = new Date().toISOString();
       people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } }, false, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchEnd", timestamp };
       let log2; try { log2 = await readJson(payKey) ?? []; } catch { log2 = []; }
       log2.push(evt); try { await writeStampedArray(payKey, log2); } catch { }
@@ -2358,7 +2358,7 @@ export async function handler(event) {
       if (lastBreak?.type === "breakStart") return err(409, "Already on break");
       const timestamp = new Date().toISOString();
       people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } }, "break", true, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
       log3.push(evt); try { await writeStampedArray(payKey, log3); } catch { }
@@ -2373,7 +2373,7 @@ export async function handler(event) {
       if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
       const timestamp = new Date().toISOString();
       people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } }, "break", false, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }
       log4.push(evt); try { await writeStampedArray(payKey, log4); } catch { }

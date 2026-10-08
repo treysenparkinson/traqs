@@ -167,5 +167,26 @@ ok("isLocalDev follows NETLIFY_DEV as it changes", [a, b], [true, false]);
 process.env.NETLIFY_DEV = "false"; const c = guard.isLocalDev(); DEV(false);
 ok("...and only the exact value \"true\" turns it on", c, false);
 
+console.log("\n6. THE REFUSAL REACHES THE DEVELOPER INSTEAD OF BECOMING A BARE 500");
+{
+  // #499. The guard throws a 503 that says exactly why. timeclock.js caught it
+  // in `catch { return err(500, "Failed to save timeclock") }` — a bare catch
+  // that discards the error — so a developer saw "fails to save" with no cause.
+  // That is what it cost: a live bug report, and a diagnosis that went to a real
+  // timezone bug (#498) before the console showed the guard underneath it.
+  const TC = readFileSync(new URL("../netlify/functions/timeclock.js", import.meta.url), "utf8");
+  const bare = (TC.match(/catch \{ return err\(500, "Failed to (save|write)[^"]*"\)/g) || []).length;
+  ok("no WRITE failure is reported without its cause", bare, 0);
+  // The idiom: an error carrying a statusCode surfaces it; anything else keeps
+  // the generic message. The same shape the auth catches in this file use.
+  ok("...they surface a statusCode when the error has one",
+    /catch \(e\) \{ return err\(e\.statusCode \|\| 500, e\.statusCode \? e\.message : "Failed to save timeclock"\); \}/.test(TC), true);
+  ok("the refusal carries a 503 and names the reason",
+    [new guard.LocalDevWriteRefused("x").statusCode, /#454/.test(new guard.LocalDevWriteRefused("x").message)], [503, true]);
+  // Reads keep their plain message: the guard never refuses a read, so a read
+  // failure really is just a read failure.
+  ok("a READ failure is still a plain 500", /catch \{ return err\(500, "Failed to read/.test(TC), true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
