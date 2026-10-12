@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { localDevSkip } from "./_utils/dev-guard.js";
 import { can, personCan } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
+import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
@@ -101,6 +102,53 @@ const fmtDate = (iso) => {
   if (isNaN(d.getTime())) return String(iso);
   return d.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
 };
+// #386. BOTH FILES ARE WRITTEN CONDITIONALLY NOW. Every branch below used to
+// read timeoff.json and people.json at the top of the handler, mutate its own
+// copy, and PUT it back — the same lost-write shape as #196 (the clock) and
+// #453 (the roster), in a file neither touched.
+//
+// commitRequest TAKES THE STATUS THE CALLER READ AS ITS PRECONDITION, which is
+// the whole of the two-admin fix and is deliberately NOT a new policy. It does
+// not decide which transitions are legal — the branches still do that — it only
+// refuses when the stored status is no longer the one the branch made its
+// decision against. Two admins deciding at once: the second read "pending",
+// and by the time it writes the request is "denied", so it is told so instead
+// of silently overwriting a colleague's decision. An approval and a denial are
+// not mergeable, so a retry would be wrong; 409 and let the human look.
+async function commitRequest(key, id, expectStatus, buildNext) {
+  return updateJson(key, (stored) => {
+    const arr = Array.isArray(stored) ? stored : [];
+    const i = arr.findIndex((r) => String(r?.id) === String(id));
+    if (i === -1) return { abort: { status: 404, message: "Request not found" } };
+    const cur = arr[i];
+    if (String(cur.status ?? "pending") !== String(expectStatus ?? "pending")) {
+      return { abort: { status: 409, message: `This request is now ${cur.status}. Reload to see the current decision.` } };
+    }
+    const next = arr.slice();
+    next[i] = buildNext(cur);
+    return { value: next, record: next[i] };
+  });
+}
+
+// commitPerson REWRITES ONE PERSON, not the roster. The old code PUT the whole
+// array it had read, so a roster save landing inside an approval's window was
+// erased by the approval's stale copy of everyone else's records. Only the
+// named person is touched now, inside the conditional write, so a concurrent
+// edit to anybody else survives. A missing person is a no-op rather than an
+// error: the decision on the request has already been committed by then, and
+// failing here would leave the two files disagreeing.
+async function commitPerson(key, personId, fn) {
+  const out = await updateJson(key, (stored) => {
+    const arr = Array.isArray(stored) ? stored : [];
+    const i = arr.findIndex((p) => String(p?.id) === String(personId));
+    if (i === -1) return { abort: "no-such-person" };
+    const next = arr.slice();
+    next[i] = fn(next[i]);
+    return { value: next };
+  });
+  return out && !("abort" in out) ? out.value : null;
+}
+
 const fmtRange = (start, end) => (start === end ? fmtDate(start) : `${fmtDate(start)} - ${fmtDate(end)}`);
 
 // Post a "timeoff_request" bubble into the request's group thread. The desktop +
@@ -220,7 +268,8 @@ export async function handler(event) {
     requests.push(record);
 
     try {
-      await writeJson(reqKey, requests);
+      // A concurrent create would have been lost by the plain PUT that was here.
+      await updateJson(reqKey, (stored) => ({ value: [...(Array.isArray(stored) ? stored : []), record] }));
     } catch {
       return err(500, "Failed to save request");
     }
@@ -362,21 +411,20 @@ export async function handler(event) {
         peopleChanged = true;
       }
 
-      requests[idx] = {
-        ...reqRec,
+      const editOut = await commitRequest(reqKey, id, reqRec.status, (cur) => ({
+        ...cur,
         start: newStart, end: newEnd, type: newType, note: newNote,
-        status: needsReapproval ? "pending" : reqRec.status,
-        decidedBy: needsReapproval ? null : reqRec.decidedBy,
-        decidedByName: needsReapproval ? null : reqRec.decidedByName,
-        decidedAt: needsReapproval ? null : reqRec.decidedAt,
+        status: needsReapproval ? "pending" : cur.status,
+        decidedBy: needsReapproval ? null : cur.decidedBy,
+        decidedByName: needsReapproval ? null : cur.decidedByName,
+        decidedAt: needsReapproval ? null : cur.decidedAt,
         denialReason: null,
-      };
-
-      try {
-        await writeJson(reqKey, requests);
-        if (peopleChanged) await writeJson(peopleKey, people);
-      } catch {
-        return err(500, "Failed to save edit");
+      }));
+      if (editOut?.abort) return err(editOut.abort.status, editOut.abort.message);
+      requests[idx] = editOut.record;
+      if (peopleChanged) {
+        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => people[pIdx]);
+        if (_p) people = _p;
       }
 
       const requesterColor = people.find((p) => String(p.id) === String(reqRec.personId))?.color;
@@ -429,11 +477,18 @@ export async function handler(event) {
         people[pIdx] = { ...people[pIdx], timeOff: existing, lastModifiedAt: nowIso() };
       }
 
-      try {
-        await writeJson(reqKey, requests);
-        await writeJson(peopleKey, people);
-      } catch {
-        return err(500, "Failed to save approval");
+      const apprOut = await commitRequest(reqKey, id, reqRec.status, () => requests[idx]);
+      if (apprOut?.abort) return err(apprOut.abort.status, apprOut.abort.message);
+      requests[idx] = apprOut.record;
+      {
+        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => {
+          const existing = Array.isArray(cur.timeOff) ? cur.timeOff.slice() : [];
+          if (!existing.some((t) => t.reqId === reqRec.id)) {
+            existing.push({ start: reqRec.start, end: reqRec.end, reason: reqRec.note || "", type: reqRec.type, reqId: reqRec.id });
+          }
+          return { ...cur, timeOff: existing, lastModifiedAt: nowIso() };
+        });
+        if (_p) people = _p;
       }
 
       await pushTo(
@@ -461,11 +516,9 @@ export async function handler(event) {
         decidedAt: nowIso(),
         denialReason: reason || null,
       };
-      try {
-        await writeJson(reqKey, requests);
-      } catch {
-        return err(500, "Failed to save denial");
-      }
+      const denyOut = await commitRequest(reqKey, id, reqRec.status, () => requests[idx]);
+      if (denyOut?.abort) return err(denyOut.abort.status, denyOut.abort.message);
+      requests[idx] = denyOut.record;
       await pushTo(
         orgCode,
         people,
@@ -517,11 +570,16 @@ export async function handler(event) {
         }
       }
 
-      try {
-        await writeJson(reqKey, requests);
-        if (undoingApproval) await writeJson(peopleKey, people);
-      } catch {
-        return err(500, "Failed to reopen request");
+      const reopenOut = await commitRequest(reqKey, id, reqRec.status, () => requests[idx]);
+      if (reopenOut?.abort) return err(reopenOut.abort.status, reopenOut.abort.message);
+      requests[idx] = reopenOut.record;
+      if (undoingApproval) {
+        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => ({
+          ...cur,
+          timeOff: (Array.isArray(cur.timeOff) ? cur.timeOff : []).filter((t) => t.reqId !== reqRec.id),
+          lastModifiedAt: nowIso(),
+        }));
+        if (_p) people = _p;
       }
 
       await pushTo(
@@ -563,8 +621,17 @@ export async function handler(event) {
     }
 
     try {
-      await writeJson(reqKey, requests);
-      if (wasApproved) await writeJson(peopleKey, people);
+      const cancelOut = await commitRequest(reqKey, id, reqRec.status, () => requests[idx]);
+      if (cancelOut?.abort) return err(cancelOut.abort.status, cancelOut.abort.message);
+      requests[idx] = cancelOut.record;
+      if (wasApproved) {
+        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => ({
+          ...cur,
+          timeOff: (Array.isArray(cur.timeOff) ? cur.timeOff : []).filter((t) => t.reqId !== reqRec.id),
+          lastModifiedAt: nowIso(),
+        }));
+        if (_p) people = _p;
+      }
     } catch {
       return err(500, "Failed to cancel request");
     }

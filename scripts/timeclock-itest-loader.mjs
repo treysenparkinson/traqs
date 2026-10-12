@@ -12,7 +12,22 @@ const S3_STUB = `
   const bump = (key) => { tags()[key] = String(Number(tags()[key] ?? 0) + 1); };
   const tagOf = (key) => (globalThis.__S3[key] === undefined ? null : String(tags()[key] ?? 0));
   export const readJson  = async (key) => (globalThis.__S3[key] === undefined ? null : clone(globalThis.__S3[key]));
-  export const writeJson = async (key, v) => { globalThis.__S3[key] = clone(v); bump(key); globalThis.__WRITES.push(key); };
+  // __BEFORE_WRITE FIRES HERE TOO, AND IT IS LOAD-BEARING ONLY FOR THE RED (#386).
+  // It used to run inside writeJsonIfMatch alone, so a race test aimed at a
+  // handler that still used a PLAIN PUT never got its competing write in: the
+  // hook was never called, nothing landed in the window, and the test passed
+  // while proving nothing. A red proof that cannot go red is worse than none.
+  //
+  // THE SUBTLETY THAT MAKES THIS EASY TO LOSE: once a handler is converted to
+  // updateJson its writes are conditional, so the hook fires from
+  // writeJsonIfMatch anyway and the suite stays green with this line deleted.
+  // Nothing but an assertion can protect it — timeoff-concurrency-test section 6
+  // pins it, so the next person writing a race test against an unconverted path
+  // still gets a real red.
+  export const writeJson = async (key, v) => {
+    const hook = globalThis.__BEFORE_WRITE; if (hook) await hook(key);
+    globalThis.__S3[key] = clone(v); bump(key); globalThis.__WRITES.push(key);
+  };
   export const readJsonVersioned = async (key) => ({ data: globalThis.__S3[key] === undefined ? null : clone(globalThis.__S3[key]), etag: tagOf(key) });
   export class PreconditionFailed extends Error {
     constructor(key) { super("Precondition failed: " + key); this.name = "PreconditionFailed"; this.preconditionFailed = true; }
