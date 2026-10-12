@@ -12,6 +12,7 @@ import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIso } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
+import { liveOpsOf } from "./liveTree.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
@@ -18432,7 +18433,12 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── iOS Stats parity: operation aggregates + reusable modern chart blocks ──
     // Operations live two levels deep: job → panel (subs) → operation (subs).
-    const allOps = tasks.flatMap(j => (j.subs || [])).flatMap(p => (p.subs || []));
+    //
+    // #356: THROUGH liveOpsOf, BECAUSE A TOMBSTONE IS INHERITED AND THE OPS DO
+    // NOT CARRY IT. This flatMapped the raw tree, so every op inside a deleted
+    // job counted as live work: on Matrix the per-person figure below read 681
+    // against a true 261, and four people were shown work they did not have.
+    const allOps = liveOpsOf(tasks);
 
     const emptyMsg = (m) => <div className="rv-mute" style={{ fontSize: 11.5, padding: "8px 0" }}>{m}</div>;
 
@@ -18654,7 +18660,12 @@ ${jobsCtx || "No jobs found."}`;
     const jobStatusCounts = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })).filter(x => x.c > 0);
     const jobPriorityCounts = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })).filter(x => x.c > 0);
     const teamWorkload = people
-      .map(p => ({ name: p.name.split(" ")[0], count: allOps.filter(op => (op.team || []).includes(p.id) && op.status !== "Finished").length }))
+      // `onTeam`, not `.includes` — found in the same line as #356 and fixed with
+      // it. Person ids are mixed string/number across web, iOS and the stored
+      // history, so a strict compare drops a member stored as 7 when asked for
+      // "7": the silent half of the drift family (#340, #345). `myOps` two
+      // blocks up already did this correctly; this line never did.
+      .map(p => ({ name: p.name.split(" ")[0], count: allOps.filter(op => onTeam(op.team, p.id) && op.status !== "Finished").length }))
       .filter(x => x.count > 0)
       .sort((a, b) => b.count - a.count);
     const avgOpsPerPerson = teamWorkload.length ? teamWorkload.reduce((s, t) => s + t.count, 0) / teamWorkload.length : 0;

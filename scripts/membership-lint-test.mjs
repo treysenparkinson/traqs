@@ -108,7 +108,7 @@ console.log("\n5. A RATCHET OVER THE LIVE SOURCE — the next one fails the buil
   // The number may only ever go DOWN. An increase fails with the file and line.
   // A decrease ALSO fails, asking for the baseline to be lowered — a one-line
   // edit, and the only thing that keeps the number honest instead of stale.
-  const BASELINE = { "TRAQS.jsx": 9 };
+  const BASELINE = { "TRAQS.jsx": 8 };   // 9 -> 8: #356 converted the Stats workload count to onTeam
   const files = [];
   const walk = (dir) => { for (const f of readdirSync(dir)) { const p = join(dir, f);
     if (statSync(p).isDirectory()) walk(p); else if (/\.(js|jsx)$/.test(f)) files.push(p); } };
