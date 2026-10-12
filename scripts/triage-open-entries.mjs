@@ -24,7 +24,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const LEDGER_FROM = 1458;   // "## DEFECT LIST"
-const RESOLVED = /\b(FIXED|BUILT|CORRECTED|RETIRED|MEASURED|RESOLVED|WITHDRAWN|SUPERSEDED|NON-FINDING|DESIGN CHOICE|Leave as is|CLOSED|VERIFIED STALE|DELETED|ALREADY GONE)\b/;
+const RESOLVED = /\b(FIXED|BUILT|CORRECTED|RETIRED|MEASURED|RESOLVED|WITHDRAWN|SUPERSEDED|NON-FINDING|DESIGN CHOICE|Leave as is|CLOSED|VERIFIED STALE|DELETED|ALREADY GONE|ANSWERED|MOOT|RE-SCOPED|WIRED|NOT A DEFECT)\b/;
 const NATIVE = /\b(iOS|Swift|macOS|Android|Kotlin)\b/;
 
 const lines = readFileSync("SCHEDULE_MAP.md", "utf8").split(/\r?\n/);
@@ -49,10 +49,26 @@ const SUITES = readdirSync("scripts").filter(f => f.endsWith(".mjs"))
 // Identifiers only: a backticked token that looks like code, not prose or a path.
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]{3,}$/;
 const NOISE = new Set(["true", "false", "null", "undefined", "this", "const", "return", "start", "end", "team", "date", "name", "type", "mode", "hours", "tasks", "people", "data", "logs"]);
-const symbolsOf = (body) => [...new Set((body.match(/`([^`]+)`/g) || [])
-  .map(s => s.slice(1, -1).trim())
-  .flatMap(s => s.split(/[.(){}\[\],\s/:]+/))
-  .filter(s => IDENT.test(s) && !NOISE.has(s)))];
+// SHARPER THAN BACKTICKS ALONE. 83 entries named no backticked symbol and so
+// could not be triaged at all; most of them do name code, just in prose. Three
+// more sources, each a thing that cannot be written by accident:
+//   - camelCase / PascalCase / _snake words anywhere in the body, backticks or
+//     not — "weekdaySegments" in prose is as findable as in a code span;
+//   - file names, which either exist in the tree or do not;
+//   - double-quoted UI strings, greppable in the source verbatim.
+const CASEY = /\b(?:[a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|_[A-Za-z][A-Za-z0-9_]{3,})\b/g;
+const FILES = /\b([A-Za-z][\w.-]*\.(?:js|jsx|mjs|swift|kt|json))\b/g;
+const QUOTED = /"([^"]{4,60})"/g;
+const symbolsOf = (body) => {
+  const out = new Set();
+  for (const m of body.match(/`([^`]+)`/g) || [])
+    for (const t of m.slice(1, -1).trim().split(/[.(){}\[\],\s/:]+/))
+      if (IDENT.test(t) && !NOISE.has(t)) out.add(t);
+  for (const t of body.match(CASEY) || []) if (!NOISE.has(t)) out.add(t);
+  for (const m of [...body.matchAll(FILES)]) out.add(m[1]);
+  for (const m of [...body.matchAll(QUOTED)]) if (/[a-z]/.test(m[1])) out.add(m[1]);
+  return [...out];
+};
 
 const tier1 = [], tier2 = [], residue = [], noSymbols = [];
 for (const e of web) {
@@ -81,9 +97,21 @@ for (const e of tier1) console.log(`  ${String(e.n).padStart(3)}  [${e.syms.join
 console.log(`\nNO SYMBOL TO CHECK (prose-only entries, must be read): ${noSymbols.length}`);
 for (const e of noSymbols) console.log(`  ${String(e.n).padStart(3)}  ${e.body.slice(0, 100)}`);
 
+// COST IF TRUE, not effort to fix — the order a worklist is worked in.
+// Deliberately crude and deliberately printed: this puts the expensive ones in
+// front of a human, it does not decide anything.
+const HIGH = /\b(payroll|money|hours|overwrit\w*|corrupt\w*|data loss|silently|silent|lost|loses|deletes?|deleted|403|permission|forge\w*|double-?book\w*|duplicate|never fires|no record|audit|wrong)\b/i;
+const MED = /\b(refus\w*|guard|check|overlap|stale|disagree\w*|inconsisten\w*|race|atomic|unreachable|ignores?|skips?)\b/i;
+const LOW = /\b(cursor|radius|px|colou?r|label|comment|naming|named|line numbers?|cosmetic|spacing|tooltip|wording|unused)\b/i;
+const costOf = (b) => (HIGH.test(b) ? 3 : 0) + (MED.test(b) ? 1 : 0) - (LOW.test(b) ? 1 : 0);
+const ranked = residue.map(e => ({ ...e, cost: costOf(e.body) })).sort((a, b) => b.cost - a.cost || a.n - b.n);
 console.log(`\nRESIDUE — names at least one symbol that still exists: ${residue.length}`);
-console.log(`  (this is the real unknown; everything above is accounted for)\n`);
-for (const e of residue.slice(0, 1000)) console.log(`  ${String(e.n).padStart(3)}  {${e.alive.slice(0, 4).join(",")}}  ${e.body.slice(0, 95)}`);
+console.log(`  (the real unknown; everything above is accounted for)`);
+console.log(`  ordered by COST IF TRUE — 4 touches money or data, 1 cosmetic, <=0 noise\n`);
+for (const e of ranked) console.log(`  [${e.cost}] ${String(e.n).padStart(3)}  ${e.body.slice(0, 118)}`);
+const buckets = {};
+for (const e of ranked) buckets[e.cost] = (buckets[e.cost] || 0) + 1;
+console.log(`\n  cost distribution: ${JSON.stringify(buckets)}`);
 
 console.log(`\n── SUMMARY ──`);
 console.log(`  unmarked, not native-only   ${String(web.length).padStart(4)}`);

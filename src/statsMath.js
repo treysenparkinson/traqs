@@ -1158,84 +1158,37 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   return { pushes: out, atCursor };
 }
 
-// ─── No overlap ────────────────────────────────────────────────────────────
+// ─── Shop-time instants ────────────────────────────────────────────────────
 //
-// A hard invariant: two ops on one row may never occupy the same time. Not for a minute.
-// Every path that places an op — creation, import, dependency cascade, push, split, drag —
-// asks THESE functions, so the definition of "overlap" cannot drift between them. That is the
-// whole reason they live here rather than at each call site.
+// THE OVERLAP FAMILY THAT LIVED HERE IS GONE (#55, deleted 2026-10-12):
+// `opInterval`, `intervalsOverlap`, `rowOverlaps`, `firstFreeStart`,
+// `normalizeToWorkTime`, `packActiveRow` and `dayShiftToClear` — seven exports,
+// and `scripts/no-overlap-test.mjs` with them, because every assertion in that
+// suite tested one of the seven. `src/overlapRules.js` replaced them at
+// root cause 5 — its header names "enforceNoOverlap (… zero-width single-day
+// ops …)" as one of the five rules it supersedes — and they had ZERO call sites
+// outside this file in both src/ and netlify/ afterwards. `dayShiftToClear` was
+// still IMPORTED into TRAQS.jsx and never called, which is how six dead exports
+// kept looking live.
 //
-// Hour precision throughout. Comparing dates alone counts 08:00-12:00 and 13:00-16:00 on one
-// day as a clash, which it is not, and the real data has plenty of both shapes.
+// WHAT KEPT THEM GREEN IS THE PART WORTH REMEMBERING. `opInterval` ended a
+// single-day op at `startHour + durationH`, and NOTHING HAS EVER WRITTEN
+// `durationH` — zero of 395 live ops carried it. The term was always 0, so
+// every single-day op without an `endHour` collapsed to a zero-width interval
+// and was skipped. Two assertions in `no-overlap-test.mjs` passed only because
+// the fixture invented the field, which is LESSON #1 (a test that passes on a
+// path nothing executes) and LESSON #7 (a mechanism that has never executed) in
+// one object. They were deleted with the code rather than rewritten against the
+// live rule — `overlapRules.js` has its own suite.
+//
+// `dayHourMs` stays: it is the schedule's `hourTs`, and `shoptime-test` pins it.
 
-/** Wall-clock hour h of day ds in shop time. The schedule's own hourTs is this function. */
-export function dayHourMs(ds, h, timeZone) {
-  return shopMs(ds, h || 0, timeZone);
-}
-
-/**
- * The time an op actually occupies, as [s, e) in ms.
- *
- * A single-day op ends at its endHour, or at its start plus its duration when no endHour is
- * recorded. A multi-day op runs to the end of the working day on its last day. This mirrors
- * `opHourRange` in the render — if the two ever disagree, the guard and the geometry are
- * arguing about different rectangles.
- */
-export function opInterval(op, cfg) {
-  const { workStartH = _defStartH, workEndH = _defEndH } = cfg || {};
-  if (!op || !op.start || !op.end) return null;
-  const sH = op.startHour ?? workStartH;
-  const eH = op.start === op.end
-    ? (op.endHour ?? Math.min(sH + Math.max(0, op.durationH || 0), workEndH))
-    : (op.endHour ?? workEndH);
-  const s = dayHourMs(op.start, sH, cfg?.timeZone), e = dayHourMs(op.end, eH, cfg?.timeZone);
-  return e > s ? { s, e } : { s, e: s };
-}
-
-/** Do two intervals share any time? Touching end-to-start is adjacency, not overlap. */
-export function intervalsOverlap(a, b) {
-  if (!a || !b) return false;
-  return a.s < b.e && b.s < a.e;
-}
-
-/**
- * Every clashing pair on a row, as { a, b } of the ops passed in. Empty means the invariant
- * holds. Zero-width ops cannot clash with anything and are skipped rather than reported.
- */
-export function rowOverlaps(ops, cfg) {
-  const iv = (ops || []).map((op) => ({ op, i: opInterval(op, cfg) })).filter((x) => x.i && x.i.e > x.i.s);
-  const out = [];
-  for (let i = 0; i < iv.length; i++) {
-    for (let j = i + 1; j < iv.length; j++) {
-      if (intervalsOverlap(iv[i].i, iv[j].i)) out.push({ a: iv[i].op, b: iv[j].op });
-    }
-  }
-  return out;
-}
-
-/**
- * The earliest instant at or after `desiredStart` where something of `durationMs` fits without
- * touching any occupied interval.
- *
- * Returns the desired start unchanged when it already fits — placing work later than it needs
- * to be is its own kind of wrong, so the slot finder never moves anything it does not have to.
- * Occupied intervals are sorted and walked once; a candidate that collides jumps to the end of
- * whatever it hit and re-tests, because the next interval along may start immediately after.
- */
-export function firstFreeStart(desiredStart, durationMs, occupied) {
-  if (!Number.isFinite(desiredStart) || !(durationMs > 0)) return desiredStart;
-  const busy = (occupied || []).filter((x) => x && x.e > x.s).sort((x, y) => x.s - y.s);
-  let at = desiredStart;
-  // Bounded: each pass either finishes or moves `at` past one more interval, so the worst case
-  // is one pass per occupied block. A while(true) here would hang on malformed input.
-  for (let guard = 0; guard <= busy.length; guard++) {
-    const hit = busy.find((x) => at < x.e && x.s < at + durationMs);
-    if (!hit) return at;
-    at = hit.e;
-  }
-  return at;
-}
-
+// KEPT, AND IT HAS NO PRODUCTION CALLER (#55, 2026-10-12). This went out with
+// the overlap family as collateral — `packActiveRow` was its only consumer — and
+// the build caught it: `shoptime-test` exercises it in three assertions. Restored
+// rather than quietly deleted with its tests, because the ruling covered the
+// overlap family and `no-overlap-test`, not this. It is dead by the same measure
+// as the seven, and whether it follows them is a separate decision.
 /**
  * Roll an instant onto real working time: forward to the next working day's start if it lands
  * on a weekend, a holiday, or outside the working window. Packing produces raw instants and
@@ -1261,82 +1214,9 @@ export function normalizeToWorkTime(ms, cfg) {
   return ms;
 }
 
-/**
- * Pack one row so nothing overlaps, and say what moved.
- *
- * PRIORITY, which is how the shop reasons about it rather than a convenience:
- *   1. An op with worked hours is PINNED. Its position is a record of when the work happened,
- *      and moving it would separate the hatch from the hours it stands for. Locked ops pin for
- *      the same reason.
- *   2. Among unworked ops, the earliest planned start takes the position it asked for.
- *   3. A later unworked op that would clash slides to the first free slot after it.
- *
- * Only ops inside the active horizon are touched. History sits where it is, may clash with
- * other history, and is exempt — a year of unfinished backlog packing forward would push a row
- * months into the future and describe nothing real.
- *
- * Returns [{ id, fromStart, toStart, fromMs, toMs }] for the ops that moved, so a caller can
- * log it and a human can review it before anything is written.
- */
-export function packActiveRow(ops, { nowDay, cfg, durationMsOf }) {
-  const moves = [];
-  const list = (ops || []).filter((o) => o && o.start && o.end);
-  const active = list.filter((o) => nowDay == null || o.end >= nowDay);
-  if (active.length < 2) return moves;
-
-  const durOf = durationMsOf || ((o) => { const i = opInterval(o, cfg); return i ? Math.max(0, i.e - i.s) : 0; });
-  // Was `o.locked || worked > 0`. The flag is retired (ruling 3) and this is a
-  // pure fold: a split keep carried `locked` AND worked > 0, so the right-hand
-  // term already covered every op the left-hand one did. No behaviour change.
-  const pinned = active.filter((o) => (o.workedHoursShown || 0) > 0);
-  const movable = active.filter((o) => !((o.workedHoursShown || 0) > 0))
-    .sort((a, b) => a.start.localeCompare(b.start)
-      || ((a.startHour ?? 0) - (b.startHour ?? 0)));
-
-  // Pinned work occupies its ground first; everything else has to fit around it.
-  const occupied = pinned.map((o) => opInterval(o, cfg)).filter(Boolean);
-  for (const o of movable) {
-    const want = opInterval(o, cfg);
-    const dur = durOf(o);
-    if (!want || dur <= 0) continue;
-    let at = firstFreeStart(want.s, dur, occupied);
-    const rolled = normalizeToWorkTime(at, cfg);
-    // Rolling onto working time can land inside something that was free at the raw instant, so
-    // re-test once the roll has happened rather than trusting the first answer.
-    if (rolled !== at) at = firstFreeStart(rolled, dur, occupied);
-    occupied.push({ s: at, e: at + dur });
-    if (at !== want.s) moves.push({ id: o.id, fromMs: want.s, toMs: at, fromStart: o.start, dur });
-  }
-  return moves;
-}
-
-/**
- * How many WHOLE business days an op must shift to stop overlapping anything on its row.
- *
- * Whole days, deliberately. An arbitrary instant is not always expressible as an op record:
- * a multi-day op has a start date, an end date and hours, and "start 3.2 hours later" has no
- * honest representation in that shape without recomputing its whole span. Shifting by whole
- * business days preserves the op exactly as it is and only moves it, which is always writable
- * and can never mangle the record.
- *
- * Returns 0 when it already fits — nothing is moved that does not have to be. Returns null if
- * no clear slot is found inside `maxDays`, so a caller can refuse the write rather than place
- * the op somewhere arbitrary and call it done.
- *
- * `shiftDays` is injected because business days, work days and holidays have one definition in
- * this codebase and a second one here would drift from it.
- */
-export function dayShiftToClear(op, others, { cfg, shiftDays, maxDays = 260 }) {
-  if (!op || typeof shiftDays !== "function") return 0;
-  const occupied = (others || []).map((o) => opInterval(o, cfg)).filter((i) => i && i.e > i.s);
-  if (!occupied.length) return 0;
-  for (let n = 0; n <= maxDays; n++) {
-    const moved = n === 0 ? op : { ...op, start: shiftDays(op.start, n), end: shiftDays(op.end, n) };
-    const iv = opInterval(moved, cfg);
-    if (!iv || iv.e <= iv.s) return 0;
-    if (!occupied.some((o) => intervalsOverlap(iv, o))) return n;
-  }
-  return null;
+/** Wall-clock hour h of day ds in shop time. The schedule's own hourTs is this function. */
+export function dayHourMs(ds, h, timeZone) {
+  return shopMs(ds, h || 0, timeZone);
 }
 
 /**
