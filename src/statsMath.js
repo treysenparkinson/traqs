@@ -893,6 +893,46 @@ export function flushRightWidthPct(leftPct, cursorPct, minPct = 0) {
   const w = (Number(cursorPct) || 0) - (Number(leftPct) || 0);
   return Math.max(Number(minPct) || 0, w);
 }
+
+/**
+ * A bar whose right edge is ON the cursor, widened LEFTWARD when it is too thin
+ * to see (#517).
+ *
+ * `flushRightWidthPct` above returns a width alone, so a caller that floors it
+ * necessarily grows the bar RIGHTWARD from a fixed left edge — past the cursor.
+ * On a live cross-row bar that is visible for the first ~16 minutes of a
+ * session: below `0.03 × 9h` of elapsed work the floor exceeds the true width,
+ * and the surplus lands on the wrong side of the line. **The bar then claims
+ * work was done after now.** The threshold is zoom-independent, which is why it
+ * looked like a rendering quirk rather than arithmetic.
+ *
+ * Trey's rule: worked time populates to the LEFT and never crosses the cursor;
+ * a sliver left is fine. So the minimum is honoured on the LEFT:
+ *
+ *     width = max(minPct, cursor − left)
+ *     left  = cursor − width
+ *
+ * The right edge is `left + width === cursor` by construction, for every input
+ * including a zero-width session and a left edge that is somehow past the
+ * cursor (clock skew, a clock-in stamped ahead). There is no branch where it
+ * can land right of the line.
+ *
+ * THE CALLER MUST ALSO DROP ANY PIXEL FLOOR. A `minWidth` in px cannot be
+ * neutralised by a shift in percent — it is the same defect in a second unit —
+ * so `endsNow` bars carry none, and a sub-pixel sliver at month zoom is the
+ * correct outcome.
+ *
+ * Returns `{ left, width }` as percentages, to be used for BOTH the element's
+ * geometry and anything measured against it (the hatch boundary), so the two
+ * cannot disagree.
+ */
+export function flushRightBar(leftPct, cursorPct, minPct = 0) {
+  const cursor = Number(cursorPct) || 0;
+  const left = Number(leftPct) || 0;
+  const min = Math.max(0, Number(minPct) || 0);
+  const width = Math.max(min, cursor - left);
+  return { left: cursor - width, width };
+}
 // ACTUAL HOURS for a job, a panel or an op: what the crew has really put into it, as against
 // the estimate stored on it.
 //
