@@ -94,3 +94,32 @@ console.log(`   with an ancestor-aware helper nearby:         ${guardsAncestor}`
 console.log(`   with NEITHER:                                 ${unguarded.length}`);
 for (const u of unguarded.slice(0, 25)) console.log(`     ${u}`);
 if (unguarded.length > 25) console.log(`     … and ${unguarded.length - 25} more`);
+
+// ── 4. DOES A DELETED JOB SHOW UP AS WORK? ───────────────────────────────
+//
+// The question that matters is not how many loops exist, it is whether any
+// surface a person looks at counts these. One does, and it is not a regex
+// guess: `TRAQS.jsx:18435` builds `allOps` as
+//   tasks.flatMap(j => (j.subs || [])).flatMap(p => (p.subs || []))
+// with NO deletedAt filter at any level, and `:18657` turns it into the Stats
+// page's per-person count of unfinished operations:
+//   allOps.filter(op => (op.team || []).includes(p.id) && op.status !== "Finished")
+console.log("\n4. THE STATS PAGE'S PER-PERSON OPERATION COUNT, AS IT COMPUTES IT");
+const peopleList = await get(`orgs/${ORG}/people.json`);
+const nameOf = (id) => peopleList.find(p => String(p.id) === String(id))?.name || `?${id}`;
+const allOps = (tasks || []).flatMap(j => (j?.subs || [])).flatMap(p => (p?.subs || []));
+const liveOps = (tasks || []).filter(j => j && !j.deletedAt)
+  .flatMap(j => (j.subs || []).filter(p => p && !p.deletedAt)).flatMap(p => (p.subs || []).filter(o => o && !o.deletedAt));
+const countFor = (list, pid) => list.filter(op => op && (op.team || []).some(x => String(x) === String(pid)) && op.status !== "Finished").length;
+console.log(`   allOps as the page builds it: ${allOps.length}   |   ancestor-filtered: ${liveOps.length}`);
+console.log(`   ${"person".padEnd(10)} ${"shown".padStart(6)} ${"real".padStart(6)} ${"inflated by".padStart(12)}`);
+let shownT = 0, realT = 0;
+for (const p of peopleList) {
+  if (!p || p.deletedAt) continue;
+  const shown = countFor(allOps, p.id), real = countFor(liveOps, p.id);
+  if (!shown && !real) continue;
+  shownT += shown; realT += real;
+  console.log(`   ${String(p.name).padEnd(10)} ${String(shown).padStart(6)} ${String(real).padStart(6)} ${String(shown - real).padStart(12)}${shown && real === 0 ? "   <- ALL OF IT" : ""}`);
+}
+console.log(`   ${"TOTAL".padEnd(10)} ${String(shownT).padStart(6)} ${String(realT).padStart(6)} ${String(shownT - realT).padStart(12)}`);
+console.log(`   => the Stats page overstates unfinished operations by ${(100 * (shownT - realT) / Math.max(1, shownT)).toFixed(0)}%`);
