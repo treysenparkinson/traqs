@@ -114,7 +114,7 @@ struct RvTitle: View {
         let _ = theme.bgPresetId
         HStack(alignment: .lastTextBaseline, spacing: 12) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: size))
+                .font(.custom(TTitleFont.bold, size: size))
                 .tracking(-size * 0.044)
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)

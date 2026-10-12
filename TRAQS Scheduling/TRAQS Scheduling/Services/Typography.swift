@@ -9,6 +9,14 @@ import SwiftUI
 // the heading helpers inherit the same monospaced-digit treatment so totals
 // and durations always column-align in cards and lists).
 
+/// Page titles only ("Jobs", "Hello, Treysen") — DM Sans on iOS while the rest of the
+/// app is Sora (2026-10-12). Both DM Sans weights are bundled and registered in
+/// Info.plist already; the Mac uses them for everything.
+enum TTitleFont {
+    static let bold      = "DMSans-Bold"
+    static let extrabold = "DMSans-ExtraBold"
+}
+
 enum TFontName: String, CaseIterable {
     #if os(iOS)
     case regular   = "Sora-Regular"
