@@ -1183,37 +1183,6 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
 //
 // `dayHourMs` stays: it is the schedule's `hourTs`, and `shoptime-test` pins it.
 
-// KEPT, AND IT HAS NO PRODUCTION CALLER (#55, 2026-10-12). This went out with
-// the overlap family as collateral — `packActiveRow` was its only consumer — and
-// the build caught it: `shoptime-test` exercises it in three assertions. Restored
-// rather than quietly deleted with its tests, because the ruling covered the
-// overlap family and `no-overlap-test`, not this. It is dead by the same measure
-// as the seven, and whether it follows them is a separate decision.
-/**
- * Roll an instant onto real working time: forward to the next working day's start if it lands
- * on a weekend, a holiday, or outside the working window. Packing produces raw instants and
- * the schedule can only place work when the shop is open.
- */
-export function normalizeToWorkTime(ms, cfg) {
-  const { workStartH = _defStartH, workEndH = _defEndH, workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
-  if (!Number.isFinite(ms)) return ms;
-  const tz = cfg?.timeZone;
-  const holidaySet = new Set(holidays || []);
-  const workDaySet = new Set(workDays || []);
-  // Shop time: the working window is the shop's, whoever is looking.
-  const { ds: firstDs, hour } = shopParts(ms, tz);
-  let ds = firstDs;
-  for (let guard = 0; guard < 400; guard++) {
-    const open = workDaySet.has(dowOf(ds)) && !holidaySet.has(ds);
-    if (guard === 0 && open && hour >= workStartH && hour < workEndH) return ms;
-    if (guard === 0 && open && hour < workStartH) return shopMs(ds, Math.floor(workStartH), tz);
-    // Past the close, or a day the shop is shut: try the next day at opening.
-    if (guard > 0 && open) return shopMs(ds, Math.floor(workStartH), tz);
-    ds = nextDayOf(ds);
-  }
-  return ms;
-}
-
 /** Wall-clock hour h of day ds in shop time. The schedule's own hourTs is this function. */
 export function dayHourMs(ds, h, timeZone) {
   return shopMs(ds, h || 0, timeZone);

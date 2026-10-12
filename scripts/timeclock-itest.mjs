@@ -26,9 +26,24 @@ const ok = (label, got, want) => {
   good ? pass++ : fail++;
 };
 
+// workEnd 23:00 IS PART OF THE FIXTURE, NOT A WORKAROUND (#273, 2026-10-12).
+//
+// This suite spent weeks out of `npm run build` — the wiring guard matched
+// `-test.mjs` and never saw an `-itest` — and in that time the end-of-day rule
+// (#215) shipped. Eleven assertions here then failed, all of them for one
+// reason: every evening job session in this file is now AFTER HOURS for a shop
+// that closes at 17:00, so it is frozen at close and credits nothing.
+//
+// THE ASSERTIONS WERE NOT RE-BASED ONTO WHAT THE CODE NOW RETURNS — that would
+// encode the output as the expectation and prove nothing. The FIXTURE's shop
+// was given a late closing time instead, which is a real shop that really
+// exists, and the arithmetic these sections were written to pin (local-day
+// stamping, pause exclusion, counter roll-up) is then exercised exactly as it
+// always was. #215's own behaviour is pinned separately in shoptime-test
+// sections 5 and 6, where it belongs.
 const reset = ({ timeZone = "America/Denver" } = {}) => {
   globalThis.__S3 = {
-    [K.settings]: { timeZone },
+    [K.settings]: { timeZone, workEnd: "23:00" },
     [K.people]: [{ id: 99, name: "Trey", pin: "1234" }],
     [K.tasks]: [{
       id: "JOB", title: "TRAQS Development", loggedHours: 0,

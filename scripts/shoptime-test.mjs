@@ -65,12 +65,11 @@ const cfg = { workStartH: 8, workEndH: 17, deadWindows: [{ start: 12, dur: 1 }],
 check("productive hours 08:00–17:00 Denver = 8 (viewer in NY)", () =>
   near(stats.productiveHoursBetween(Date.parse(Z + "14:00:00Z"), Date.parse(Z + "23:00:00Z"), cfg), 8));
 check("dayHourMs is shop time", () => eq(stats.dayHourMs("2026-09-30", 8), Date.parse(Z + "14:00:00Z")));
-check("normalizeToWorkTime: 06:00 Denver rolls to 08:00 Denver", () =>
-  eq(stats.normalizeToWorkTime(Date.parse(Z + "12:00:00Z"), cfg), Date.parse(Z + "14:00:00Z")));
-check("normalizeToWorkTime: 16:00 Denver is inside the window", () =>
-  eq(stats.normalizeToWorkTime(Date.parse(Z + "22:00:00Z"), cfg), Date.parse(Z + "22:00:00Z")));
-check("normalizeToWorkTime: 18:00 Denver Friday rolls to Monday 08:00", () =>
-  eq(stats.normalizeToWorkTime(Date.parse("2026-10-03T00:00:00Z"), cfg), Date.parse("2026-10-05T14:00:00Z")));
+// normalizeToWorkTime's three assertions were deleted with it (#55, 2026-10-12).
+// It rolled a raw instant onto working time for `packActiveRow`, which was the
+// only thing that ever called it; when the overlap family went, it had no
+// production caller left and was kept alive solely by these three checks. That
+// is the shape the same ruling deleted 212 lines of in no-overlap-test.
 
 console.log("5. end of day (#215): one rule");
 // 2026-10-02 is a Friday.
