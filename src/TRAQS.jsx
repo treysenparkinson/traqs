@@ -13,6 +13,7 @@ import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIs
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
+import { applyRosterEdits, SETTINGS_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
@@ -19791,14 +19792,32 @@ ${jobsCtx || "No jobs found."}`;
       setTsSettingsOpen(true);
     };
     const closeSettings = () => { setTsSettingsOpen(false); setTsSettingsDraft(null); };
+    // #150. WRITES THE TWO FIELDS IT EDITS, ONTO THE ROSTER AS IT IS NOW.
+    //
+    // This POSTed `tsSettingsDraft` — the snapshot taken when the modal OPENED
+    // — so everything written to people.json while it sat open was erased by a
+    // copy that predated it. A PTO approval was the one that bit; a push token
+    // registering is the one that bit twice before (people.js documents both).
+    //
+    // The roster still goes up whole, because `/people` takes a bare array and
+    // `reconcileDeletions` tombstones every id absent from it — a partial POST
+    // is a mass delete. What changed is WHICH roster: the current one with
+    // payType/pin laid on top, rather than a stale one carrying everyone's old
+    // values for every field.
+    //
+    // It NARROWS the window to one round trip; it does not close it. See
+    // src/rosterEdits.js for what closing it would take.
     const saveSettings = async () => {
       if (!tsSettingsDraft) return;
       setTsSettingsSaving(true);
       try {
-        await savePeople(tsSettingsDraft, getToken, orgCode);
-        setPeople(tsSettingsDraft);
+        const _fresh = await fetchPeople(getToken, orgCode);
+        const _next = applyRosterEdits(_fresh, tsSettingsDraft, SETTINGS_FIELDS);
+        await savePeople(_next, getToken, orgCode);
+        setPeople(_next);
         toast("Time clock settings saved");
-      } catch (e) { console.error(e); } finally { setTsSettingsSaving(false); closeSettings(); }
+      } catch (e) { console.error(e); toast("Couldn't save time clock settings"); }
+      finally { setTsSettingsSaving(false); closeSettings(); }
     };
     const draftSet = (personId, field, value) => {
       setTsSettingsDraft(prev => prev.map(p => p.id === personId ? { ...p, [field]: value } : p));
