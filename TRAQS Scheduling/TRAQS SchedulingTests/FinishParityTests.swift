@@ -68,15 +68,14 @@ struct FinishParityTests {
     }
 
     static func load() throws -> Fixture {
-        // Same lookup ScheduleParityTests uses: the fixture ships in the test bundle.
-        guard let url = Bundle(for: BundleToken.self).url(forResource: "finish-parity", withExtension: "json")
-                ?? Bundle.module.url(forResource: "finish-parity", withExtension: "json") else {
-            Issue.record("fixtures/finish-parity.json is not in the test bundle")
-            throw CocoaError(.fileNoSuchFile)
-        }
+        // Same lookup ScheduleParityTests uses. Repo-relative, from this file:
+        // TRAQS Scheduling/TRAQS SchedulingTests → ../../fixtures. (Not Bundle.module —
+        // that exists only in a SwiftPM package, and the fixture is not a bundle resource.)
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures/finish-parity.json")
         return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
     }
-    private final class BundleToken {}
 
     /// Build the TargetState the fixture describes, without going through `target(job:…)` —
     /// that resolver has its own tests. This suite is about `status`.
