@@ -71,5 +71,19 @@ ok("it lists every job with its count", /_plan\.jobs\.map\(/.test(dlg) && /_n\(j
 ok("the heading counts tasks and jobs, not 'items'", /Delete \{selBars\.size\} \{selBars\.size === 1 \? "item" : "items"\}/.test(dlg), false);
 ok("it says the tasks leave their jobs, not merely the schedule", /removes? (them|these tasks) from their jobs/i.test(dlg), true);
 
+// #166. IT SAID "IT CANNOT BE UNDONE" AND IT CAN. The Delete runs through
+// `setTasks`, which pushes a snapshot onto `undoStack` on every change — so
+// Ctrl+Z brings the tasks back. A destructive confirmation that overstates its
+// own finality is not a harmless exaggeration: it is the sentence someone reads
+// before cancelling an action they were entitled to take, and it is also the
+// reason they will not try to recover when they do go ahead.
+//
+// The claim is now the true one, with the limit that matters stated — the undo
+// stack is in-memory, so a reload ends it.
+ok("the dialog no longer claims the delete is irreversible", /cannot be undone/i.test(dlg), false);
+ok("...and says what actually recovers it", /Ctrl\+Z undoes it until the page is reloaded/.test(dlg), true);
+ok("the Delete really does go through the history-keeping setTasks",
+  /setTasks\(prev => applyBarDelete\(prev, selBars\)\);/.test(SRC), true);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

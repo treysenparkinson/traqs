@@ -10911,9 +10911,23 @@ Extraction rules:
     setPendingScheduleItems(prev => prev.filter(i => i.id !== itemId));
   };
 
+  // RETURNS WHETHER ANYTHING WAS DELETED (#470). It used to return undefined on
+  // every path, including the two on which it deletes nothing — so the AI
+  // handler, whose `changed` flag defaults to true, told the user a job was
+  // deleted when the "Worker Clocked Into Job" overlay had just refused it. A
+  // user who believes a job is gone stops tracking it.
+  //
+  // The caller does NOT re-check the guard. A second copy of
+  // `blockedByActiveClock` at the call site is the partial-extraction shape
+  // (LESSON #18): two conditions that must agree, with nothing making them.
+  // Every other caller ignores the return, which is why this is safe to add.
   const delTask = (id, pid = null) => {
     // Can't delete a job/op while someone is actively clocked into that job — they'd be stranded.
-    if (blockedByActiveClock(jobIdOfNode(id))) return;
+    if (blockedByActiveClock(jobIdOfNode(id))) return false;
+    // An id that matches nothing deletes nothing. `removeFromTree` is a no-op
+    // for it and returns a list that is equal but not identical, so without
+    // this the caller cannot tell a successful delete from a missed one.
+    if (!findTaskNode(id)) return false;
     toast(pid ? "Deleted" : "Job deleted");
     // Drop poll protection so a Fast-TRAQS-imported job stays deleted instead of being revived
     // by the 30s S3 refetch (which otherwise rejects fetches missing protected IDs).
@@ -10929,6 +10943,7 @@ Extraction rules:
           }));
       return removeFromTree(p);
     });
+    return true;
   };
   const toggleDep = (taskId, depId) => setTasks(p => p.map(t => { if (t.id === taskId) { const d = t.deps || []; return { ...t, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return { ...t, subs: (t.subs || []).map(s => { if (s.id === taskId) { const d = s.deps || []; return { ...s, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return s; }) }; }));
   const pName = id => { const p = people.find(x => x.id === id); return p ? (p.teamNumber ? `${p.teamNumber} - ${p.name.split(" ")[0]}` : p.name.split(" ")[0]) : "?"; };
@@ -11296,7 +11311,10 @@ ${jobsCtx || "No jobs found."}`;
           setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", pri: input.priority || "Medium", team: input.team_ids || [], subs: [], deps: [], hpd: 0, notes: input.notes || "", ...(input.job_number ? { jobNumber: input.job_number } : {}) }]);
           break;
         case "delete_job":
-          delTask(input.job_id);
+          // #470. Was a bare call: `delTask` returned undefined on every path and
+          // `changed` defaults to true, so a delete the active-clock guard had
+          // just refused was reported to the user as done.
+          changed = delTask(input.job_id);
           break;
         case "assign_person_to_job":
           changed = jobExists(input.job_id);
@@ -31443,7 +31461,7 @@ ${jobsCtx || "No jobs found."}`;
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 52, height: 52, borderRadius: 30, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {_n(_plan.tasks, "task", "tasks")} from {_n(_plan.jobs.length, "job", "jobs")}?</h3>
-        <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This permanently removes these tasks from their jobs, not just from the schedule{_plan.panels ? `, including ${_n(_plan.panels, "whole sub-job", "whole sub-jobs")}` : ""}. It cannot be undone.</p>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This removes these tasks from their jobs, not just from the schedule{_plan.panels ? `, including ${_n(_plan.panels, "whole sub-job", "whole sub-jobs")}` : ""}. Ctrl+Z undoes it until the page is reloaded.</p>
         <div style={{ maxHeight: 220, overflowY: "auto", margin: "0 0 20px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
           {_plan.jobs.map(j => (
             <div key={String(j.jobId)} style={{ padding: "8px 12px", borderBottom: `1px solid ${T.border}` }}>

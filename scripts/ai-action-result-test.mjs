@@ -144,6 +144,38 @@ console.log("\n8. The chat path uses it, and awaits the save first");
   ok("...and the id-matching handlers check before mutating",
     (body.match(/changed = (jobExists|nodeExists)\(/g) || []).length, 4);
 
+  // #470. EVERY BRANCH THAT CAN FAIL MUST SAY SO, and the sweep is the point:
+  // `changed` is initialised TRUE at the top of the loop, so a branch that
+  // never assigns it reports success by default. Two branches do not assign it.
+  //
+  //   create_job  — CORRECT. It pushes a new record unconditionally; there is
+  //                 no path on which it fails to change anything.
+  //   delete_job  — WRONG, and this is the entry. `delTask` opens with
+  //                 `if (blockedByActiveClock(...)) return;` — a silent early
+  //                 return that raises the "Worker Clocked Into Job" overlay
+  //                 and deletes nothing. The chat still said it was deleted,
+  //                 and a user who believes a job is gone stops tracking it.
+  //
+  // The fix is `delTask` RETURNING whether it deleted, rather than the caller
+  // re-deriving the guard: a second copy of `blockedByActiveClock` at the call
+  // site is the partial-extraction shape (LESSON #18) and would drift.
+  ok("delete_job reports whether the delete actually happened",
+    /case "delete_job":\s*\n\s*changed = delTask\(input\.job_id\);/.test(body), true);
+  // `delTask` lives OUTSIDE executeConfirmedActions, so these read the whole
+  // file rather than `body` — the slice above is 6000 chars of the handler and
+  // asserting against it would have been a pattern that could never match.
+  ok("delTask returns false when an active clock blocks it",
+    /if \(blockedByActiveClock\(jobIdOfNode\(id\)\)\) return false;/.test(CODE), true);
+  ok("...and false when the id matches nothing, which deletes nothing either",
+    /if \(!findTaskNode\(id\)\) return false;/.test(CODE), true);
+  ok("...and true once it has actually removed the node",
+    /return removeFromTree\(p\);\s*\n\s*\}\);\s*\n\s*return true;/.test(CODE), true);
+  // create_job is asserted to STILL not set `changed`, so the sweep's verdict
+  // is pinned rather than remembered: if it ever grows a failure path, this
+  // goes red and somebody has to decide again.
+  ok("create_job still does not set changed, because it cannot fail",
+    /case "create_job":\s*\n\s*setTasks\(prev => \[\.\.\.prev,/.test(body), true);
+
   // #400 item 3. THE FIVE LEGACY HANDLERS ARE GONE. They were not in AI_TOOLS,
   // so the model was never offered them and could not emit them — unreachable
   // from the declared schema, and five more writers for the next survey to find,
