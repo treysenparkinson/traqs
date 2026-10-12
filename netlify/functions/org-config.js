@@ -1,4 +1,5 @@
 import { readJson, writeJson } from "./_utils/s3.js";
+import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
 import { personFromAdmin, settleInvitesOnLogin } from "./_utils/invite.js";
@@ -43,9 +44,18 @@ export async function handler(event) {
         if (already) {
           personId = already.id;
         } else {
+          // #292. Append-if-absent, with the dedupe INSIDE the conditional
+          // write. The check above is a fast path; this is the one that
+          // decides, because two first-logins racing both read an empty match
+          // and both used to append — one admin, two roster rows.
           const person = personFromAdmin(config, member.email, people, nowIso());
-          await writeJson(peopleKey, [...people, person]);
           personId = person.id;
+          await updateJson(peopleKey, (stored) => {
+            const arr = Array.isArray(stored) ? stored : [];
+            const dup = arr.find(p => !p?.deletedAt && String(p?.email || "").toLowerCase().trim() === member.email);
+            if (dup) { personId = dup.id; return { abort: "already" }; }
+            return { value: [...arr, person] };
+          });
         }
       } catch (e) {
         // Non-fatal: worst case the client sees isMember:false again and

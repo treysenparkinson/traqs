@@ -12,6 +12,7 @@
 // Plain scheduled handler modeled on backup-daily.js: exported `handler`
 // returning { statusCode, body }, no exported config, no @netlify/functions.
 import { readJson, writeJson, listOrgCodes } from "./_utils/s3.js";
+import { updateJson } from "./_utils/update-json.js";
 import { filterLive } from "./_utils/entities.js";
 import { sendVisiblePush } from "./_utils/push.js";
 import { publishChange } from "./_utils/ably-publish.js";
@@ -89,13 +90,22 @@ export async function handler() {
         // stamped-write + publishChange('people') pattern.
         const staleIds = new Set(stale.map(p => String(p.id)));
         const stamp = nowIso();
-        const next = rawPeople.map(p => {
-          if (p && staleIds.has(String(p.id)) && p.activeClockIn) {
-            return { ...p, activeClockIn: { ...p.activeClockIn, forgotNotifiedAt: stamp } };
-          }
-          return p;
+        // #292. A MANY-AT-ONCE patch inside a conditional write — the only
+        // one of the three that is not a single person. Re-applied from
+        // whatever the retry reads, so a clock-out or a roster edit landing in
+        // the window is kept; and the re-read is what makes the `activeClockIn`
+        // test meaningful, because a worker who clocked out between the push
+        // and this write must NOT be stamped as notified.
+        await updateJson(peopleKey, (stored) => {
+          const arr = Array.isArray(stored) ? stored : [];
+          const next = arr.map(p => {
+            if (p && staleIds.has(String(p.id)) && p.activeClockIn && !p.activeClockIn.forgotNotifiedAt) {
+              return { ...p, activeClockIn: { ...p.activeClockIn, forgotNotifiedAt: stamp } };
+            }
+            return p;
+          });
+          return { value: stampArray(next, stored) };
         });
-        await writeJson(peopleKey, stampArray(next, rawPeople));
         await publishChange(orgCode, "people", { ids: [...staleIds] });
         flagged += stale.length;
       }

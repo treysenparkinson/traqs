@@ -930,15 +930,22 @@ export async function handler(event) {
       // pay) are preserved untouched. Reads people FRESH so a concurrent change
       // to a different person isn't clobbered. Returns the updated activeClockIn.
       const syncOpenShiftLunch = async (personId) => {
-        let fresh;
-        try { fresh = await readJson(peopleKey) ?? []; } catch { return null; }
-        const idx = fresh.findIndex(x => String(x.id) === String(personId));
-        if (idx === -1) return null;
-        const p = fresh[idx];
+        let out = null;
+        try {
+          const res = await mutatePersonFresh(peopleKey, personId, (p) => {
+            out = rebuiltLunchCache(p, log, personId);
+            if (out === null) refuse(204, "nothing to sync");
+            return out;
+          });
+          return res.person?.activeClockIn ?? null;
+        } catch { return null; }
+      };
+      // The projection itself, pure so the mutate can run it more than once.
+      const rebuiltLunchCache = (p, logNow, personId) => {
         const ci = p?.activeClockIn?.clockIn;
         if (!ci) return null;
         const ciMs = new Date(ci).getTime();
-        const lunch = log
+        const lunch = logNow
           .filter(r => r.eventType && !r.deletedAt && isLunch(r.eventType) && String(r.personId) === String(personId))
           .map(r => ({ type: r.eventType, ts: r.timestamp, t: new Date(r.timestamp).getTime() }))
           .filter(r => !Number.isNaN(r.t) && r.t >= ciMs)
@@ -946,9 +953,7 @@ export async function handler(event) {
           .map(r => ({ type: r.type, ts: r.ts }));
         const nonLunch = (p.activeClockIn.events || []).filter(ev => ev && !isLunch(ev.type));
         const events = [...nonLunch, ...lunch].sort((a, b) => new Date(a.ts) - new Date(b.ts));
-        fresh[idx] = { ...p, activeClockIn: { ...p.activeClockIn, events } };
-        try { await writeStampedArray(peopleKey, fresh); } catch { return null; }
-        return fresh[idx].activeClockIn;
+        return { ...p, activeClockIn: { ...p.activeClockIn, events } };
       };
 
       // ── Edit an existing lunch/break row's time ──────────────────────────
@@ -1488,8 +1493,12 @@ export async function handler(event) {
       // No pause bookkeeping needed: activeJobClock is dropped whole, and the
       // in-flight pause was already billed out of jcoHours above.
       const jcoBreakEnd = closeActiveBreak(jcoPerson, jcoPId, jcoClockOut, localDayOf);
-      jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null, activeBreak: null };
-      try { await writeStampedArray(peopleKey, jcoPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, jcoPId, (fresh) => {
+          if (!fresh.activeJobClock) refuse(409, "Not clocked into any job");
+          return { ...fresh, activeJobClock: null, activeBreak: null };
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       if (jcoBreakEnd) {
         try {
           const jcoPayLog = await readJson(payKey) ?? [];
@@ -1779,8 +1788,13 @@ export async function handler(event) {
       if (jpPerson.activeJobClock.pausedAt) return err(409, "Job already paused");
 
       const pausedAt = new Date().toISOString();
-      jpPeople[jpIdx] = { ...jpPerson, activeJobClock: { ...jpPerson.activeJobClock, pausedAt } };
-      try { await writeStampedArray(peopleKey, jpPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, jpPId, (fresh) => {
+          if (!fresh.activeJobClock) refuse(409, "Not clocked into any job");
+          if (fresh.activeJobClock.pausedAt) refuse(409, "Already paused");
+          return { ...fresh, activeJobClock: { ...fresh.activeJobClock, pausedAt } };
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
       return json(200, { ok: true, pausedAt });
     }
@@ -1804,13 +1818,22 @@ export async function handler(event) {
       if (!jrPerson.activeJobClock) return err(409, "Not clocked into any job");
       if (!jrPerson.activeJobClock.pausedAt) return err(409, "Job is not paused");
 
-      const pausedDuration = Date.now() - new Date(jrPerson.activeJobClock.pausedAt).getTime();
-      const totalPausedMs = (jrPerson.activeJobClock.totalPausedMs || 0) + pausedDuration;
-      const { pausedAt: _removed, ...jrJobClock } = jrPerson.activeJobClock;
-      jrPeople[jrIdx] = { ...jrPerson, activeJobClock: { ...jrJobClock, totalPausedMs } };
-      try { await writeStampedArray(peopleKey, jrPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      let jrTotal = 0;
+      try {
+        await mutatePersonFresh(peopleKey, jrPId, (fresh) => {
+          if (!fresh.activeJobClock) refuse(409, "Not clocked into any job");
+          if (!fresh.activeJobClock.pausedAt) refuse(409, "Not paused");
+          // Base AND delta from the FRESH record, never from the copy read at
+          // the top: an accumulator fed a stale base drops the other writer's
+          // contribution without any error anywhere.
+          const dur = Math.max(0, Date.now() - new Date(fresh.activeJobClock.pausedAt).getTime());
+          jrTotal = (fresh.activeJobClock.totalPausedMs || 0) + dur;
+          const { pausedAt: _gone, ...jc } = fresh.activeJobClock;
+          return { ...fresh, activeJobClock: { ...jc, totalPausedMs: jrTotal } };
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
-      return json(200, { ok: true, totalPausedMs });
+      return json(200, { ok: true, totalPausedMs: jrTotal });
     }
 
     // ── Manual Job Hours (admin) ──────────────────────────────────────────
@@ -1971,28 +1994,43 @@ export async function handler(event) {
       const rjsSelf = String(_rjs.personId) === String(rjsPId);
       if (!rjsSelf && !_rjs.isAdmin && !can(_rjs, "approveCompletions")) return err(403, "You do not have permission to approve completions");
 
-      let rjsPeople;
-      try { rjsPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-      const rjsIdx = rjsPeople.findIndex(p => String(p.id) === String(rjsPId));
-      if (rjsIdx === -1) return err(404, "Person not found");
-      const rjsJc = rjsPeople[rjsIdx].activeJobClock;
-      // Nothing to release is a success, not an error: the worker may have clocked out
-      // between the admin opening the bubble and pressing the button, and a 409 there would
-      // turn a completed decision into a failure the admin has to think about.
-      if (!rjsJc) return json(200, { ok: true, released: false, reason: "no active job clock" });
-      // A sessionId that no longer matches means this decision belongs to a session that has
-      // already ended — releasing the CURRENT one would end work that nobody decided about.
-      if (rjsSessionId && rjsJc.sessionId && String(rjsJc.sessionId) !== String(rjsSessionId)) {
-        return json(200, { ok: true, released: false, reason: "session already ended" });
+      // #292. updateJson DIRECTLY, not mutatePersonFresh, because this branch's
+      // two refusals are SUCCESSES and `refuse` throws a failure. `{ abort }` is
+      // updateJson's own way to say "write nothing, and here is why" — and both
+      // questions have to be re-asked against the record the retry actually
+      // read: the worker may clock out, or a different session may start,
+      // between one attempt and the next.
+      //
+      // Nothing else is written in this branch — no productionhours row, no
+      // task counter — so there is no ordering to preserve and no delta to
+      // re-apply. It is the simplest of the five.
+      let rjsOut;
+      try {
+        rjsOut = await updateJson(peopleKey, (stored) => {
+          const arr = Array.isArray(stored) ? stored : [];
+          const i = arr.findIndex(p => String(p?.id) === String(rjsPId));
+          if (i === -1) return { abort: { status: 404, error: "Person not found" } };
+          const jc = arr[i].activeJobClock;
+          // Nothing to release is a success, not an error: the worker may have clocked out
+          // between the admin opening the bubble and pressing the button, and a 409 there would
+          // turn a completed decision into a failure the admin has to think about.
+          if (!jc) return { abort: { ok: true, released: false, reason: "no active job clock" } };
+          // A sessionId that no longer matches means this decision belongs to a session that has
+          // already ended — releasing the CURRENT one would end work that nobody decided about.
+          if (rjsSessionId && jc.sessionId && String(jc.sessionId) !== String(rjsSessionId)) {
+            return { abort: { ok: true, released: false, reason: "session already ended" } };
+          }
+          const next = arr.slice();
+          if (outcome === "clear") next[i] = { ...arr[i], activeJobClock: null };
+          else { const { frozenAtMs: _f, unclosedAt: _u, ...resumed } = jc; next[i] = { ...arr[i], activeJobClock: resumed }; }
+          return { value: stampArray(next, stored) };
+        });
+      } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      if (rjsOut?.abort) {
+        const a = rjsOut.abort;
+        return a.status ? err(a.status, a.error) : json(200, a);
       }
-
-      if (outcome === "clear") {
-        rjsPeople[rjsIdx] = { ...rjsPeople[rjsIdx], activeJobClock: null };
-      } else {
-        const { frozenAtMs: _f, unclosedAt: _u, ...resumed } = rjsJc;
-        rjsPeople[rjsIdx] = { ...rjsPeople[rjsIdx], activeJobClock: resumed };
-      }
-      try { await writeStampedArray(peopleKey, rjsPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      await publishWrite(peopleKey, rjsOut.value, rjsOut.previous ?? null);
       return json(200, { ok: true, released: true, outcome });
     }
 

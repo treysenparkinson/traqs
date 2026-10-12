@@ -15,6 +15,7 @@
 // API is needed — the invitee signs in through the ordinary flow first.
 
 import { readJson, writeJson } from "./_utils/s3.js";
+import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
 import { requirePerm } from "./_utils/can.js";
@@ -99,10 +100,19 @@ export async function handler(event) {
       return json(200, { ok: true, personId: already.id, created: false });
     }
 
+    // #292. The dedupe moves INSIDE the conditional write and is re-run on
+    // every attempt, so a second accept landing in the window finds the row the
+    // first one wrote instead of adding another.
     const person = personFromInvite(invites[idx], live, stamp);
-    await writeJson(peopleKey(code), [...people, person]);
+    let created = person;
+    await updateJson(peopleKey(code), (stored) => {
+      const arr = Array.isArray(stored) ? stored : [];
+      const dup = filterLive(arr).find((p) => String(p?.email || "").toLowerCase().trim() === member.email);
+      if (dup) { created = dup; return { abort: "already" }; }
+      return { value: [...arr, person] };
+    });
     await writeJson(invitesKey(code), nextInvites);
-    return json(200, { ok: true, personId: person.id, created: true });
+    return json(200, { ok: true, personId: created.id, created: created === person });
   }
 
   // ── Create ───────────────────────────────────────────────────────────

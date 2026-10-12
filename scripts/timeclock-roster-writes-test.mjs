@@ -51,11 +51,11 @@ const SRC = readFileSync(new URL("../netlify/functions/timeclock.js", import.met
 // somebody converts one without updating it, which is the same mechanism the
 // membership lint uses — and it cannot drift upward either, so a NEW plain
 // roster write is caught as well.
-const NOT_YET = ["adminEditEvent", "jobClockOut", "jobPause", "jobResume", "releaseJobSession"];
+const NOT_YET = [];   // all seventeen, 2026-10-12
 
-console.log("\n1. THE PLAIN ROSTER PUTS THAT REMAIN ARE EXACTLY THE FIVE NAMED");
+console.log("\n1. NOT ONE PLAIN ROSTER PUT SURVIVES");
 {
-  ok("twelve of seventeen are gone",
+  ok("all seventeen are gone",
     (SRC.match(/writeStampedArray\(peopleKey/g) || []).length, NOT_YET.length);
   ok("no writeJson on peopleKey either",
     (SRC.match(/writeJson\(peopleKey/g) || []).length, 0);
@@ -72,6 +72,7 @@ console.log("\n2. EVERY BRANCH THAT WROTE THE ROSTER NOW GOES THROUGH mutatePers
   const CONVERTED = [
     "adminClockIn", "adminEditActiveClockIn", "adminReopenEntry",
     "breakBegin", "breakClear", "clockOut", "lunchStart", "lunchEnd", "breakStart", "breakEnd",
+    "jobClockOut", "jobPause", "jobResume",
   ];
   for (const a of CONVERTED) {
     const at = SRC.indexOf(`if (action === "${a}")`);
@@ -152,6 +153,48 @@ for (const [label, body] of [
   ok(`${label}: the action succeeds`, res.statusCode, 200);
   ok(`${label}: the bystander's concurrent rename survives`, byId(42)?.name, "Bystander RENAMED");
   ok(`${label}: ...and their push token`, byId(42)?.pushToken, "tok-42-new");
+}
+
+console.log("\n4b. THE FOUR THAT ALSO WRITE OTHER FILES — what the retry must and must not do");
+{
+  // jobClockOut: the retry re-reads activeJobClock and must REFUSE when it is
+  // already null (a double clock-out). It must NOT recompute the hours or
+  // re-append the session row — both are built above from the session as read,
+  // and the productionhours write has its own (personId, clockIn, opId) dedupe
+  // inside its own conditional write (#196). Pulling them in would run them
+  // once per attempt.
+  ok("jobClockOut refuses a second clock-out from inside the mutate",
+    /mutatePersonFresh\(peopleKey, jcoPId,[\s\S]{0,220}?refuse\(409, "Not clocked into any job"\)/.test(SRC), true);
+  ok("...and the hours are still computed OUTSIDE it",
+    /const jcoWorked = sessionWorkedHours\(\{[\s\S]{0,400}?\}\);[\s\S]{0,2000}?mutatePersonFresh\(peopleKey, jcoPId/.test(SRC), true);
+  ok("...and the session row keeps its own dedupe",
+    /const dup = arr\.some\(s => s && !s\.deletedAt/.test(SRC), true);
+
+  // jobResume: the accumulator. Base AND delta must come from the fresh record.
+  ok("jobResume reads its base from the fresh record",
+    /jrTotal = \(fresh\.activeJobClock\.totalPausedMs \|\| 0\) \+ dur;/.test(SRC), true);
+  ok("...and measures the delta from the fresh pausedAt",
+    /const dur = Math\.max\(0, Date\.now\(\) - new Date\(fresh\.activeJobClock\.pausedAt\)\.getTime\(\)\);/.test(SRC), true);
+  ok("...and no stale pausedDuration survives",
+    /const pausedDuration = Date\.now\(\) - new Date\(jrPerson\.activeJobClock\.pausedAt\)/.test(SRC), false);
+
+  // releaseJobSession: its two refusals are SUCCESSES, so they abort rather
+  // than throw — `refuse` would turn a completed decision into a failure.
+  ok("releaseJobSession aborts rather than throwing for its two no-ops",
+    /abort: \{ ok: true, released: false, reason: "no active job clock" \}/.test(SRC), true);
+  ok("...including the ended-session case", /reason: "session already ended"/.test(SRC), true);
+  ok("...and both are re-asked inside the updater",
+    /updateJson\(peopleKey, \(stored\) => \{[\s\S]{0,1400}?session already ended/.test(SRC), true);
+
+  // adminEditEvent: the cache rebuild is a PROJECTION of the punch log, not an
+  // accumulation, so running it twice gives the same answer. That is what makes
+  // it safe inside a mutate that may run more than once.
+  ok("the lunch cache rebuild is a pure projection",
+    /const rebuiltLunchCache = \(p, logNow, personId\) => \{/.test(SRC), true);
+  ok("...taking the lunch events wholly from the log rather than appending",
+    /const lunch = logNow\s*\n\s*\.filter\(r => r\.eventType/.test(SRC), true);
+  ok("...and the non-lunch events from the existing cache",
+    /const nonLunch = \(p\.activeClockIn\.events \|\| \[\]\)\.filter\(ev => ev && !isLunch\(ev\.type\)\);/.test(SRC), true);
 }
 
 console.log("\n5. A GUARD STILL REFUSES WHEN THE STATE CHANGED UNDER IT");
