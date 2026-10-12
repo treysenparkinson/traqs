@@ -432,6 +432,8 @@ async function notifyAdminsClockIn(orgCode, people, worker, clockInIso) {
 // exactly the race this closes — the retry would re-run the write without re-running the
 // check. scripts/clock-atomicity-test.mjs asserts that, so it is a test and not a
 // convention.
+const refuse = (status, message) => { const e = new Error(message); e.status = status; throw e; };
+
 async function mutatePersonFresh(peopleKey, personId, mutate) {
   const out = await updateJson(peopleKey, (stored) => {
     const arr = [...(stored ?? [])];
@@ -713,8 +715,17 @@ export async function handler(event) {
         if (person.activeClockIn) return err(409, `Already clocked in via ${person.activeClockIn.source || "kiosk"}. Clock out first.`);
 
         const clockIn = clockInTime || new Date().toISOString();
-        people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [], source: "kiosk" } };
-        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
+        let aciOut;
+        try {
+          aciOut = await mutatePersonFresh(peopleKey, personId, (fresh) => {
+            // The 409 moves INSIDE: two admins clocking the same person in both
+            // read "not clocked in" and the second used to overwrite the first.
+            if (fresh.activeClockIn) refuse(409, `Already clocked in via ${fresh.activeClockIn.source || "kiosk"}. Clock out first.`);
+            return { ...fresh, activeClockIn: { clockIn, jobRefs: [], events: [], source: "kiosk" } };
+          });
+        } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save people"); }
+        people = aciOut.people;
+        people[personIdx] = aciOut.person ?? people[personIdx];
 
         await notifyAdminsClockIn(orgCode, people, people[personIdx], clockIn).catch(() => {});
 
@@ -762,8 +773,11 @@ export async function handler(event) {
         if (acoBreakEnd) log.push(acoBreakEnd);
         try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save clock entry"); }
 
-        people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
-        try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
+        // #292. A single-person merge inside a conditional write. This was a PUT of
+        // the whole roster read at the top of the handler, so anything that landed
+        // while the punch was being saved was erased by it. Still non-fatal: the
+        // punch is already in payhours and that is the record of record.
+        try { await mutatePersonFresh(peopleKey, personId, (fresh) => ({ ...fresh, activeClockIn: null, activeBreak: null })); } catch { /* non-fatal */ }
 
         // #187: the pay clock no longer credits job.loggedHours.
         //
@@ -832,10 +846,15 @@ export async function handler(event) {
         const person = people[personIdx];
         if (!person.activeClockIn) return err(409, "Not currently clocked in");
 
-        people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, clockIn } };
-        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
+        let aeOut;
+        try {
+          aeOut = await mutatePersonFresh(peopleKey, personId, (fresh) => {
+            if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+            return { ...fresh, activeClockIn: { ...fresh.activeClockIn, clockIn } };
+          });
+        } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save people"); }
 
-        return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
+        return json(200, { ok: true, activeClockIn: aeOut.person?.activeClockIn ?? null });
       }
     }
 
@@ -1114,12 +1133,21 @@ export async function handler(event) {
           .map(e => ({ type: e.eventType, at: e.timestamp }))
           .sort((a, b) => String(a.at).localeCompare(String(b.at)));
 
-        people[pIdx] = { ...people[pIdx], activeClockIn: { clockIn: entry.clockIn, jobRefs: entry.jobRefs || [], events, source: entry.source || "kiosk" } };
         log = log.map(e => e.id === entryId ? { ...e, deletedAt: new Date().toISOString() } : e);
 
         try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save timeclock"); }
-        try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save people"); }
-        return json(200, { ok: true, entryId, activeClockIn: people[pIdx].activeClockIn });
+        // #292. The session is restored by a single-person merge inside a
+        // conditional write, and the "already clocked in" question is asked of
+        // the roster as it is NOW rather than of the copy read before the punch
+        // log was rewritten — another reopen could have landed in between.
+        let roOut;
+        try {
+          roOut = await mutatePersonFresh(peopleKey, entry.personId, (fresh) => {
+            if (fresh.activeClockIn) refuse(409, "That person is already clocked in");
+            return { ...fresh, activeClockIn: { clockIn: entry.clockIn, jobRefs: entry.jobRefs || [], events, source: entry.source || "kiosk" } };
+          });
+        } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save people"); }
+        return json(200, { ok: true, entryId, activeClockIn: roOut.person?.activeClockIn ?? null });
       }
     }
 
@@ -1239,28 +1267,33 @@ export async function handler(event) {
                     : action === "adminBreakStart" ? "breakStart"
                     :                                "breakEnd";
 
-      // Guard against doubling up the same state.
-      if (evtType === "lunchStart" || evtType === "lunchEnd") {
-        const lastLunch = [...albEvents].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
-        if (evtType === "lunchStart" && lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
-        if (evtType === "lunchEnd" && (!lastLunch || lastLunch.type !== "lunchStart")) return err(409, "Not on lunch");
-      } else {
-        const lastBreak = [...albEvents].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
-        if (evtType === "breakStart" && lastBreak?.type === "breakStart") return err(409, "Already on break");
-        if (evtType === "breakEnd" && (!lastBreak || lastBreak.type !== "breakStart")) return err(409, "Not on break");
-      }
-
       const albTimestamp = albTs || new Date().toISOString();
-      const albWithEvent = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
-      // #505: LUNCH stops both clocks; a BREAK stops neither. A worker on a paid
-      // break is still on the job and the job cost it, so only the lunch events
-      // reach the job clock. The break events are still recorded — payhours keeps
-      // the row, the board still shows "on break" — they just cost nothing.
       const albIsLunch = evtType === "lunchStart" || evtType === "lunchEnd";
-      albPeople[albIdx] = albIsLunch
-        ? applyLunchJobPause(albWithEvent, evtType === "lunchStart", albTimestamp)
-        : albWithEvent;
-      try { await writeStampedArray(peopleKey, albPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, albPersonId, (fresh) => {
+          if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+          const evs = fresh.activeClockIn.events || [];
+          // Guard against doubling up the same state — INSIDE, so the retry
+          // re-reads it. Outside, the second of two admins adding the same
+          // event saw the state before the first and both landed.
+          if (albIsLunch) {
+            const lastLunch = [...evs].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+            if (evtType === "lunchStart" && lastLunch?.type === "lunchStart") refuse(409, "Already on lunch");
+            if (evtType === "lunchEnd" && (!lastLunch || lastLunch.type !== "lunchStart")) refuse(409, "Not on lunch");
+          } else {
+            const lastBreak = [...evs].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+            if (evtType === "breakStart" && lastBreak?.type === "breakStart") refuse(409, "Already on break");
+            if (evtType === "breakEnd" && (!lastBreak || lastBreak.type !== "breakStart")) refuse(409, "Not on break");
+          }
+          const withEvent = { ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: evtType, ts: albTimestamp }] } };
+          // #505: LUNCH stops both clocks; a BREAK stops neither. A worker on a
+          // paid break is still on the job and the job cost it, so only the
+          // lunch events reach the job clock. The break events are still
+          // recorded — payhours keeps the row, the board still shows "on break"
+          // — they just cost nothing.
+          return albIsLunch ? applyLunchJobPause(withEvent, evtType === "lunchStart", albTimestamp) : withEvent;
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: localDayOf(albTimestamp), eventType: evtType, timestamp: albTimestamp };
       let albLog; try { albLog = await readJson(payKey) ?? []; } catch { albLog = []; }
@@ -2026,16 +2059,14 @@ export async function handler(event) {
       if (!bbPId) return err(400, "Missing personId");
       if (!_bb.isAdmin && String(_bb.personId) !== String(bbPId)) return err(403, "Can only start your own break");
 
-      let bbPeople;
-      try { bbPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-      const bbIdx = bbPeople.findIndex(p => String(p.id) === String(bbPId));
-      if (bbIdx === -1) return err(404, "Person not found");
-      if (bbPeople[bbIdx].activeBreak) return err(409, "Already on break");
-
       const bbStart = new Date().toISOString();
       const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
-      bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };   // #505: a break does not pause the job clock
-      try { await writeStampedArray(peopleKey, bbPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, bbPId, (fresh) => {
+          if (fresh.activeBreak) refuse(409, "Already on break");
+          return { ...fresh, activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };   // #505: a break does not pause the job clock
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
       // Log to payhours.json for payroll records.
       const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: localDayOf(bbStart), eventType: "breakStart", timestamp: bbStart };
@@ -2054,15 +2085,13 @@ export async function handler(event) {
       if (!bcPId) return err(400, "Missing personId");
       if (!_bc.isAdmin && String(_bc.personId) !== String(bcPId)) return err(403, "Can only end your own break");
 
-      let bcPeople;
-      try { bcPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-      const bcIdx = bcPeople.findIndex(p => String(p.id) === String(bcPId));
-      if (bcIdx === -1) return err(404, "Person not found");
-      if (!bcPeople[bcIdx].activeBreak) return err(409, "Not on break");
-
       const bcEnd = new Date().toISOString();
-      bcPeople[bcIdx] = { ...bcPeople[bcIdx], activeBreak: null };   // #505: nothing to resume — a break never paused it
-      try { await writeStampedArray(peopleKey, bcPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, bcPId, (fresh) => {
+          if (!fresh.activeBreak) refuse(409, "Not on break");
+          return { ...fresh, activeBreak: null };   // #505: nothing to resume — a break never paused it
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: localDayOf(bcEnd), eventType: "breakEnd", timestamp: bcEnd };
       let bcLog; try { bcLog = await readJson(payKey) ?? []; } catch { bcLog = []; }
@@ -2382,8 +2411,11 @@ export async function handler(event) {
       if (coBreakEnd) log.push(coBreakEnd);
       try { await writeStampedArray(payKey, log); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save clock entry"); }
 
-      people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
-      try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
+      // #292. A single-person merge inside a conditional write. This was a PUT of
+      // the whole roster read at the top of the handler, so anything that landed
+      // while the punch was being saved was erased by it. Still non-fatal: the
+      // punch is already in payhours and that is the record of record.
+      try { await mutatePersonFresh(peopleKey, personId, (fresh) => ({ ...fresh, activeClockIn: null, activeBreak: null })); } catch { /* non-fatal */ }
 
       // #187: the pay clock no longer credits job.loggedHours.
       //
@@ -2401,13 +2433,16 @@ export async function handler(event) {
 
     // ── Lunch Start ──────────────────────────────────────────────────────────
     if (action === "lunchStart") {
-      if (!person.activeClockIn) return err(409, "Not currently clocked in");
-      const events = person.activeClockIn.events || [];
-      const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
-      if (lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
       const timestamp = new Date().toISOString();
-      people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } }, true, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, personId, (fresh) => {
+          if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+          const evs = fresh.activeClockIn.events || [];
+          const last = [...evs].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+          if (last?.type === "lunchStart") refuse(409, "Already on lunch");
+          return applyLunchJobPause({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "lunchStart", ts: timestamp }] } }, true, timestamp);
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchStart", timestamp };
       let log1; try { log1 = await readJson(payKey) ?? []; } catch { log1 = []; }
       log1.push(evt); try { await writeStampedArray(payKey, log1); } catch { }
@@ -2416,13 +2451,16 @@ export async function handler(event) {
 
     // ── Lunch End ────────────────────────────────────────────────────────────
     if (action === "lunchEnd") {
-      if (!person.activeClockIn) return err(409, "Not currently clocked in");
-      const events = person.activeClockIn.events || [];
-      const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
-      if (!lastLunch || lastLunch.type !== "lunchStart") return err(409, "Not on lunch");
       const timestamp = new Date().toISOString();
-      people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } }, false, timestamp);
-      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, personId, (fresh) => {
+          if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+          const evs = fresh.activeClockIn.events || [];
+          const last = [...evs].reverse().find(e => e.type === "lunchEnd" || e.type === "lunchStart");
+          if (!last || last.type !== "lunchStart") refuse(409, "Not on lunch");
+          return applyLunchJobPause({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "lunchEnd", ts: timestamp }] } }, false, timestamp);
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchEnd", timestamp };
       let log2; try { log2 = await readJson(payKey) ?? []; } catch { log2 = []; }
       log2.push(evt); try { await writeStampedArray(payKey, log2); } catch { }
@@ -2434,10 +2472,16 @@ export async function handler(event) {
       if (!person.activeClockIn) return err(409, "Not currently clocked in");
       const events = person.activeClockIn.events || [];
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
-      if (lastBreak?.type === "breakStart") return err(409, "Already on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };   // #505: recorded, not paused
-      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, personId, (fresh) => {
+          if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+          const evs = fresh.activeClockIn.events || [];
+          const last = [...evs].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+          if (last?.type === "breakStart") refuse(409, "Already on break");
+          return ({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakStart", ts: timestamp }] } })   // #505: recorded, not paused;
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
       log3.push(evt); try { await writeStampedArray(payKey, log3); } catch { }
@@ -2449,10 +2493,16 @@ export async function handler(event) {
       if (!person.activeClockIn) return err(409, "Not currently clocked in");
       const events = person.activeClockIn.events || [];
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
-      if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };   // #505: recorded, not paused
-      try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
+      try {
+        await mutatePersonFresh(peopleKey, personId, (fresh) => {
+          if (!fresh.activeClockIn) refuse(409, "Not currently clocked in");
+          const evs = fresh.activeClockIn.events || [];
+          const last = [...evs].reverse().find(e => e.type === "breakEnd" || e.type === "breakStart");
+          if (!last || last.type !== "breakStart") refuse(409, "Not on break");
+          return ({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakEnd", ts: timestamp }] } })   // #505: recorded, not paused;
+        });
+      } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }
       log4.push(evt); try { await writeStampedArray(payKey, log4); } catch { }

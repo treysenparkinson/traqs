@@ -101,8 +101,14 @@ console.log("\n5. BREAKS NO LONGER TOUCH THE JOB CLOCK — at every call site");
   ok("breakBegin still sets activeBreak", /activeBreak: \{ startedAt: bbStart, durationMinutes: bbMinutes \}/.test(TC), true);
   ok("breakClear still clears it", /activeBreak: null/.test(TC), true);
   // Lunch must keep doing exactly what it did.
-  ok("lunchStart still pauses the job clock", /applyLunchJobPause\(\{ \.\.\.person, activeClockIn: \{ \.\.\.person\.activeClockIn, events: \[\.\.\.events, \{ type: "lunchStart"/.test(TC), true);
-  ok("lunchEnd still resumes it", /applyLunchJobPause\(\{ \.\.\.person, activeClockIn: \{ \.\.\.person\.activeClockIn, events: \[\.\.\.events, \{ type: "lunchEnd"/.test(TC), true);
+  // REWRITTEN FOR #292, which moved these into mutatePersonFresh. The old
+  // assertions pinned the literal call text (`{ ...person, activeClockIn: ... }`)
+  // and went red on a change that altered no behaviour — a pattern scoped to a
+  // shape rather than to the thing it is about. What matters is that the LUNCH
+  // events reach applyLunchJobPause and the BREAK events do not.
+  ok("lunchStart still pauses the job clock", /applyLunchJobPause\([\s\S]{0,260}?type: "lunchStart"/.test(TC), true);
+  ok("lunchEnd still resumes it", /applyLunchJobPause\([\s\S]{0,260}?type: "lunchEnd"/.test(TC), true);
+  ok("...and a break still reaches neither", /applyLunchJobPause\([\s\S]{0,260}?type: "break/.test(TC), false);
   ok("the lunch alias survives", /const applyLunchJobPause = \(person, starting, nowIso\) => applyAutoJobPause\(person, "lunch", starting, nowIso\);/.test(TC), true);
 }
 
