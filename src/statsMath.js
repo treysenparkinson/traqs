@@ -646,16 +646,32 @@ export function endOfWorkingDayMs(startMs, cfg) {
  * Both callers now come here. The live figure and the credited figure cannot drift again
  * without this function changing, which is the point.
  *
- * Pauses: an OPEN pause needs no arithmetic — openSessionEnd ends the window at `pausedAt`,
- * which is what makes the hatch stop where the work stopped. A CLOSED pause does, and only
- * the manual ones: a lunch pause sits inside a dead window that productiveHoursBetween has
- * already removed, so subtracting it again would bill lunch twice. That is why auto pauses
- * accrue to `autoPausedMs` and manual ones to `totalPausedMs` — before that split the two
- * were one cumulative number and could not be told apart.
+ * PAUSES: THE RECORDED ONES, ALL OF THEM, AND NO ESTIMATE OF ANY (#505, Trey's rule,
+ * 2026-10-12). A measured session has its own pauses; it does not also need the shop's guess
+ * at when they were. So the gross window drops the org's INTRA-DAY dead windows and the
+ * subtraction is the FULL `totalPausedMs`.
  *
- * A session stored before the split carries everything in `totalPausedMs`. Those are treated
- * as manual, which can double-subtract a lunch on a session that was in flight across the
- * deploy. It under-credits by at most one lunch, once, and never over-credits.
+ * It used to be the other way, and the two halves only make sense together. `gross` came
+ * straight from `productiveHoursBetween`, which strips the scheduled lunch AND both scheduled
+ * breaks; the subtraction then had to EXCLUDE the auto share (`totalPausedMs - autoPausedMs`)
+ * or a clocked lunch came off twice. Two consequences followed. A worker who worked through
+ * lunch and clocked nothing lost it anyway — 120.31h across Matrix's 262 sessions. And a
+ * clocked BREAK was removed from production, 58.69h of it, although it is paid time on a job
+ * the shop is being charged for.
+ *
+ * CHANGING ONE HALF ALONE IS WRONG IN EITHER DIRECTION, which is why they moved together:
+ * keep the dead windows and subtract the full pause, and lunch is billed twice; drop the dead
+ * windows and keep subtracting only the manual share, and lunch is billed not at all. The
+ * suite's section 3 is exactly that property.
+ *
+ * `autoPausedMs` survives as a record of WHY a pause happened and is no longer arithmetic.
+ * A session stored before the split carries everything in `totalPausedMs`; under this rule
+ * that reads simply as "this much pause", which is the right answer for it too — the #199
+ * double-subtraction has nothing left to double.
+ *
+ * THE CALENDAR STILL BOUNDS THE WINDOW, and that is the whole of what #194 needed: nights,
+ * weekends and holidays are not worked, so a Friday-afternoon session closed on Monday still
+ * caps at end of day instead of crediting 67.84h. Only the intra-day windows were dropped.
  *
  * Where inside the window a closed pause fell is not recorded, so its full duration is
  * subtracted and the result floored at 0. Precision here would need pause intervals rather
@@ -668,17 +684,16 @@ export function sessionWorkedHours({ clockInMs, clockOutMs, pausedAt, frozenAtMs
   // to an open session applies here too.
   const at = Number.isFinite(clockOutMs) ? clockOutMs : nowMs;
   const end = openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs: at, cfg });
-  const gross = productiveHoursBetween(clockInMs, end.endMs, cfg);
+  // `deadWindows: []` is the whole of change (1). Everything else in cfg — working days,
+  // holidays, the working window — still applies, so the bounding #194 relies on is intact.
+  const gross = productiveHoursBetween(clockInMs, end.endMs, { ...cfg, deadWindows: [] });
   // Only pauses that closed BEFORE the window ended can have eaten into it; one that is
   // still open ended the window itself and must not be counted twice.
-  // live-hours-exempt: not a clockIn→now elapsed measure at all. The window comes from the org
-  // calendar via productiveHoursBetween above, and this subtracts only the MANUAL share of the
-  // closed pauses from it — liveElapsedHours subtracts every pause from raw wall clock, which
-  // is the opposite treatment of lunch. Routing this through the helper would reintroduce the
-  // double-subtraction this function exists to avoid.
-  const manualH = Math.max(0, (Number(totalPausedMs) || 0) - (Number(autoPausedMs) || 0)) / 3600000;
-  const hours = Math.max(0, Math.round((gross - manualH) * 100) / 100);
-  return { hours, endMs: end.endMs, frozen: !!end.frozen, unclosed: !!end.unclosed, grossH: Math.round(gross * 100) / 100, manualPausedH: Math.round(manualH * 100) / 100 };
+  // live-hours-exempt: not a clockIn→now elapsed measure at all — the window comes from the
+  // org calendar via productiveHoursBetween above, which also bounds it to working time.
+  const pausedH = Math.max(0, Number(totalPausedMs) || 0) / 3600000;
+  const hours = Math.max(0, Math.round((gross - pausedH) * 100) / 100);
+  return { hours, endMs: end.endMs, frozen: !!end.frozen, unclosed: !!end.unclosed, grossH: Math.round(gross * 100) / 100, manualPausedH: Math.round(pausedH * 100) / 100 };
 }
 
 export function openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs, cfg }) {

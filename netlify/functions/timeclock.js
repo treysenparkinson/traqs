@@ -1252,13 +1252,14 @@ export async function handler(event) {
 
       const albTimestamp = albTs || new Date().toISOString();
       const albWithEvent = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
-      // Lunch and break both stop production; only lunch stops pay.
-      albPeople[albIdx] = applyAutoJobPause(
-        albWithEvent,
-        (evtType === "lunchStart" || evtType === "lunchEnd") ? "lunch" : "break",
-        (evtType === "lunchStart" || evtType === "breakStart"),
-        albTimestamp
-      );
+      // #505: LUNCH stops both clocks; a BREAK stops neither. A worker on a paid
+      // break is still on the job and the job cost it, so only the lunch events
+      // reach the job clock. The break events are still recorded — payhours keeps
+      // the row, the board still shows "on break" — they just cost nothing.
+      const albIsLunch = evtType === "lunchStart" || evtType === "lunchEnd";
+      albPeople[albIdx] = albIsLunch
+        ? applyLunchJobPause(albWithEvent, evtType === "lunchStart", albTimestamp)
+        : albWithEvent;
       try { await writeStampedArray(peopleKey, albPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: localDayOf(albTimestamp), eventType: evtType, timestamp: albTimestamp };
@@ -2033,7 +2034,7 @@ export async function handler(event) {
 
       const bbStart = new Date().toISOString();
       const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
-      bbPeople[bbIdx] = applyAutoJobPause({ ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } }, "break", true, bbStart);
+      bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };   // #505: a break does not pause the job clock
       try { await writeStampedArray(peopleKey, bbPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       // Log to payhours.json for payroll records.
@@ -2060,7 +2061,7 @@ export async function handler(event) {
       if (!bcPeople[bcIdx].activeBreak) return err(409, "Not on break");
 
       const bcEnd = new Date().toISOString();
-      bcPeople[bcIdx] = applyAutoJobPause({ ...bcPeople[bcIdx], activeBreak: null }, "break", false, new Date().toISOString());
+      bcPeople[bcIdx] = { ...bcPeople[bcIdx], activeBreak: null };   // #505: nothing to resume — a break never paused it
       try { await writeStampedArray(peopleKey, bcPeople); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: localDayOf(bcEnd), eventType: "breakEnd", timestamp: bcEnd };
@@ -2435,7 +2436,7 @@ export async function handler(event) {
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
       if (lastBreak?.type === "breakStart") return err(409, "Already on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } }, "break", true, timestamp);
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };   // #505: recorded, not paused
       try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
@@ -2450,7 +2451,7 @@ export async function handler(event) {
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
       if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } }, "break", false, timestamp);
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };   // #505: recorded, not paused
       try { await writeStampedArray(peopleKey, people); } catch (e) { return err(e.statusCode || 500, e.statusCode ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }

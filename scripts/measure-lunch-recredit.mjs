@@ -20,6 +20,13 @@
 //                                 → satisfies the rule, keeps #194 fixed.
 // (B) is what this prices.
 //
+// IT NOW REPORTS ZERO, AND THAT IS THE FIX LANDING, NOT A NULL RESULT. #505
+// made `sessionWorkedHours` force `deadWindows: []`, so both cfgs below take
+// the same path and the delta it was built to price has gone. The figure it
+// produced on 2026-10-12, against the code as it then was, is kept in the #505
+// entry: 120.31h across 175 of 262 sessions. Run it against an older checkout
+// to reproduce that; against HEAD, zero is the expected answer.
+//
 //   node scripts/measure-lunch-recredit.mjs
 
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";

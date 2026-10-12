@@ -81,8 +81,20 @@ console.log("\n1. The credit is productive hours, not wall clock");
   ok("...and one session row carries the same number", [sessions().length, sessions()[0]?.hours], [1, 2]);
 }
 {
+  // REWRITTEN FOR #505, and the old assertion is worth naming: it read "a span
+  // across lunch credits only the worked half" and wanted 1 of 2 hours, because
+  // `gross` stripped the SCHEDULED lunch window from a measured span. Under
+  // Trey's rule a measured session loses only the pauses it actually recorded,
+  // and this fixture records none — so the span is worth its two hours.
   const res = await session({ clockIn: "2026-09-25T11:30:00.000Z", endAt: "2026-09-25T13:30:00.000Z" });
-  ok("a span across lunch credits only the worked half", res.body.hours, 1);
+  ok("a span across the scheduled lunch, with nothing clocked, credits all of it", res.body.hours, 2);
+}
+{
+  // The other half of the same rule: a lunch that WAS clocked still comes off,
+  // exactly once, and it is its real length rather than the scheduled one.
+  const res = await session({ clockIn: "2026-09-25T11:30:00.000Z", endAt: "2026-09-25T13:30:00.000Z",
+    totalPausedMs: 40 * 60 * 1000, autoPausedMs: 40 * 60 * 1000 });
+  ok("...and a 40-minute lunch that WAS clocked comes off as 40 minutes", res.body.hours, 1.33);
 }
 {
   const res = await session({ clockIn: "2026-09-25T16:00:00.000Z", endAt: "2026-09-25T20:00:00.000Z" });
