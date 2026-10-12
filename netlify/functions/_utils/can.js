@@ -26,6 +26,8 @@ export const PERM_KEYS = [
   "orgSettings",
   "approveCompletions",
   "approveTimeOff",
+  "manageTimeclock",
+  "confirmTimesheet",
 ];
 
 /** Plain-English names, used in the 403 bodies so a rejection says which
@@ -40,14 +42,30 @@ const PERM_LABEL = {
   orgSettings:   "access organization settings",
   approveCompletions: "approve & decline job completion requests",
   approveTimeOff:     "approve & deny time-off requests",
+  manageTimeclock:    "correct the time clock — clock people in and out, edit punches and breaks",
+  confirmTimesheet:   "confirm & re-open timesheets",
 };
 
-// Keys added AFTER granular permissions shipped. The powers they gate were
-// previously ungated, so an admin record written before them carries no entry
-// and must still be granted: ABSENT means granted, only an explicit false
-// denies. Mirrors PERMS_GRANTED_WHEN_ABSENT on the web. Empty this set once
-// every live record carries the keys, and they become ordinary opt-in toggles.
-const GRANTED_WHEN_ABSENT = new Set(["approveCompletions", "approveTimeOff"]);
+// EMPTIED 2026-10-12 (#295), which is what this set was always for.
+//
+// It held keys added AFTER granular permissions shipped: the powers they gated
+// were previously ungated, so a record written before them carried no entry and
+// had to be granted anyway — ABSENT meant GRANTED. Its own comment said to
+// empty it "once every live record carries the keys", and nobody ever did, so
+// `approveCompletions` and `approveTimeOff` were DECORATIVE for their whole
+// life: the UI showed them off, the server granted them.
+//
+// THE REASON IT COULD NEVER EMPTY ITSELF was `togglePerm` on the web, which
+// wrote ONE key onto whatever object was there. A record missing a key never
+// gained it unless that exact toggle was touched. It backfills the whole map
+// now, promotion writes every key explicitly rather than `{}`, and all six live
+// admin records were backfilled by scripts/backfill-admin-perms.mjs — so the
+// three ways a record could lack a key are all closed.
+//
+// KEEP IT EMPTY. A new key that needs a grace period is a migration, not a
+// permanent exemption: add it here, backfill, remove it in the same release.
+// Two keys sat here for months because that last step has no deadline.
+const GRANTED_WHEN_ABSENT = new Set([]);
 
 export function can(member, key) {
   if (!member?.isAdmin) return false;
@@ -68,6 +86,13 @@ export function can(member, key) {
  *  approval item is the admins who hold that toggle. */
 export function personCan(person, key) {
   return can({ isAdmin: person?.userRole === "admin", adminPerms: person?.adminPerms }, key);
+}
+
+/** The 403 message for a missing toggle, for callers that RETURN rather than
+ *  throw. Same words as requirePerm so a rejection reads the same wherever it
+ *  comes from — the five timeclock sites answer with err(403, …). */
+export function permDenied(key) {
+  return `Your account does not have permission to ${PERM_LABEL[key] || key}`;
 }
 
 /** Throws a 403 carrying the toggle's plain-English name. */

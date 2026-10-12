@@ -1,5 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { can, canClockIn, personCan } from "./_utils/can.js";
+import { can, canClockIn, personCan, permDenied } from "./_utils/can.js";
 import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
 import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../src/statsMath.js";
@@ -697,7 +697,8 @@ export async function handler(event) {
     if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry" || action === "adminEditActiveClockIn") {
       let _m;
       try { _m = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-      if (!_m.isAdmin) return err(403, "Admin only");
+      // #295. Correcting the clock, not confirming it — see confirmTimesheet below.
+      if (!can(_m, "manageTimeclock")) return err(403, permDenied("manageTimeclock"));
 
       // ── Admin Clock In ─────────────────────────────────────────────────
       if (action === "adminClockIn") {
@@ -881,7 +882,7 @@ export async function handler(event) {
     if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminDeleteEntry" || action === "adminReopenEntry") {
       let _me;
       try { _me = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-      if (!_me.isAdmin) return err(403, "Admin only");
+      if (!can(_me, "manageTimeclock")) return err(403, permDenied("manageTimeclock"));
 
       const EVENT_TYPES = new Set(["lunchStart", "lunchEnd", "breakStart", "breakEnd"]);
       const isLunch = (t) => t === "lunchStart" || t === "lunchEnd";
@@ -1164,7 +1165,11 @@ export async function handler(event) {
     if (action === "confirmTimesheet" || action === "unconfirmTimesheet") {
       let _cm;
       try { _cm = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-      if (!_cm.isAdmin) return err(403, "Admin only");
+      // #295. ITS OWN KEY. Confirming is what turns hours into money — it is the
+      // only thing the accountant's export reads — and #503 put 828 unconfirmed
+      // hours behind it. Correcting a missed punch is a daily shop job; this is
+      // a fortnightly payroll act, and they are not the same right.
+      if (!can(_cm, "confirmTimesheet")) return err(403, permDenied("confirmTimesheet"));
 
       const { start, end } = body;
       const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -1252,7 +1257,7 @@ export async function handler(event) {
     if (action === "adminLunchStart" || action === "adminLunchEnd" || action === "adminBreakStart" || action === "adminBreakEnd") {
       let _ml;
       try { _ml = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-      if (!_ml.isAdmin) return err(403, "Admin only");
+      if (!can(_ml, "manageTimeclock")) return err(403, permDenied("manageTimeclock"));
       const { personId: albPersonId, ts: albTs } = body;
       if (!albPersonId) return err(400, "Missing personId");
       if (albTs != null && !validTs(albTs)) return err(400, "Invalid ts");
@@ -1854,7 +1859,7 @@ export async function handler(event) {
     if (action === "adminJobHours") {
       let _mjh;
       try { _mjh = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-      if (!_mjh.isAdmin) return err(403, "Admin only");
+      if (!can(_mjh, "manageTimeclock")) return err(403, permDenied("manageTimeclock"));
 
       const { personId: mjhPid, jobId, panelId, opId, hours, date, jobTitle, panelTitle, opTitle } = body;
       if (!mjhPid || !opId) return err(400, "Missing personId or opId");
