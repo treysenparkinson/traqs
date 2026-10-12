@@ -1820,7 +1820,7 @@ struct PageTitle: View {
         _ = theme.bgPresetId
         return VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.custom(TTitleFont.extrabold, size: size))
+                .font(.custom(TFontName.extrabold.rawValue, size: size))
                 .tracking(tracking)
                 .foregroundStyle(titleFill)
             if let subtitle {
