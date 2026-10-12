@@ -3280,7 +3280,7 @@ class AppState {
     }
 
     /// Live (not-yet-clocked-out) productive hours on an op, summed over everyone clocked
-    /// into it — the web's `liveOpHours` (SessionHours.live): shop time, lunch and breaks off,
+    /// into it — the web's `liveOpHours` (SessionHours.live): shop time, clocked pauses off (#505),
     /// stopped at a hold, an open pause or the end of the working day. The server only folds a
     /// session into `loggedHours` at clock-out, so without this a worker sees nothing on the
     /// bar while they're working. A total, not per day: the gantt pours it across the unit.

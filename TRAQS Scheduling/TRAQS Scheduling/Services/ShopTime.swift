@@ -239,15 +239,25 @@ enum SessionHours {
     }
 
     /// `sessionWorkedHours` — rounded to the hundredth, as the web and the server do.
+    ///
+    /// #505: a measured session takes its RECORDED pauses, all of them, and no estimate of
+    /// any. The gross drops the org's intra-day dead windows (the scheduled lunch and breaks)
+    /// and the subtraction is the FULL `totalPausedMs`. The two halves only work together:
+    /// keep the dead windows and lunch comes off twice; drop them but keep subtracting only
+    /// the manual share and lunch comes off not at all. The calendar still bounds the window
+    /// (#194) — only the intra-day windows go. `autoPausedMs` records why a pause happened
+    /// and is no longer arithmetic; it stays in the signature to match the web's.
     static func worked(clockIn: Date, clockOut: Date?, pausedAt: Date?, frozenAt: Date?,
                        totalPausedMs: Double, autoPausedMs: Double, now: Date,
                        day: DayWindow, calendar: WorkCalendar, shop: ShopTime) -> Result {
         let at = clockOut ?? now
         let e = openEnd(clockIn: clockIn, pausedAt: pausedAt, frozenAt: frozenAt, now: at,
                         day: day, calendar: calendar, shop: shop)
-        let gross = productiveHoursBetween(clockIn, e.end, day: day, calendar: calendar, shop: shop)
-        let manualH = max(0, totalPausedMs - autoPausedMs) / 3_600_000
-        let hours = max(0, ((gross - manualH) * 100).rounded() / 100)
+        var measured = day
+        measured.dead = []
+        let gross = productiveHoursBetween(clockIn, e.end, day: measured, calendar: calendar, shop: shop)
+        let pausedH = max(0, totalPausedMs) / 3_600_000
+        let hours = max(0, ((gross - pausedH) * 100).rounded() / 100)
         return Result(hours: hours, end: e.end, frozen: e.frozen, unclosed: e.unclosed)
     }
 

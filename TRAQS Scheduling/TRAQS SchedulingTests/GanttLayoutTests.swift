@@ -148,18 +148,20 @@ struct LiveOpHoursTests {
     private func at(_ iso: String) -> Date { Date.fromFlexibleISO8601(iso)! }
 
     /// Friday 14:00 → Monday 10:00 in Denver, nobody clocked out: the session stops at Friday's
-    /// quitting time. 14:00–17:00 less the 14:00 break is 2.75 h — not the 92 h of wall clock.
+    /// quitting time: 14:00–17:00 is 3 h — not the 92 h of wall clock. (#505: the scheduled
+    /// 14:00 break no longer comes off a measured session; only a clocked pause would.)
     @Test func aClockLeftOpenOverTheWeekendStopsAtQuittingTime() {
         let p = person(#"{"clockIn":"2026-10-09T20:00:00.000Z","jobId":"J","opId":"X"}"#)
         let h = SessionHours.live(opId: "X", people: [p], now: at("2026-10-12T16:00:00.000Z"), org: org("America/Denver"))
-        #expect(abs(h - 2.75) < 1e-9)
+        #expect(abs(h - 3.0) < 1e-9)
     }
 
-    /// Across lunch: 09:00–15:00 is 6 h of wall clock, 4.5 h of work.
-    @Test func lunchAndBreaksComeOff() {
+    /// #505: 09:00–15:00 with nothing clocked is 6 h. The scheduled lunch and breaks are the
+    /// shop's guess, and a measured session takes its own recorded pauses instead.
+    @Test func scheduledLunchAndBreaksDoNotComeOff() {
         let p = person(#"{"clockIn":"2026-10-05T15:00:00.000Z","jobId":"J","opId":"X"}"#)
         let h = SessionHours.live(opId: "X", people: [p], now: at("2026-10-05T21:00:00.000Z"), org: org("America/Denver"))
-        #expect(abs(h - 4.5) < 1e-9)
+        #expect(abs(h - 6.0) < 1e-9)
     }
 
     /// A held clock stops at the hold, whatever the time now.
@@ -167,15 +169,19 @@ struct LiveOpHoursTests {
         let held = Date.fromFlexibleISO8601("2026-10-05T16:30:00.000Z")!.timeIntervalSince1970 * 1000
         let p = person(#"{"clockIn":"2026-10-05T14:00:00.000Z","jobId":"J","opId":"X","frozenAtMs":\#(Int(held))}"#)
         let h = SessionHours.live(opId: "X", people: [p], now: at("2026-10-05T22:00:00.000Z"), org: org("America/Denver"))
-        #expect(abs(h - 2.25) < 1e-9)   // 08:00–10:30 less the 10:00 break
+        #expect(abs(h - 2.5) < 1e-9)   // 08:00–10:30; the scheduled break no longer comes off (#505)
     }
 
     /// The shop's zone, not the device's: the same instants in a New York shop are two hours
-    /// later on its clock — 11:00–17:00, less lunch and one break.
+    /// later on its clock. Clocked in 15:00Z and still open at 23:30Z: New York's day is
+    /// 11:00–17:00, 6 h, and quit at 21:00Z; Denver's would be 09:00–17:00, 8 h.
     @Test func theShopsZoneDecidesTheWorkingDay() {
         let p = person(#"{"clockIn":"2026-10-05T15:00:00.000Z","jobId":"J","opId":"X"}"#)
-        let h = SessionHours.live(opId: "X", people: [p], now: at("2026-10-05T21:00:00.000Z"), org: org("America/New_York"))
-        #expect(abs(h - 4.75) < 1e-9)
+        let now = at("2026-10-05T23:30:00.000Z")
+        let ny = SessionHours.live(opId: "X", people: [p], now: now, org: org("America/New_York"))
+        let denver = SessionHours.live(opId: "X", people: [p], now: now, org: org("America/Denver"))
+        #expect(abs(ny - 6.0) < 1e-9)
+        #expect(abs(denver - 8.0) < 1e-9)
     }
 }
 
