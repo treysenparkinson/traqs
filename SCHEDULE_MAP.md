@@ -1453,6 +1453,37 @@ Everything else was read at the cited line. Nothing was run against live data.
         glow" (TRAQS.jsx:1695, 1802). That is a carve-out at the CALL SITE rather than in
         the helper, which may be a different shape or the same one upside down.
 
+19. THE NUMBERING LIVES WITH THE CODE. ANYTHING OUTSIDE THE REPOSITORY IS A VIEW,
+    NEVER A SECOND SET OF NUMBERS. Trey's rule, 2026-10-12, after a request arrived
+    citing seven entries by number and all seven numbers meant something else here.
+      - WHAT HAPPENED. Two numbered lists existed — this file and a tracker outside the
+        repo — and they had grown their own numbering independently. "#220, a pay
+        clock-out credits the whole shift" is #187 here; #220 here is a Ctrl+Z defect
+        fixed on 2026-10-02. Seven for seven.
+      - THE DRIFT WAS NOT RECOVERABLE, and the proof is worth keeping because it is the
+        test to run next time. There is no offset: 220→187, 221→199, 222→196, 236→198,
+        286→353. Worse, the tracker's consecutive 221 and 222 map to 199 and 196 here —
+        ORDER-REVERSING, so no monotonic transform of any kind can exist. Two lists that
+        grew separately, not one list that slipped. This file has never renumbered: every
+        one of those seven numbers has carried the same entry since the first revision
+        (add2932, 2026-09-30) through 130 commits, and only the status prefixes changed.
+      - WHY A MAPPING WOULD HAVE BEEN WORSE THAN NONE. Content-matching recovered two of
+        seven with confidence (#187, #196), two more plausibly, one weakly and two not at
+        all. A weak match reads as authoritative once written down, and it had already
+        done damage: #353 was matched weakly to "a session spanning a holiday counts the
+        holiday", and on that reasoning a real item was recommended for closure and
+        agreed to. **A LIST THAT IS MOSTLY RIGHT IS A COIN FLIP WITH A CONFIDENT VOICE.**
+      - THE RULE. One numbering, in the repo, beside the code it describes, append-only.
+        A tracker carries status, priority and who is waiting — keyed BY map number, with
+        none of its own. An item raised from outside is raised BY DESCRIPTION and found
+        here; that took one turn and cost nothing, which is the whole argument.
+      - THE SECOND-ORDER TRAP, and it is live in this file: an entry with no resolution
+        marker is NOT evidence of an open defect. 251 of the 500 ledger entries carry no
+        marker, and spot-checking four of them found all four already fixed in the tree
+        and never updated here (#34, #38, #54, #78). The marker is an upper bound. **A
+        DEFECT IS OPEN WHEN THE TREE SAYS SO, NOT WHEN THE LEDGER FORGOT TO SAY
+        OTHERWISE** — which is the same mistake as the tracker, one file further in.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1488,11 +1519,11 @@ Everything else was read at the cited line. Nothing was run against live data.
 31. Week/month resize calls `updTask` → `reflowJob` on every mousemove; the revert restores only the resized op (J:19058–19107, 10536) [inferred].
 32. Week/month resize pushes one undo snapshot per mousemove (J:19078).
 33. Week-mode resize writes only start/end, but length comes from `hpd` (J:19064–19080) [inferred].
-34. Month resize `_computeHpd` stores a per-person span as the op's total `hpd` (J:18996).
+34. VERIFIED STALE 2026-10-12 — `_computeHpd` no longer exists anywhere in src/; the month-resize path that stored a per-person span as the op's total was replaced. WAS: Month resize `_computeHpd` stores a per-person span as the op's total `hpd` (J:18996).
 35. Resize has no past check (J:19018–19130).
 36. Resize has no PTO check (J:19018–19130).
 37. Resize has no `blockedByActiveClock` check on drop (J:19108–19130).
-38. Resize ignores holidays via opts-less `nextBD` (J:19097).
+38. VERIFIED STALE 2026-10-12 — `nextBD` goes through `calOf(opts?.workDays, opts?.holidays)`, and `calOf` falls back to `_orgCalSettings.holidays` when the argument is absent, so an opts-less call is still holiday-aware. Fixed by the one-working-calendar work (13e8365, root cause 6), never marked here. WAS: Resize ignores holidays via opts-less `nextBD` (J:19097).
 39. Resize of a panel or general-job bar skips revert, lock check, moveLog and push (J:19100–19123).
 40. Resize checks only `team[0]` (J:19094).
 41. Resize runs `previewPush`/`applyPushes` on Basic (J:19126).
@@ -1508,7 +1539,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 51. **FIXED — measured 2026-10-06.** Two same-person ops on one day whose hours do not touch now stay put (`reflowPhaseOps` → `overlapsWith` → `blocksOverlap`, half-open, hour-precise), and a real clash still moves. Both asserted in `overlap-test.mjs` and re-measured in #404's probe. Corroborated on live data: of 31 ops `reflowJob` moves on Matrix's board, **0 come from the assigned-overlap branch**.
 52. **FIXED 2026-10-06 (#404 B) BY DELETING THE UNLOGGED MOVER. MEASURED FIRST — LIVE ON ONE PATH, UNREACHABLE ON THE OTHER.** Neither mover writes a `moveLog` entry: `reflowPhaseOps` produces `{ start, end }` and nothing else, and `clearOverlaps` produces `{ ...unit, start, end }`. But all **5** `enforceNoOverlap` call sites destructure `{ moved, refused }` and **0 keep `.tasks`** — it is used as a PROBE and its shifted copy is thrown away, so `commitLanding` refuses instead of committing an unlogged move. `reflowJob`'s half was the live one, and it is gone: the only thing it moved without a log was assigned work it had no business moving, and the queue rule it keeps now touches nothing on Matrix's board. See #404 B.
 53. `enforceNoOverlap` computes every shift against the pre-shift list (J:9786–9807).
-54. Ops `enforceNoOverlap` refuses stay overlapping with only a `console.warn` (J:9786–9807).
+54. VERIFIED STALE 2026-10-12 — `enforceNoOverlap` now delegates to the shared `clearOverlaps`, and `commitLanding` turns a refusal into `showLandingRefusal` and returns false, so a refused overlap no longer commits with a console.warn beside it. WAS: Ops `enforceNoOverlap` refuses stay overlapping with only a `console.warn` (J:9786–9807).
 55. `opInterval` reads `durationH`, which the app never writes, so single-day ops without `endHour` are zero-width (S:1003).
 56. `opInterval` ignores length, overrun and push on multi-day ops (S:994–1010).
 57. `opHourRange` and `opInterval` disagree though documented as mirrors (J:10069, S:994).
@@ -1553,7 +1584,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 75. `Date.now()` is read about 8 times per bar within one render (J:17772–19333).
 76. The org timezone is ignored by all schedule geometry; everything is browser-local.
 77. `productiveHoursBetween` is off by one hour on DST days relative to `getHours()` (S:442) [inferred].
-78. `weekdaySegments`, `countWorkingDays` and `addWorkingDays` never skip holidays (J:578–620).
+78. VERIFIED STALE 2026-10-12 — same cause as #38: all three go through `calOf`, which defaults to the org's holidays. WAS: `weekdaySegments`, `countWorkingDays` and `addWorkingDays` never skip holidays (J:578–620).
 79. CORRECTED 2026-10-04: holidays ARE shaded. The grid header and the person rows shade every day where `!isWorkDay(day)` (J:15569 and J:15822 at f0490ce; J:16319/16576 on the snapshot this was found on), and since root cause 6 a bare `isWorkDay(day)` reads the org calendar, holidays included. WAS: Holidays are never shaded in the grid or headers (J:17332, 17617).
 80. Bars likely paint across a holiday column and come up one column short [inferred].
 81. Opts-less `addBD`/`diffBD` appear in `buildSessionSnapshot`, `placeTaskAt`, the pending drop, `findNextSlot`, the tooltip and `clampUnlocked` (J:10083, 10638, 10657, 10325, 19561, 18219). **`reflowPhaseOps` struck from this list 2026-10-06, verified not inferred:** all three of its calls pass `opts` (`diffBD(op.start, op.end, opts)`, `addBD(placedEnd, 1, opts)`, `addBD(start, len, opts)`), and `updTask` hands it `{ ...schedOpts, overlap }`, so it runs on the org calendar. The other six sites were NOT re-checked in this pass and remain as written.
