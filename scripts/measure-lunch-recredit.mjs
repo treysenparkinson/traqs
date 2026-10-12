@@ -122,3 +122,63 @@ console.log(`   hours among those that would rise:         ${confDelta.toFixed(2
 console.log("   NOTE: a job session is PRODUCTION time, not pay time. Changing it moves");
 console.log("   what a job cost, not what anyone is paid — the pay clock is separate and");
 console.log("   is not touched by this. Said plainly because 'hours' reads as wages.");
+
+// ── 6. THE PAY LEDGER, MEASURED THE SAME WAY ─────────────────────────────
+//
+// I said "a job session is production time, not pay time — this doesn't touch
+// the pay clock". The second half is true and the sentence was wrong, because
+// it reads as "lunch does not affect pay". IT DOES. Lunch pauses BOTH ledgers,
+// by two different mechanisms, and the distinction that matters is not which
+// clock lunch touches but WHICH KIND OF LUNCH each ledger subtracts.
+//
+//   PAY  — hoursElapsedMinusPauses / netHoursForPunch: wall clock minus the
+//          ACTUAL clocked lunch rows. No cfg argument, no calendar, no dead
+//          windows anywhere on the path. Breaks are PAID and deliberately not
+//          subtracted (timeclock.js:140).
+//   JOB  — sessionWorkedHours: productiveHoursBetween over the bounded window,
+//          which removes the SCHEDULED lunch AND both scheduled breaks, then
+//          subtracts the manual share of recorded pauses.
+//
+// So the asymmetry is deliberate and documented: for a 9h window Matrix's pay
+// loses 1h (lunch) and production loses 1.5h (lunch + 2x15m breaks); the 0.5h
+// between them is paid break time, reported as idle.
+//
+// THE CLAIM TO TEST ON DATA, not on reading: no pay figure anywhere is reduced
+// by a SCHEDULED window. If true, Trey's rule already holds on the ledger that
+// is wages, and option B cannot move a pay number.
+console.log("\n6. THE PAY LEDGER — IS A SCHEDULED WINDOW EVER DEDUCTED FROM IT?");
+const punches = (pay || []).filter(r => r && !r.eventType && r.clockIn && r.clockOut && !r.deletedAt);
+const rowsFor = (pid) => (pay || []).filter(r => r && r.eventType && String(r.personId) === String(pid));
+const pausedFromRows = (rws, a, b) => {
+  const s = Date.parse(a), e = Date.parse(b);
+  const evs = rws.filter(r => r.timestamp && !r.deletedAt)
+    .map(r => ({ t: Date.parse(r.timestamp), type: r.eventType }))
+    .filter(r => Number.isFinite(r.t) && r.t >= s && r.t <= e).sort((x, y) => x.t - y.t);
+  let paused = 0, open = null;
+  for (const ev of evs) {
+    if (ev.eventType === "lunchStart" || ev.type === "lunchStart") open = ev.t;
+    else if ((ev.type === "lunchEnd") && open != null) { paused += Math.max(0, ev.t - open); open = null; }
+  }
+  if (open != null) paused += Math.max(0, e - open);
+  return paused;
+};
+let agree = 0, differ = 0, biggest = 0;
+const offenders = [];
+for (const p of punches) {
+  const gross = Date.parse(p.clockOut) - Date.parse(p.clockIn);
+  const expect = Math.max(0, Math.round(((gross - pausedFromRows(rowsFor(p.personId), p.clockIn, p.clockOut)) / 3600000) * 100) / 100);
+  const got = Number(p.hours) || 0;
+  const d = Math.round((expect - got) * 100) / 100;
+  if (Math.abs(d) < 0.02) agree++;
+  else { differ++; if (Math.abs(d) > Math.abs(biggest)) biggest = d; offenders.push({ p, expect, got, d }); }
+}
+console.log(`   closed pay punches: ${punches.length}`);
+console.log(`   stored hours == wall clock minus ACTUAL clocked lunch: ${agree}`);
+console.log(`   stored hours differ:                                   ${differ}  (largest ${biggest}h)`);
+console.log(`   a scheduled deduction would make stored hours SMALLER than that figure`);
+const smaller = offenders.filter(o => o.d > 0);
+console.log(`   punches where stored is SMALLER (the signature): ${smaller.length}`);
+for (const o of smaller.slice(0, 8))
+  console.log(`     ${nameOf(o.p.personId).padEnd(9)} ${o.p.date}  stored ${o.got}h, wall-minus-lunch ${o.expect}h, short ${o.d}h`);
+const deadH = (withLunch.deadWindows || []).reduce((s, w) => s + (w.dur || 0), 0);
+console.log(`   for reference, the org's scheduled dead windows total ${deadH}h/day`);
