@@ -112,6 +112,28 @@ function orgLocalDay(iso, timeZone) {
   }
 }
 
+// #503. CARRY THE "YOU FORGOT TO CLOCK OUT" WARNING ONTO THE PUNCH.
+//
+// forgot-clockout stamps `activeClockIn.forgotNotifiedAt` when it pushes a
+// worker about a shift open past 12h. Every clock-out path then destructured
+// `{ clockIn, jobRefs, events, source }` off activeClockIn and dropped the
+// rest, so the punch that came out carried no sign that anyone had been
+// warned — and #502 could not answer "did the sweep fire for this one?" for
+// any of 22 overlong punches. The notice is the only evidence the sweep ever
+// produces; it has to outlive the session it was attached to.
+//
+// Returns a SPREADABLE OBJECT, empty when there was no notice, so a punch
+// nobody was warned about does not grow a null field. An absent key and a null
+// one read differently in a measurement, and that distinction is the point of
+// the stamp.
+//
+// A helper rather than three inline spreads because there are three clock-out
+// writers — kiosk, iOS and admin — and nothing but convention keeps their entry
+// shapes in step. Each one is pinned separately in overnight-confirm-test.
+function carryForgotNotice(forgotNotifiedAt) {
+  return forgotNotifiedAt ? { forgotNotifiedAt } : {};
+}
+
 // Sum closed LUNCH ranges from a session's events. Open ranges are closed at `endIso` so
 // a worker who clocks out while still on lunch has that final stretch excluded too.
 //
@@ -715,7 +737,7 @@ export async function handler(event) {
         if (!person.activeClockIn) return err(409, "Not currently clocked in");
 
         const clockOut = clockOutTime || new Date().toISOString();
-        const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
+        const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk", forgotNotifiedAt: acForgot } = person.activeClockIn;
         const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
         const dateStr = localDayOf(clockIn);
 
@@ -729,6 +751,7 @@ export async function handler(event) {
           jobRefs,
           note: body.note || "",
           source: acSource,
+          ...carryForgotNotice(acForgot),
         };
 
         let log;
@@ -1121,13 +1144,66 @@ export async function handler(event) {
       const confirming = action === "confirmTimesheet";
       const stamp = new Date().toISOString();
       const by = _cm.personId || _cm.email || "admin";
+
+      // #503. A SHIFT THAT RAN THROUGH THE NIGHT IS ACKNOWLEDGED ROW BY ROW
+      // BEFORE THE RANGE CAN BE CONFIRMED.
+      //
+      // #502 found 22 punches over 12h carrying 904.21 hours, 16 of them
+      // (828.82h) clocked out on a LATER LOCAL DAY — every one with a genuine,
+      // machine-stamped clock-out, and every one unconfirmed. Confirming is
+      // where those hours become money: it is what the accountant's export
+      // pulls, and it stamps a whole date range in one call without looking at
+      // anything in it. forgot-clockout's push can be swiped away; this cannot.
+      //
+      // THE TEST IS THE LOCAL DAY, NOT THE LENGTH. A 12-hour day that ends
+      // before local midnight is a long day and confirms freely (Quincy,
+      // 2026-10-01, 08:45 to 20:45 — twelve hours and two UTC days). A one-hour
+      // punch that crosses local midnight is short and still ran unattended. An
+      // elapsed-hours threshold gets both of those wrong, and a UTC-date
+      // comparison gets the first one wrong at any shop west of Greenwich.
+      //
+      // ACKNOWLEDGING IS NOT WAIVING. `acknowledge: [id, ...]` says an admin
+      // looked at that specific row and stands behind it; the decision is
+      // stamped ON the row (overnightAckAt/overnightAckBy) so it is auditable
+      // and is never asked again. Ids that are not gated rows in this range are
+      // ignored rather than honoured — otherwise the list is just a bypass.
+      //
+      // RE-OPENING IS NEVER GATED. The gate stops hours becoming money;
+      // unconfirming takes money back off the table, and a confirm that should
+      // not have happened has to stay undoable.
+      const inRange = (e) => !e.eventType && e.clockIn && e.clockOut && e.date >= start && e.date <= end;
+      const ranOvernight = (e) => localDayOf(e.clockOut) !== localDayOf(e.clockIn);
+      const ackIds = new Set((Array.isArray(body.acknowledge) ? body.acknowledge : []).map(String));
+      const newlyAcked = new Set();
+      if (confirming) {
+        const outstanding = [];
+        for (const e of log) {
+          if (!inRange(e) || !ranOvernight(e) || e.overnightAckAt) continue;
+          if (ackIds.has(String(e.id))) newlyAcked.add(String(e.id));
+          else outstanding.push(e);
+        }
+        if (outstanding.length) {
+          return json(409, {
+            error: `${outstanding.length} shift${outstanding.length === 1 ? "" : "s"} in this range ran past midnight and nobody closed ${outstanding.length === 1 ? "it" : "them"}. Check each one before confirming.`,
+            needsAcknowledgement: outstanding.map(e => ({
+              id: e.id, personId: e.personId, date: e.date,
+              clockIn: e.clockIn, clockOut: e.clockOut, hours: e.hours,
+            })),
+          });
+        }
+      }
+
       let count = 0;
       const next = log.map(e => {
         // Only completed pay-clock punches in range — not lunch/break events, not open shifts.
         if (e.eventType || !e.clockIn || !e.clockOut) return e;
         if (e.date < start || e.date > end) return e;
         count++;
-        if (confirming) return { ...e, confirmed: true, confirmedAt: stamp, confirmedBy: by };
+        if (confirming) return {
+          ...e,
+          ...(newlyAcked.has(String(e.id)) ? { overnightAckAt: stamp, overnightAckBy: by } : {}),
+          confirmed: true, confirmedAt: stamp, confirmedBy: by,
+        };
         const { confirmed, confirmedAt, confirmedBy, ...rest } = e;
         return rest;
       });
@@ -2103,7 +2179,7 @@ export async function handler(event) {
         failedAttempts.delete(poIp);
       }
       const clockOut = new Date().toISOString();
-      const { clockIn, jobRefs = [], events = [], source: acSource = "ios-app" } = pcPerson.activeClockIn;
+      const { clockIn, jobRefs = [], events = [], source: acSource = "ios-app", forgotNotifiedAt: acForgot } = pcPerson.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
       const entry = {
         id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -2115,6 +2191,7 @@ export async function handler(event) {
         jobRefs,
         note: body.note || "",
         source: acSource,
+        ...carryForgotNotice(acForgot),
       };
 
       let pcLog;
@@ -2279,7 +2356,7 @@ export async function handler(event) {
         return err(409, "Log out of your job before clocking out.");
       }
       const clockOut = new Date().toISOString();
-      const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
+      const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk", forgotNotifiedAt: acForgot } = person.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
       const dateStr = localDayOf(clockIn);
 
@@ -2293,6 +2370,7 @@ export async function handler(event) {
         jobRefs,
         note: body.note || "",
         source: acSource,
+        ...carryForgotNotice(acForgot),
       };
 
       let log;

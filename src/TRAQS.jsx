@@ -7306,6 +7306,11 @@ Extraction rules:
   const [tsConfirmOpen, setTsConfirmOpen] = useState(false); // "Confirm Time Sheet" popup (admin)
   const [tsConfirmRange, setTsConfirmRange] = useState(null); // { start, end } draft date range for the confirm popup
   const [tsConfirmSaving, setTsConfirmSaving] = useState(false);
+  // #503: rows the server refused to confirm because the shift ran past local
+  // midnight, and the ids the admin has ticked off. Empty until a confirm comes
+  // back 409 — the gate is the server's, and this is only how it gets shown.
+  const [tsOvernight, setTsOvernight] = useState([]);       // [{ id, personId, date, clockIn, clockOut, hours }]
+  const [tsOvernightAck, setTsOvernightAck] = useState([]); // ids ticked in this modal
   const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, sessions:[{id,clockIn,clockOut,confirmed,events:[{id,eventType,timestamp,_new,_deleted}]}], activeEntry, addMenuFor, saving } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
   // Which day sections of the Job Log are expanded, keyed by jobId|day.
@@ -21947,8 +21952,8 @@ ${jobsCtx || "No jobs found."}`;
     // Review every completed punch in a date range, then lock it as "confirmed"
     // so it can't be edited and flows into the accountant's pay-period hours
     // export (buildHoursReport pulls confirmed punches only).
-    const openConfirm = () => { setTsConfirmRange({ start: ppNow.start, end: ppNow.end }); setTsConfirmOpen(true); };
-    const closeConfirm = () => setTsConfirmOpen(false);
+    const openConfirm = () => { setTsConfirmRange({ start: ppNow.start, end: ppNow.end }); setTsOvernight([]); setTsOvernightAck([]); setTsConfirmOpen(true); };
+    const closeConfirm = () => { setTsConfirmOpen(false); setTsOvernight([]); setTsOvernightAck([]); };
     // Mirror the backend's confirm/re-open transform on local state so the UI
     // updates instantly without a re-fetch.
     const applyConfirmLocal = (start, end, confirmed, stamp, by) => {
@@ -21959,12 +21964,25 @@ ${jobsCtx || "No jobs found."}`;
         const { confirmed: _c, confirmedAt: _a, confirmedBy: _b, ...rest } = e; return rest;
       }));
     };
-    const doConfirm = async (range) => {
+    // #503: the server refuses a range holding a shift that ran past local
+    // midnight until each one is acknowledged. The refusal names the rows, so
+    // this shows them and sends back the ids that were ticked. Nothing is
+    // decided here — the gate is the server's, and a tick is just the admin
+    // saying they looked.
+    const doConfirm = async (range, acknowledge = []) => {
       if (!range.start || !range.end || range.start > range.end) { alert("Pick a valid date range."); return; }
       setTsConfirmSaving(true);
       try {
-        const res = await confirmTimesheetAction({ start: range.start, end: range.end }, getToken, orgCode);
-        if (res.ok) { applyConfirmLocal(range.start, range.end, true, res.confirmedAt, res.confirmedBy); toast("Timesheet confirmed"); }
+        const res = await confirmTimesheetAction({ start: range.start, end: range.end, acknowledge }, getToken, orgCode);
+        if (res.ok) {
+          setTsOvernight([]); setTsOvernightAck([]);
+          applyConfirmLocal(range.start, range.end, true, res.confirmedAt, res.confirmedBy); toast("Timesheet confirmed");
+        }
+        else if (Array.isArray(res.needsAcknowledgement)) {
+          // Keep ticks the admin already made for rows that are still listed.
+          setTsOvernight(res.needsAcknowledgement);
+          setTsOvernightAck(a => a.filter(id => res.needsAcknowledgement.some(r => String(r.id) === String(id))));
+        }
         else alert(res.error || "Failed to confirm timesheet");
       } catch { alert("Network error"); } finally { setTsConfirmSaving(false); }
     };
@@ -22018,6 +22036,33 @@ ${jobsCtx || "No jobs found."}`;
                   <button onClick={() => setTsConfirmRange({ start: ppNow.start, end: ppNow.end })} style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>This period</button>
                 </div>
 
+                {/* #503: shifts that ran past local midnight, each ticked off by hand */}
+                {tsOvernight.length > 0 && (
+                  <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, background: "#f59e0b10" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>
+                        {tsOvernight.length} shift{tsOvernight.length === 1 ? "" : "s"} ran past midnight
+                      </span>
+                      <span style={{ fontSize: 12, color: T.textDim }}>Check each one before confirming.</span>
+                    </div>
+                    {tsOvernight.map(r => {
+                      const ticked = tsOvernightAck.some(id => String(id) === String(r.id));
+                      const who = people.find(x => String(x.id) === String(r.personId))?.name || r.personId;
+                      return (
+                        <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 4px", cursor: "pointer", borderTop: `1px solid ${T.border}20` }}>
+                          <input type="checkbox" checked={ticked} onChange={() => setTsOvernightAck(a => ticked ? a.filter(id => String(id) !== String(r.id)) : [...a, r.id])} style={{ accentColor: T.accent, width: 15, height: 15, flexShrink: 0 }} />
+                          <span style={{ fontSize: 13, color: T.text, fontWeight: 600, minWidth: 90 }}>{who}</span>
+                          <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fmtDayHeader(r.date)}</span>
+                          <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fmtTime(r.clockIn)} → {fmtTime(r.clockOut)}</span>
+                          <span style={{ flex: 1 }} />
+                          <span style={{ fontSize: 13, color: "#f59e0b", fontFamily: T.mono, fontWeight: 700 }}>{(r.hours || 0).toFixed(2)}h</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Per-person hours */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 16px" }}>
                   {byPerson.length === 0 ? (
@@ -22057,17 +22102,28 @@ ${jobsCtx || "No jobs found."}`;
 
                 {/* Actions */}
                 <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ flex: 1, fontSize: 12, color: allConfirmed ? "#10b981" : T.textDim }}>
-                    {allConfirmed ? "✓ This range is confirmed and included in the hours export." : entries.length > 0 ? `${confirmedCount} of ${entries.length} punches confirmed.` : ""}
+                  <span style={{ flex: 1, fontSize: 12, color: allConfirmed ? "#10b981" : tsOvernight.length > 0 ? "#f59e0b" : T.textDim }}>
+                    {allConfirmed ? "✓ This range is confirmed and included in the hours export."
+                      : tsOvernight.length > 0 ? `${tsOvernightAck.length} of ${tsOvernight.length} overnight shifts checked.`
+                      : entries.length > 0 ? `${confirmedCount} of ${entries.length} punches confirmed.` : ""}
                   </span>
                   {allConfirmed ? (
                     <button onClick={() => doReopen(range)} disabled={tsConfirmSaving} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: tsConfirmSaving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: tsConfirmSaving ? 0.6 : 1 }}>{tsConfirmSaving ? "Re-opening…" : "Re-open to edit"}</button>
-                  ) : (
+                  ) : (() => {
+                    // With rows outstanding the button sends the ticks instead, and
+                    // stays dead until every one is ticked — the server refuses a
+                    // partial list anyway, so offering it would only be a round trip
+                    // that comes back with the same rows.
+                    const gated = tsOvernight.length > 0;
+                    const blocked = gated && tsOvernightAck.length < tsOvernight.length;
+                    const dead = tsConfirmSaving || entries.length === 0 || blocked;
+                    return (
                     <>
                       <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
+                      <button onClick={() => doConfirm(range, tsOvernightAck)} disabled={dead} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: dead ? "not-allowed" : "pointer", fontFamily: T.font, opacity: dead ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : gated ? "Acknowledge & Confirm" : "Confirm Time Sheet"}</button>
                     </>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
             </div>
