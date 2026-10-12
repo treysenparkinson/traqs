@@ -260,9 +260,7 @@
       },
       "requestId": "r1",
       "web": "pending",
-      "ios": null,
-      "iosDiffers": true,
-      "why": "iOS's displayStatus skips a row with no status, then finds no stamp and no mirror; the web falls through to pending for the same reason."
+      "ios": "pending"
     },
     {
       "name": "a numeric row id against a string requestId — the drift both sides handle",

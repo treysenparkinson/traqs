@@ -92,9 +92,13 @@ const CASES = [
     target: { status: "Not Started", finishRequests: [] }, requestId: REQ,
     ios: null, why: "An empty list is the same as no list. Web 'pending', iOS nil." },
 
+  // NOT a departure (#508, corrected 2026-10-12). This case once declared iOS returns nil,
+  // and the Swift suite agreed only because it built rows by hand with `status ?? ""`. The
+  // app never sees a row without a status: FinishRequestEntry's decoder reads a missing
+  // `status` as "pending", so iOS answers what the web does. The Swift suite now decodes
+  // rows through that decoder, so this case tests the app rather than the test's stand-in.
   { name: "a row with no status at all",
-    target: { status: "In Progress", finishRequests: [{ id: REQ, by: "7" }] }, requestId: REQ,
-    ios: null, why: "iOS's displayStatus skips a row with no status, then finds no stamp and no mirror; the web falls through to pending for the same reason." },
+    target: { status: "In Progress", finishRequests: [{ id: REQ, by: "7" }] }, requestId: REQ },
 
   { name: "a numeric row id against a string requestId — the drift both sides handle",
     target: { status: "In Progress", finishRequests: [row({ id: 1 })] }, requestId: "1" },

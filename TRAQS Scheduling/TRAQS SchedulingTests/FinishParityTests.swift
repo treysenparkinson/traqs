@@ -22,7 +22,12 @@ import Foundation
 //
 // The fixture found a SECOND departure that the prose had never recorded: a target that IS
 // loaded but carries no row, no stamp and no mirror, and is not finished. The web's fallback
-// ends in "pending"; iOS returns nil. Six of the eighteen cases take that shape.
+// ends in "pending"; iOS returns nil. Five of the eighteen cases depart, all in that shape.
+//
+// ROWS ARE DECODED BY THE APP'S OWN `FinishRequestEntry` decoder, not rebuilt by hand. A
+// hand-built row once turned a missing status into "" — a value the app never produces, since
+// the real decoder reads it as "pending" — and the fixture declared a sixth departure that
+// existed only in the test (#508).
 //
 // WHY THIS EXISTS WHILE THE TWO AGREE ON EVERY LIVE RECORD: this rule is the one handshake
 // that crosses the platforms — a request is raised on iOS and approved on the web — so a
@@ -38,23 +43,11 @@ struct FinishParityTests {
                 let status: String?
                 let pendingFinish: Bool?
                 let finishRequest: Stamp?
-                let finishRequests: [Row]?
+                /// Decoded exactly as the app decodes them — numeric ids and a missing
+                /// `status` included — so the suite tests what a phone would hold.
+                let finishRequests: [FinishRequestEntry]?
             }
             struct Stamp: Decodable { let requestId: String? }
-            /// The fixture writes ids as JSON numbers in one case on purpose — the
-            /// string/number drift both platforms have to survive.
-            struct Row: Decodable {
-                let id: String
-                let status: String?
-                private enum CodingKeys: String, CodingKey { case id, status }
-                init(from decoder: Decoder) throws {
-                    let c = try decoder.container(keyedBy: CodingKeys.self)
-                    if let s = try? c.decode(String.self, forKey: .id) { id = s }
-                    else if let n = try? c.decode(Int.self, forKey: .id) { id = String(n) }
-                    else { id = "" }
-                    status = try? c.decode(String.self, forKey: .status)
-                }
-            }
             let name: String
             /// null means the job was never loaded.
             let target: Target?
@@ -83,9 +76,7 @@ struct FinishParityTests {
         guard let t else { return .missing }
         return CompletionRequestRules.TargetState(
             found: true,
-            entries: t.finishRequests?.map {
-                FinishRequestEntry(id: $0.id, by: "", byName: "", at: "", status: $0.status ?? "")
-            },
+            entries: t.finishRequests,
             stampRequestId: t.finishRequest?.requestId,
             pendingFinish: t.pendingFinish ?? false,
             isFinished: t.status == "Finished"
