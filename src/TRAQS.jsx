@@ -18543,18 +18543,21 @@ ${jobsCtx || "No jobs found."}`;
       const totalPay = rows.reduce((a, r) => a + r.pay, 0);
       const totalProd = rows.reduce((a, r) => a + r.prod, 0);
       const totalBreak = rows.reduce((a, r) => a + r.brk, 0);
-      // Breaks are mandatory paid downtime a worker cannot convert into
-      // production, so they come out of the denominator — otherwise following
-      // the rules caps everyone at ~93.75%. 100% now means "worked continuously
-      // outside scheduled breaks"; any idle above 0 is unexpected downtime.
+      // #507: the denominator is PAID TIME. It used to be pay minus break, and
+      // that stopped being right the moment #505 made a clocked break count as
+      // production — the break was then in the numerator and out of the
+      // denominator, so this could read over 100%. 100% now means "every paid
+      // hour was on a job", and idle is the paid time that was not.
       const totalWorking = rows.reduce((a, r) => a + r.working, 0);
-      if (totalWorking <= 0 && totalPay > 0 && totalBreak > totalPay) {
-        console.warn(`[stats] break time (${totalBreak}h) exceeds pay (${totalPay}h) — efficiency reported as 0`);
-      }
+      const totalIdle = rows.reduce((a, r) => a + r.idle, 0);
       const pct = totalWorking > 0 ? Math.round(totalProd / totalWorking * 100) : 0;
-      // Idle hours (totalWorking - totalProd) are an iOS Stats metric; the web
-      // card shows the percentage and the per-day bars instead. totalBreak is
-      // kept above so "of your paid time, X was breaks" needs no recomputation.
+      // Idle comes from totalsForDays now rather than being re-derived here as
+      // `totalWorking - totalProd`: two places computing one number is how they
+      // come to disagree, and this one has just changed meaning. It is an iOS
+      // Stats metric; the web card shows the percentage and the per-day bars.
+      // totalBreak is kept above so "of your paid time, X was breaks" needs no
+      // recomputation — it is reported, not subtracted.
+      void totalIdle;
       const maxV = Math.max(...rows.flatMap(r => [r.pay, r.prod]), 1);
       // Revamp: pay hours recede (the track grey), production hours carry the accent.
       const payColor = T.borderLight, prodColor = T.accent;
