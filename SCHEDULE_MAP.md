@@ -50,6 +50,28 @@ In practice:
   - and after writing, CHECK THE FILE — `grep -c "^<n>\. "` for each number reported. The
     write is not the record; the file is.
 
+### R1b. THE ENTRY GETS ITS RESOLUTION MARKER IN THE SAME COMMIT AS ITS FIX.
+
+R1 says the entry is written when the finding is made. This is its other half, and it is
+the half that was missing: an entry is CLOSED in the commit that closes it, not later and
+not never. `FIXED`, `BUILT`, `VERIFIED STALE`, `DESIGN CHOICE`, `WITHDRAWN` — one of them,
+dated, with the evidence, in the same diff as the code.
+
+**WITHOUT IT, "WHAT IS LEFT" BECOMES UNANSWERABLE, AND THAT IS WHERE THIS FILE WAS ON
+2026-10-12.** 234 of 500 ledger entries carried no marker. The first five sampled at random
+— #17, #34, #38, #54, #78 — were **all five already fixed in the tree and never marked
+here.** Five for five. The unmarked count was not a backlog; it was noise with a backlog
+somewhere inside it, and nobody could say which.
+
+What that cost, concretely: work was requested against entries that had been closed for
+weeks, and an hour went into measuring #17's "damage" to a gesture that had been
+unreachable since the commit that introduced it.
+
+**AN ENTRY WITH NO MARKER IS NOT EVIDENCE OF AN OPEN DEFECT. A DEFECT IS OPEN WHEN THE TREE
+SAYS SO.** Cleaning the backlog without fixing the habit just regrows it — which is why this
+is a rule and not a one-off tidy-up. `scripts/triage-open-entries.mjs` exists to measure the
+damage when it regrows anyway; needing to run it is the signal that this rule slipped.
+
 ### R2. AN ENTRY THAT TURNS OUT TO BE WRONG IS CORRECTED IN PLACE, SAYING SO PLAINLY.
 
 Not rewritten to look like it always said the right thing, and not quietly deleted. #377,
@@ -881,7 +903,7 @@ All node scripts pass at `0fbc639`.
 14. **`updateJobSession`.** It also merges `pausedMsAtCheckpoint` and `unclosedAt`. The comment at `fn/timeclock.js:1196` is also wrong.
 15. **Counts.** "84 assertions" is now 94; the 17-site live-hours census is now 7 files.
 16. **Stale line numbers.** Throughout; e.g. J:15269 → 16890, J:11604 → 12838, AppState.swift:2335 → 3252.
-17. **Environment.** `.git/info/exclude` here does not list `tools/verify/`.
+17. VERIFIED STALE 2026-10-12 — AND IT WAS NEVER LIVE. `dragMove.js` refuses any member carrying `isRecord` with `{ kind: "record" }`; the day view passes `isRecord: !!bar.crossRow` on the move grab; `handleTeamDayBarDrag`'s mouse-up returns before `setTasks` when the refusal comes back. Resize handles are suppressed separately by `!bar.crossRow` — **and that guard dates to 401d528, the commit that INTRODUCED cross-row bars**, so a resize was never reachable on a record bar and only a resize writes `hpd`. Damage measured on the live tree before any code was touched: ZERO moveLog entries exist in the whole exposure window (2026-09-21 to 2026-09-30), and only two hpd changes exist in the log at all — both 2026-10-02, both "Resized in schedule" by Max on one non-record op, both GROWING the plan (7.5 → 12.75 → 17.75), which is a plan increase and not a worked-hours overwrite. Three ops have `hpd` equal to their worked total and none carries a moveLog hpd write; equality is not proof, because an op planned for the hours it then took matches too. `scripts/measure-record-bar-damage.mjs`. WAS: **Environment.** `.git/info/exclude` here does not list `tools/verify/`.
 
 Still open, as the doc says, and still present in the code:
 - a drag writing only `startHour` can invert start/end (J:16890; updTask is a shallow merge J:10543);
@@ -1540,7 +1562,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 52. **FIXED 2026-10-06 (#404 B) BY DELETING THE UNLOGGED MOVER. MEASURED FIRST — LIVE ON ONE PATH, UNREACHABLE ON THE OTHER.** Neither mover writes a `moveLog` entry: `reflowPhaseOps` produces `{ start, end }` and nothing else, and `clearOverlaps` produces `{ ...unit, start, end }`. But all **5** `enforceNoOverlap` call sites destructure `{ moved, refused }` and **0 keep `.tasks`** — it is used as a PROBE and its shifted copy is thrown away, so `commitLanding` refuses instead of committing an unlogged move. `reflowJob`'s half was the live one, and it is gone: the only thing it moved without a log was assigned work it had no business moving, and the queue rule it keeps now touches nothing on Matrix's board. See #404 B.
 53. `enforceNoOverlap` computes every shift against the pre-shift list (J:9786–9807).
 54. VERIFIED STALE 2026-10-12 — `enforceNoOverlap` now delegates to the shared `clearOverlaps`, and `commitLanding` turns a refusal into `showLandingRefusal` and returns false, so a refused overlap no longer commits with a console.warn beside it. WAS: Ops `enforceNoOverlap` refuses stay overlapping with only a `console.warn` (J:9786–9807).
-55. `opInterval` reads `durationH`, which the app never writes, so single-day ops without `endHour` are zero-width (S:1003).
+55. VERIFIED STALE 2026-10-12 — THE WHOLE FAMILY IS DEAD CODE, AND MY FIRST READING OF THE COST WAS WRONG. The fact is right: `durationH` is read at `statsMath.js:1189` and written NOWHERE — zero of 395 live ops carry it, and the only other place the name appears in the repo is a fixture in `no-overlap-test.mjs` that invents it. So the term is always 0, a single-day op with no `endHour` collapses to `{ s, e: s }`, and `rowOverlaps` drops it. **I THEN REPORTED THAT AS "172 OF 391 SCHEDULED OPS, 44% OF THE BOARD, INVISIBLE TO THE OVERLAP GUARD". THAT WAS WRONG: `opInterval` IS NOT THE OVERLAP GUARD.** `src/overlapRules.js` replaced it at root cause 5 and says so in its own header, naming "enforceNoOverlap (… zero-width single-day ops …)" as one of the five rules it supersedes; the live rule occupies `opDaySegments` blocks derived from `hpd`, so single-day ops are not invisible to it. Checked against the live data through the REAL rule: **0 double-booked pairs, of 367 units it considers.** `opInterval`, `intervalsOverlap`, `rowOverlaps`, `firstFreeStart`, `packActiveRow` and `dayShiftToClear` have ZERO call sites outside `statsMath.js` in both `src/` and `netlify/` — `dayShiftToClear` is imported into TRAQS.jsx and never called. The measurement that produced "124 newly visible clashes" was describing what a dead function would see, and is kept in `scripts/measure-zero-width-overlaps.mjs` with that correction in it. LESSON #1 and #7 together: a mechanism that has never executed, kept green by a fixture written to match the code instead of the data. The work is a deletion, not a fix. WAS: `opInterval` reads `durationH`, which the app never writes, so single-day ops without `endHour` are zero-width (S:1003).
 56. `opInterval` ignores length, overrun and push on multi-day ops (S:994–1010).
 57. `opHourRange` and `opInterval` disagree though documented as mirrors (J:10069, S:994).
 58. `previewPush` is day-granular and ignores `startHour` (J:9596–9630).
