@@ -1163,9 +1163,10 @@ struct ThreadDetailView: View {
                         // the one-line height (44). As the text wraps it becomes a
                         // rounded rectangle, as Messages' field does — a true
                         // Capsule's height/2 radius would pinch the sides and clip
-                        // the text. Not `.interactive()`: you type in it, you don't
-                        // press it.
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        // the text. `.interactive()` is Apple's press response — the
+                        // glass glows under the finger and gives a little toward
+                        // where it's pressed — which is what makes it feel native.
+                        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
 
                         if let err = sendError {
@@ -1796,29 +1797,37 @@ private struct DeliveryStatusLabel: View {
 enum AttachSource { case camera, photos, files }
 
 /// Slides up from the bottom when + is pressed: a native sheet at a fixed short
-/// detent, which iOS 26 renders as Liquid Glass. A plain List on a hidden
-/// background so the sheet's own glass shows through.
+/// detent, which iOS 26 renders as Liquid Glass. Three big rounded-square tiles,
+/// each Apple's glass button style — so each one has the native press glow too.
 private struct AttachSourceSheet: View {
     let pick: (AttachSource) -> Void
 
     var body: some View {
-        List {
-            row("Camera", "camera", .camera)
-            row("Photos", "photo.on.rectangle", .photos)
-            row("Files", "doc", .files)
+        HStack(spacing: 12) {
+            tile("Camera", "camera.fill", .camera)
+            tile("Photos", "photo.on.rectangle", .photos)
+            tile("Files", "folder.fill", .files)
         }
-        .scrollContentBackground(.hidden)
-        .scrollDisabled(true)
-        .padding(.top, 12)
-        .presentationDetents([.height(250)])
+        .padding(.horizontal, 20)
+        .padding(.top, 28)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(190)])
         .presentationDragIndicator(.visible)
     }
 
-    private func row(_ title: String, _ symbol: String, _ source: AttachSource) -> some View {
+    private func tile(_ title: String, _ symbol: String, _ source: AttachSource) -> some View {
         Button { pick(source) } label: {
-            Label(title, systemImage: symbol)
-                .font(.body)
+            VStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 28, weight: .medium))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 96)
         }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.roundedRectangle(radius: 22))
         .foregroundStyle(.primary)
     }
 }
