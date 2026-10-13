@@ -23,15 +23,12 @@ struct ThreadContext: Equatable {
     let isDM: Bool
     let participants: [Person]   // for the avatar (1 = DM, N = group stack)
     let onBack: () -> Void
-    /// The expanded members panel's pencil: shown only when this thread is a group
-    /// the current person may rename (its creator or an admin — AppState.updateGroup
-    /// refuses anyone else).
-    let canRename: Bool
-    let onRename: (String) -> Void
-    /// The panel's Add tile: group threads (Edit Group) and DMs (spin up a group).
-    /// Job/panel/op membership comes from the job team, so they get none.
-    let canAdd: Bool
-    let onAdd: () -> Void
+    /// Tapping the name pill (or the avatars) opens the members page.
+    let onTapIdentity: () -> Void
+    /// Where the name pill is, in screen coordinates. The members page zooms out of
+    /// this rect — the pill is in the overlay window, so the thread (main window)
+    /// marks the same spot as the zoom's source.
+    let onPillFrame: (CGRect) -> Void
     // Compared by id only (closures/derived data aren't Equatable). Re-publishing
     // with the same id still fires @Observable, so the overlay refreshes.
     static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }

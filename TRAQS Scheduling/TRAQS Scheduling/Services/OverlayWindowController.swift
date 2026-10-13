@@ -16,9 +16,7 @@ import UIKit
 //
 // The window is only as tall as the header (top safe area + bar), so every
 // touch below it falls through to the main window automatically — no hitTest
-// override needed. It's hidden unless a thread is open. The one exception: while
-// the header's members panel is expanded the window is full screen, because the
-// panel is the header's own glass morphed to fill it (see ThreadTopBar).
+// override needed. It's hidden unless a thread is open.
 
 /// The header content hosted inside the overlay window. Driven by an explicit
 /// `context` the controller pushes on every change (we don't rely on @Observable
@@ -37,14 +35,11 @@ struct OverlayHeaderContent: View {
     /// runtime — so opening any thread crashed.
     let theme: ThemeSettings
 
-    /// Grow (true) / shrink (false) the window for the members panel.
-    var onExpandedChange: (Bool) -> Void = { _ in }
-
     var body: some View {
         if let ctx = context {
             // No backing plate: the back button and the name pill are glass of
             // their own, floating over the messages.
-            ThreadTopBar(context: ctx, topInset: topInset, onExpandedChange: onExpandedChange)
+            ThreadTopBar(context: ctx, topInset: topInset)
                 .ignoresSafeArea()
                 // The glass back button reads this. It has to be injected here
                 // because nothing upstream of this window can do it.
@@ -66,9 +61,6 @@ final class OverlayWindowController {
 
     // Header window height (status bar + this).
     private let barHeight: CGFloat = 108
-    /// True while the members panel is open: the window is full screen and key
-    /// (so the rename alert's text field gets the keyboard).
-    private var expanded = false
 
     init(appState: AppState, theme: ThemeSettings) {
         self.appState = appState
@@ -130,14 +122,12 @@ final class OverlayWindowController {
             // Show / update. Reset any in-flight exit animation.
             hiding = false
             w.layer.removeAllAnimations()
-            h.rootView = content(ctx)
-            // Only as tall as the header, so touches below pass through — unless
-            // the members panel is open, which fills the screen.
-            w.frame = frame(in: scene)
+            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
+            // Only as tall as the header, so touches below pass through.
+            w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
             w.alpha = 1
             w.isHidden = false
         } else if !w.isHidden && !hiding {
-            if expanded { setExpanded(false) }
             // Hide by fading + sliding right, in sync with the nav pop, keeping
             // the last header on screen through the animation (don't clear the
             // rootView until it finishes, or it would vanish instantly).
@@ -152,28 +142,6 @@ final class OverlayWindowController {
                 w.alpha = 1
                 w.frame.origin.x = 0   // reset (the next show re-sets the frame anyway)
             }
-        }
-    }
-
-    private func content(_ ctx: ThreadContext?) -> OverlayHeaderContent {
-        var c = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
-        c.onExpandedChange = { [weak self] open in self?.setExpanded(open) }
-        return c
-    }
-
-    private func frame(in scene: UIWindowScene) -> CGRect {
-        let b = scene.screen.bounds
-        return CGRect(x: 0, y: 0, width: b.width, height: expanded ? b.height : topInset + barHeight)
-    }
-
-    private func setExpanded(_ open: Bool) {
-        guard let w = window, let scene, expanded != open else { return }
-        expanded = open
-        w.frame = frame(in: scene)
-        if open {
-            w.makeKey()
-        } else {
-            scene.windows.first(where: { $0 !== w && !$0.isHidden && $0.windowLevel == .normal })?.makeKey()
         }
     }
 

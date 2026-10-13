@@ -671,6 +671,12 @@ struct ThreadDetailView: View {
     @State private var sendShakeToken = 0      // bumped on send failure → shakes the composer
     @State private var myMessageIds: Set<String> = []
     @State private var showAddPeople = false            // add/edit-members popup?
+    /// The members page, pushed when the header's name pill is tapped.
+    @State private var showMembers = false
+    /// The pill's frame on screen, reported by the overlay header. The members page
+    /// zooms out of a clear stand-in placed at exactly this rect.
+    @State private var pillFrame: CGRect = .zero
+    @Namespace private var membersZoom
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
@@ -697,15 +703,13 @@ struct ThreadDetailView: View {
             // The header is then cleared when the path empties (.onChange below),
             // tying the header's exit to the actual pop.
             onBack: { appState.messagesPopRequested = true },
-            canRename: editableGroup.map { appState.canAdministerGroup($0) } ?? false,
-            onRename: { name in
-                guard let group = editableGroup else { return }
-                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                Task { await appState.updateGroup(id: group.id, name: trimmed, memberIds: group.memberIds) }
+            onTapIdentity: {
+                // Stand the windowed header down first: it outranks the page that's
+                // about to zoom in over it.
+                appState.threadModalPresented = true
+                showMembers = true
             },
-            canAdd: canAddPeople,
-            onAdd: { openAddPeople() }
+            onPillFrame: { frame in if frame != pillFrame { pillFrame = frame } }
         )
     }
 
@@ -1179,9 +1183,9 @@ struct ThreadDetailView: View {
                                 .padding(.horizontal, 16)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 22)   // narrower bar (was 12)
                     .padding(.top, 8)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 0)        // sits 6pt lower (was 6)
                     .frame(maxWidth: .infinity)
                     // No backdrop of our own. `safeAreaBar` (iOS 26) gives the
                     // bar the system's scroll-edge effect, so messages soften as
@@ -1210,25 +1214,45 @@ struct ThreadDetailView: View {
         // over the conversation; and a popup needs the full screen with a clear
         // background so it can draw its own scrim and glass card rather than
         // inherit a system sheet's.
-        .fullScreenCover(isPresented: $showAddPeople) {
-            Group {
-                if let group = editableGroup {
-                    EditGroupPopup(group: group) { name, memberIds in
-                        Task { await appState.updateGroup(id: group.id, name: name, memberIds: memberIds) }
-                    }
-                } else {
-                    AddPeoplePopup(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
-                        addPeople(ids)
-                    }
-                }
+        .fullScreenCover(isPresented: $showAddPeople) { addPeopleCover }
+        // The members page — a real pushed page that zooms out of the header pill.
+        .navigationDestination(isPresented: $showMembers) {
+            ThreadMembersPage(
+                title: displayTitle,
+                participants: threadParticipants,
+                canRename: editableGroup.map { appState.canAdministerGroup($0) } ?? false,
+                onRename: { name in
+                    guard let group = editableGroup else { return }
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    Task { await appState.updateGroup(id: group.id, name: trimmed, memberIds: group.memberIds) }
+                },
+                canAdd: canAddPeople,
+                onAddWillOpen: {
+                    appState.threadModalPresented = true
+                    appNav.modalBlur = true
+                },
+                addCover: { addPeopleCover }
+            )
+            .navigationTransition(.zoom(sourceID: "members", in: membersZoom))
+        }
+        // The header (back on the thread) comes back when the page is popped.
+        .onChange(of: showMembers) { _, open in
+            if !open { appState.threadModalPresented = false }
+        }
+        // The zoom's source: a clear stand-in at exactly where the overlay header
+        // draws the pill. The pill itself is in another window, which a navigation
+        // transition can't reach.
+        .overlay {
+            GeometryReader { geo in
+                let origin = geo.frame(in: .global).origin
+                Color.clear
+                    .frame(width: pillFrame.width, height: pillFrame.height)
+                    .matchedTransitionSource(id: "members", in: membersZoom)
+                    .position(x: pillFrame.midX - origin.x, y: pillFrame.midY - origin.y)
+                    .allowsHitTesting(false)
             }
-            // Covers every exit — the X, a scrim tap, and a successful save (which
-            // dismisses itself). Restoring the header here rather than at each one
-            // is what keeps it from being left hidden by a path we forgot about.
-            .onDisappear {
-                appNav.modalBlur = false
-                appState.threadModalPresented = false
-            }
+            .ignoresSafeArea()
         }
         .toolbar(.hidden, for: .navigationBar)
         // Hand the current thread to the overlay header window; clear it on exit
@@ -1268,6 +1292,32 @@ struct ThreadDetailView: View {
         // share a name would have each other's bubbles mis-rendered as "mine".
         // Identity is an id/email match only.
         return false
+    }
+
+    /// The add/edit-members popup. A group thread gets the full Edit Group popup —
+    /// rename, add AND remove; a DM (spinning up a group) the add-only picker, since
+    /// there's no group to edit yet. Presented by the thread and by the members page.
+    @ViewBuilder private var addPeopleCover: some View {
+            Group {
+                if let group = editableGroup {
+                    EditGroupPopup(group: group) { name, memberIds in
+                        Task { await appState.updateGroup(id: group.id, name: name, memberIds: memberIds) }
+                    }
+                } else {
+                    AddPeoplePopup(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
+                        addPeople(ids)
+                    }
+                }
+            }
+            // Covers every exit — the X, a scrim tap, and a successful save (which
+            // dismisses itself). Restoring the header here rather than at each one
+            // is what keeps it from being left hidden by a path we forgot about.
+            .onDisappear {
+                appNav.modalBlur = false
+                // Opened from the members page, the header stays down until that
+                // page is popped too.
+                appState.threadModalPresented = showMembers
+            }
     }
 
     /// Open the add/edit-members popup.
@@ -2253,67 +2303,29 @@ struct CompletionRequestBubble: View {
     }
 }
 
-// MARK: - Thread Top Bar (back button · avatars over a glass name pill → members panel)
+// MARK: - Thread Top Bar (back button · avatars over a glass name pill)
 
 /// The conversation header. No backing plate: the back button on the left, and in
-/// the centre the participants' avatars sitting over the top edge of a Liquid
-/// Glass pill that carries the thread's name.
-///
-/// Tapping the pill (or the avatars) EXPANDS it: the pill's glass morphs into a
-/// full-screen glass panel — Apple's own `glassEffectID` morph, one glass shape
-/// becoming another — showing the name with a pencil to rename it, and everyone
-/// in the thread in a 3-across grid with an Add tile.
+/// the centre the participants' avatars sitting ON TOP of a Liquid Glass pill that
+/// fits the thread's name. Tapping the pill or the avatars opens the members page
+/// (ThreadMembersPage), which zooms out of the pill's spot.
 ///
 /// Rendered inside the overlay window (see OverlayWindowController) so the
-/// keyboard can't displace it. That window is only header-tall, so it is grown to
-/// full screen BEFORE the morph starts and shrunk back only AFTER the collapse
-/// finishes — `onExpandedChange` is how this view asks for that.
+/// keyboard can't displace it.
 ///
-/// The morph's preconditions (see the header-morph notes): both shapes live in one
-/// GlassEffectContainer that never unmounts, nothing on the path is type-erased,
-/// and the state flips inside `withAnimation`.
+/// No GlassEffectContainer here on purpose: inside one, glass is drawn above its
+/// siblings whatever their order, which put the avatars UNDER the pill.
 struct ThreadTopBar: View {
     let context: ThreadContext
     let topInset: CGFloat
-    /// true: grow the window to full screen (called BEFORE expanding).
-    /// false: shrink it back (called AFTER the collapse has finished).
-    var onExpandedChange: (Bool) -> Void = { _ in }
-
-    @State private var expanded = false
-    @State private var renaming = false
-    @State private var draftName = ""
-    @Namespace private var glassSpace
-
-    private let morph: Animation = .bouncy(duration: 0.5, extraBounce: 0.04)
-    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
 
     var body: some View {
-        GlassEffectContainer(spacing: 10) {
-            ZStack(alignment: .top) {
-                if expanded {
-                    panel
-                } else {
-                    collapsed
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .alert("Rename Group", isPresented: $renaming) {
-            TextField("Group name", text: $draftName)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { context.onRename(draftName) }
-        }
-    }
-
-    // MARK: Collapsed — back · avatars over the name pill
-
-    private var collapsed: some View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: -14) {
                 avatars(size: 40)
-                    .zIndex(1)
-                    .onTapGesture { setExpanded(true) }
-                Button { setExpanded(true) } label: {
+                    .zIndex(1)   // over the pill
+                    .onTapGesture { context.onTapIdentity() }
+                Button { context.onTapIdentity() } label: {
                     Text(context.title)
                         .font(TTypo.smBold(15))
                         .foregroundStyle(Color(hex: T.ink))
@@ -2322,13 +2334,15 @@ struct ThreadTopBar: View {
                         .padding(.horizontal, 18)
                         .padding(.top, 18)      // room for the avatars' overlap
                         .padding(.bottom, 9)
-                        .frame(maxWidth: 240)
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: Capsule())
-                .glassEffectID("identity", in: glassSpace)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { context.onPillFrame($0) }
                 .accessibilityLabel("\(context.title). Show people")
             }
+            // Clear of the back button on either side, so a long name truncates
+            // instead of running under it; a short one still hugs its text.
+            .padding(.horizontal, 72)
             .frame(maxWidth: .infinity)
 
             Button(action: context.onBack) {
@@ -2344,6 +2358,7 @@ struct ThreadTopBar: View {
             .padding(.top, 12)
         }
         .padding(.top, topInset + 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     /// One avatar for a DM, an overlapping stack for everything else.
@@ -2360,53 +2375,63 @@ struct ThreadTopBar: View {
             ParticipantStack(people: context.participants, avatarSize: size, maxShown: 3)
         }
     }
+}
 
-    // MARK: Expanded — the full-screen members panel
+// MARK: - Thread members page
 
-    private var panel: some View {
-        VStack(spacing: 22) {
-            HStack {
-                Spacer()
-                Button { setExpanded(false) } label: {
-                    HeaderGlassCircle {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.ink))
+/// The page the header's name pill opens: a real pushed page — solid background,
+/// the system back button and swipe-back — zooming out of the pill's spot.
+/// The thread's name with a pencil to rename it, then everyone in the thread three
+/// across, with an Add tile.
+struct ThreadMembersPage<AddCover: View>: View {
+    let title: String
+    let participants: [Person]
+    /// Only a group's creator or an admin — AppState.updateGroup refuses anyone else.
+    let canRename: Bool
+    let onRename: (String) -> Void
+    /// Group threads (Edit Group) and DMs (spin up a group); job threads get none.
+    let canAdd: Bool
+    /// Runs as Add is tapped (blur the page behind, stand the header down).
+    let onAddWillOpen: () -> Void
+    /// The add-people / Edit Group cover. Presented from HERE, the visible page —
+    /// not from the thread underneath it.
+    @ViewBuilder let addCover: () -> AddCover
+
+    @State private var showAdd = false
+    @State private var renaming = false
+    @State private var draftName = ""
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 28) {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(TTypo.h3(28))
+                        .tracking(-1.3)
+                        .foregroundStyle(Color(hex: T.ink))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                    if canRename {
+                        Button {
+                            draftName = title
+                            renaming = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Rename group")
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
+                .padding(.horizontal, 20)
 
-            HStack(spacing: 10) {
-                Text(context.title)
-                    .font(TTypo.h3(26))
-                    .tracking(-1.2)
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                if context.canRename {
-                    Button {
-                        draftName = context.title
-                        renaming = true
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .frame(width: 34, height: 34)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Rename group")
-                }
-            }
-            .padding(.horizontal, 8)
-
-            ScrollView {
-                LazyVGrid(columns: gridColumns, spacing: 22) {
-                    ForEach(context.participants, id: \.id) { p in
+                LazyVGrid(columns: columns, spacing: 24) {
+                    ForEach(participants, id: \.id) { p in
                         VStack(spacing: 8) {
-                            Avatar(initials: Initials.from(p.name), size: 76,
+                            Avatar(initials: Initials.from(p.name), size: 80,
                                    fill: .personFill(p.color), imageData: p.image)
                             Text(p.name)
                                 .font(TTypo.sm(13))
@@ -2415,20 +2440,16 @@ struct ThreadTopBar: View {
                                 .truncationMode(.tail)
                         }
                     }
-                    if context.canAdd {
+                    if canAdd {
                         Button {
-                            // Straight to the picker: the panel closes without a
-                            // morph, since the picker covers the screen anyway and
-                            // hides this window while it's up.
-                            expanded = false
-                            onExpandedChange(false)
-                            context.onAdd()
+                            onAddWillOpen()
+                            withTransaction(Transaction.noAnimation) { showAdd = true }
                         } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: "plus")
                                     .font(.system(size: 26, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
-                                    .frame(width: 76, height: 76)
+                                    .frame(width: 80, height: 80)
                                     .glassEffect(.regular.interactive(), in: Circle())
                                 Text("Add")
                                     .font(TTypo.sm(13))
@@ -2439,30 +2460,20 @@ struct ThreadTopBar: View {
                         .accessibilityLabel("Add people")
                     }
                 }
-                .padding(.top, 6)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 20)
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .padding(.top, 12)
+            .padding(.bottom, 32)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, topInset + 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 44, style: .continuous))
-        .glassEffectID("identity", in: glassSpace)
-        .padding(6)
-    }
-
-    private func setExpanded(_ open: Bool) {
-        if open {
-            onExpandedChange(true)
-            withAnimation(morph) { expanded = true }
-        } else {
-            withAnimation(morph, completionCriteria: .logicallyComplete) {
-                expanded = false
-            } completion: {
-                onExpandedChange(false)
-            }
+        .background(Color(hex: T.bg).ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .alert("Rename Group", isPresented: $renaming) {
+            TextField("Group name", text: $draftName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { onRename(draftName) }
         }
+        .fullScreenCover(isPresented: $showAdd) { addCover() }
     }
 }
 
