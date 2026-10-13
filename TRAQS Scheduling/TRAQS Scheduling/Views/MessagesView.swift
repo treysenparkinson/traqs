@@ -740,6 +740,11 @@ struct ThreadDetailView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var showFiles = false
+    /// The + button's source sheet, and the source picked in it. The picker is
+    /// opened from the sheet's onDismiss — presenting it while the sheet is still
+    /// leaving would race the two presentations.
+    @State private var showAttachSheet = false
+    @State private var pendingSource: AttachSource?
 
     private var hasAttachment: Bool { pickedImage != nil || pickedFile != nil }
 
@@ -1082,7 +1087,7 @@ struct ThreadDetailView: View {
                 }
                 // Composer sits at the bottom; SwiftUI's default keyboard
                 // avoidance raises it while the (windowed) header stays put.
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .safeAreaBar(edge: .bottom, spacing: 0) {
                     VStack(spacing: 8) {
                         // Pending attachment preview (thumbnail + remove) above the row.
                         if hasAttachment {
@@ -1100,21 +1105,21 @@ struct ThreadDetailView: View {
                         // beside it, and stay pinned to the bottom edge while the
                         // text wraps (up to 5 lines), as Messages does.
                         HStack(alignment: .bottom, spacing: 6) {
-                            // Attachment — a native menu of sources (camera / photo
-                            // album / file).
-                            Menu {
-                                Button {
-                                    if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
-                                    else { sendError = "No camera available on this device." }
-                                } label: { Label("Take Photo", systemImage: "camera") }
-                                Button { showLibrary = true } label: { Label("Photo Album", systemImage: "photo.on.rectangle") }
-                                Button { showFiles = true } label: { Label("Choose File", systemImage: "doc") }
-                            } label: {
+                            // Attachment — slides up a native sheet of sources
+                            // (camera / photos / files).
+                            Button { showAttachSheet = true } label: {
                                 Image(systemName: "plus")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
                                     .frame(width: 32, height: 32)
                                     .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .sheet(isPresented: $showAttachSheet, onDismiss: openPendingSource) {
+                                AttachSourceSheet { source in
+                                    pendingSource = source
+                                    showAttachSheet = false
+                                }
                             }
                             .accessibilityLabel("Add attachment")
                             .disabled(isSending)
@@ -1125,7 +1130,10 @@ struct ThreadDetailView: View {
                                 .font(TTypo.sm(14))
                                 .foregroundColor(Color(hex: T.ink))
                                 .lineLimit(1...5)
-                                .padding(.vertical, 7)   // 32pt row on one line, matching the buttons
+                                // One line of text fits inside the 32pt the buttons
+                                // set, so a one-line row is exactly 32 + 2×6 = 44 —
+                                // and the 22pt radius below is exactly half of it.
+                                .frame(minHeight: 32)
 
                             // Send is allowed with text OR an attachment (or both).
                             let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
@@ -1150,13 +1158,14 @@ struct ThreadDetailView: View {
                             .disabled(sendDisabled)
                         }
                         .padding(6)
-                        // Fixed corner radius (not a Capsule): a pill on one line,
-                        // a rounded square as the text wraps — a Capsule's
-                        // height/2 radius would pinch the sides and clip the text.
-                        // Native Liquid Glass; `interactive: false` because the
-                        // pill is a field you type in, not a button you push.
-                        .glassControl(in: RoundedRectangle(cornerRadius: 22, style: .continuous),
-                                      interactive: false)
+                        // Apple's own Liquid Glass (`.glassEffect`), not a painted
+                        // imitation. A full capsule on one line: the radius is half
+                        // the one-line height (44). As the text wraps it becomes a
+                        // rounded rectangle, as Messages' field does — a true
+                        // Capsule's height/2 radius would pinch the sides and clip
+                        // the text. Not `.interactive()`: you type in it, you don't
+                        // press it.
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
 
                         if let err = sendError {
@@ -1170,29 +1179,11 @@ struct ThreadDetailView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 6)
                     .frame(maxWidth: .infinity)
-                    // Frosted composer — blurred messages show through, matching
-                    // the header. The frost feathers in at the TOP (no hard
-                    // hairline) and fills solid down PAST the home indicator
-                    // (ignoresSafeArea) so there's no clear strip at the bottom.
-                    //
-                    // Always a real blur, NEVER flattened by the frosted-glass
-                    // toggle — see the matching note on the header plate in
-                    // OverlayWindowController. A masked fill can't go opaque:
-                    // the feather at the top would become a solid slab
-                    // dissolving into nothing. The composer pill on top of
-                    // it (field, + and send) DOES still flatten.
-                    .background(
-                        Rectangle()
-                            .fill(.ultraThinMaterial)
-                            .mask(
-                                LinearGradient(stops: [
-                                    .init(color: .clear, location: 0),
-                                    .init(color: .black, location: 0.16),
-                                    .init(color: .black, location: 1)
-                                ], startPoint: .top, endPoint: .bottom)
-                            )
-                            .ignoresSafeArea(edges: .bottom)
-                    )
+                    // No backdrop of our own. `safeAreaBar` (iOS 26) gives the
+                    // bar the system's scroll-edge effect, so messages soften as
+                    // they pass under the glass pill — the native treatment. The
+                    // hand-rolled frosted strip that was here put the glass over a
+                    // blur, where it read as a frosted slab instead of a lens.
                     .animation(.easeInOut(duration: 0.18), value: hasAttachment)
                     .sheet(isPresented: $showCamera) {
                         CameraPicker { image in pickedImage = image; pickedFile = nil; sendError = nil }
@@ -1478,6 +1469,19 @@ struct ThreadDetailView: View {
     private func attachmentFilename(ext: String) -> String {
         let fmt = ShopTime.current.formatter("yyyy-MM-dd_HHmmss")   // a shared file: the shop's clock
         return "photo_\(fmt.string(from: Date())).\(ext)"
+    }
+
+    /// Opens the picker chosen in the + sheet, once that sheet has gone.
+    private func openPendingSource() {
+        guard let source = pendingSource else { return }
+        pendingSource = nil
+        switch source {
+        case .camera:
+            if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+            else { sendError = "No camera available on this device." }
+        case .photos: showLibrary = true
+        case .files:  showFiles = true
+        }
     }
 
     private func sendMessage() async {
@@ -1784,6 +1788,38 @@ private struct DeliveryStatusLabel: View {
         }
         .font(.system(size: 10, weight: .semibold))
         .transition(.opacity)
+    }
+}
+
+// MARK: - Attachment source sheet (the composer's +)
+
+enum AttachSource { case camera, photos, files }
+
+/// Slides up from the bottom when + is pressed: a native sheet at a fixed short
+/// detent, which iOS 26 renders as Liquid Glass. A plain List on a hidden
+/// background so the sheet's own glass shows through.
+private struct AttachSourceSheet: View {
+    let pick: (AttachSource) -> Void
+
+    var body: some View {
+        List {
+            row("Camera", "camera", .camera)
+            row("Photos", "photo.on.rectangle", .photos)
+            row("Files", "doc", .files)
+        }
+        .scrollContentBackground(.hidden)
+        .scrollDisabled(true)
+        .padding(.top, 12)
+        .presentationDetents([.height(250)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func row(_ title: String, _ symbol: String, _ source: AttachSource) -> some View {
+        Button { pick(source) } label: {
+            Label(title, systemImage: symbol)
+                .font(.body)
+        }
+        .foregroundStyle(.primary)
     }
 }
 
