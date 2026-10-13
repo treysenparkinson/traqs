@@ -20,8 +20,6 @@ struct TRAQS_SchedulingApp: App {
 
     init() {
         #if os(iOS)
-        // The native tab bar 2pt taller and 2pt narrower each side — see TabBarSizing.
-        TabBarSizing.install()
         // UIScrollView delays content touches ~150ms by default to detect scrolling
         // before delivering the touch. With the keep-alive nav (5 mounted scroll
         // views), that delay was making taps on the floating nav pill feel slightly
