@@ -1094,9 +1094,14 @@ struct ThreadDetailView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
 
-                        HStack(spacing: 10) {
-                            // Attachment button — a native liquid-glass menu of
-                            // sources (camera / photo album / file).
+                        // ONE glass pill: attach (+) on the left, the text in the
+                        // middle, send (↑) on the right — the iMessage shape. The
+                        // two buttons sit INSIDE the field's glass rather than
+                        // beside it, and stay pinned to the bottom edge while the
+                        // text wraps (up to 5 lines), as Messages does.
+                        HStack(alignment: .bottom, spacing: 6) {
+                            // Attachment — a native menu of sources (camera / photo
+                            // album / file).
                             Menu {
                                 Button {
                                     if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
@@ -1105,13 +1110,13 @@ struct ThreadDetailView: View {
                                 Button { showLibrary = true } label: { Label("Photo Album", systemImage: "photo.on.rectangle") }
                                 Button { showFiles = true } label: { Label("Choose File", systemImage: "doc") }
                             } label: {
-                                Image(systemName: "paperclip")
+                                Image(systemName: "plus")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Circle())
                             }
-                            .glassCircleButton()
-                            .frame(width: 44, height: 44)
+                            .accessibilityLabel("Add attachment")
                             .disabled(isSending)
 
                             TextField("Message…", text: $newText, axis: .vertical)
@@ -1119,31 +1124,8 @@ struct ThreadDetailView: View {
                                 .focused($composerFocused)
                                 .font(TTypo.sm(14))
                                 .foregroundColor(Color(hex: T.ink))
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                // Fixed 20pt corner radius (not a Capsule): reads as a
-                                // pill on one line, but grows into a rounded-square as
-                                // the text wraps — a Capsule's height/2 radius would
-                                // curve the sides inward and clip the text.
-                                // Native Liquid Glass, the SAME material as the
-                                // paperclip button beside it — not the app's
-                                // `specularRim` treatment, which put a lit bevel
-                                // on the field that its neighbour didn't have.
-                                // Two controls sitting in one row have to be lit
-                                // the same way or the row reads as assembled
-                                // from parts.
-                                //
-                                // It also solves the visibility problem: bare
-                                // `.ultraThinMaterial` was near-invisible on the
-                                // White preset, where system glass carries its
-                                // own tint and edge and reads clearly.
-                                //
-                                // `interactive: false` — that's the press
-                                // response, and this is a field you type in, not
-                                // a button you push.
-                                .glassControl(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous),
-                                              interactive: false)
                                 .lineLimit(1...5)
+                                .padding(.vertical, 7)   // 32pt row on one line, matching the buttons
 
                             // Send is allowed with text OR an attachment (or both).
                             let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
@@ -1152,20 +1134,29 @@ struct ThreadDetailView: View {
                             } label: {
                                 Group {
                                     if isSending {
-                                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.85)
+                                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
                                     } else {
-                                        TIconView(icon: .send, size: 18, color: T.onGradient, weight: .bold)
+                                        Image(systemName: "arrow.up")
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundStyle(T.onGradient)
                                     }
                                 }
-                                .frame(width: 44, height: 44)
+                                .frame(width: 32, height: 32)
                                 .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
-                                .shadow(color: Color(hex: T.ctaGlowColor).opacity(sendDisabled ? 0 : T.ctaGlowOpacity),
-                                        radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-                                .opacity(sendDisabled ? 0.5 : 1)
+                                .opacity(sendDisabled ? 0.4 : 1)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Send")
                             .disabled(sendDisabled)
                         }
+                        .padding(6)
+                        // Fixed corner radius (not a Capsule): a pill on one line,
+                        // a rounded square as the text wraps — a Capsule's
+                        // height/2 radius would pinch the sides and clip the text.
+                        // Native Liquid Glass; `interactive: false` because the
+                        // pill is a field you type in, not a button you push.
+                        .glassControl(in: RoundedRectangle(cornerRadius: 22, style: .continuous),
+                                      interactive: false)
                         .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
 
                         if let err = sendError {
@@ -1188,8 +1179,8 @@ struct ThreadDetailView: View {
                     // toggle — see the matching note on the header plate in
                     // OverlayWindowController. A masked fill can't go opaque:
                     // the feather at the top would become a solid slab
-                    // dissolving into nothing. The field, the paperclip and the
-                    // send button on top of it DO still flatten.
+                    // dissolving into nothing. The composer pill on top of
+                    // it (field, + and send) DOES still flatten.
                     .background(
                         Rectangle()
                             .fill(.ultraThinMaterial)
@@ -1407,7 +1398,7 @@ struct ThreadDetailView: View {
     private func personInitials(_ name: String) -> String { Initials.from(name) }
 
     /// Thumbnail (image) or doc chip (file) for the pending attachment, with a
-    /// remove button. Tapping the paperclip again re-opens the source dialog.
+    /// remove button. Tapping the + again re-opens the source dialog.
     @ViewBuilder private var attachmentPreview: some View {
         ZStack(alignment: .topTrailing) {
             Group {
@@ -1860,7 +1851,7 @@ struct MessageBubble: View {
                     }
                     if !message.text.isEmpty {
                         Text(message.text)
-                            .font(TTypo.sm(14))
+                            .font(TTypo.sm(13))
                             .multilineTextAlignment(.leading)
                             // Wrap to the text's natural height and cap the bubble width so
                             // long messages wrap inside a bounded bubble instead of
