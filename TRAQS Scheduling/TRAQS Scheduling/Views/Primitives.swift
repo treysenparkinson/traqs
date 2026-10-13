@@ -533,11 +533,23 @@ struct Avatar: View {
 
     /// Decode a stored profile image — a `data:image/...;base64,XXXX` URL (as the
     /// web writes) or a bare base64 string — into a UIImage.
+    /// Decoded once per distinct photo string, then served from memory.
+    ///
+    /// A profile photo arrives as a base64 data URL that can run to hundreds of KB.
+    /// This used to base64-decode it and build a UIImage on EVERY render of EVERY
+    /// avatar — on the main thread — and a cold launch re-renders the screens many
+    /// times as data lands, so each photo was decoded over and over just as the app
+    /// was trying to come up. NSCache evicts under memory pressure on its own.
+    private static let imageCache = NSCache<NSString, UIImage>()
+
     static func decodeImage(_ s: String?) -> UIImage? {
         guard let s, !s.isEmpty else { return nil }
+        let key = s as NSString
+        if let hit = imageCache.object(forKey: key) { return hit }
         let b64 = s.contains(",") ? String(s.split(separator: ",").last ?? "") : s
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return UIImage(data: data)
+        guard let data = Data(base64Encoded: b64), let image = UIImage(data: data) else { return nil }
+        imageCache.setObject(image, forKey: key)
+        return image
     }
 }
 
