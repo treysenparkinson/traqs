@@ -80,6 +80,32 @@ export function serverOwnedPersonFields(stored) {
 // reqId (iOS's TimeOffEntry has no such field, so every iOS roster save strips it) is
 // recognised by its range and gets its reqId back instead of becoming a second entry.
 // Entries without a reqId are the admin's own and pass through as sent.
+// A ROSTER SAVE MAY NOT DROP A STORED PERMISSION KEY (#522, #525).
+//
+// Old iOS builds model nine of the eleven keys, so any roster POST they make — a Team-
+// screen edit, or the push-token fallback on a network blip — arrives without
+// manageTimeclock/confirmTimesheet. Absent is not granted since #295, so storing that
+// revoked both; and an admin record whose `adminPerms` failed to decode arrives with
+// the key missing altogether, which `can()` reads as UNRESTRICTED. This closes both for
+// every build at once, without waiting on anyone installing the iOS fix.
+//
+// For a record that is an admin and stays one: a key the stored object carries and the
+// incoming one omits is kept as stored, and a missing `adminPerms` keeps the stored
+// object. An explicit value always wins — the web writes the complete set (fullPerms),
+// so a real toggle is never an omission — and demotion is not pinned.
+export function keepStoredPermissions(incoming, stored) {
+  const sp = stored?.adminPerms;
+  if (!sp || typeof sp !== "object" || stored.userRole !== "admin" || incoming.userRole !== "admin") return incoming;
+  if (!Object.prototype.hasOwnProperty.call(incoming, "adminPerms")) return { ...incoming, adminPerms: { ...sp } };
+  const ip = incoming.adminPerms;
+  if (!ip || typeof ip !== "object") return incoming;            // explicit null: deliberate
+  const missing = Object.keys(sp).filter((k) => !Object.prototype.hasOwnProperty.call(ip, k));
+  if (!missing.length) return incoming;
+  const kept = { ...ip };
+  for (const k of missing) kept[k] = sp[k];
+  return { ...incoming, adminPerms: kept };
+}
+
 export function mergeTimeOff(incoming, stored) {
   if (!Object.prototype.hasOwnProperty.call(incoming, "timeOff")) {
     return stored && "timeOff" in stored ? { ...incoming, timeOff: stored.timeOff } : incoming;
@@ -268,6 +294,7 @@ export async function handler(event) {
             np = { ...np, ...serverOwnedPersonFields(stored) };
           }
           np = mergeTimeOff(np, stored);
+          np = keepStoredPermissions(np, stored);
           // Anchor a startedAt on the break we just pinned. Runs AFTER the pin, so
           // it can only ever repair the stored break — never adopt an incoming one.
           np = withBreakStart(np, stored);
