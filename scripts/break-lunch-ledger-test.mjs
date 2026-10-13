@@ -1,15 +1,17 @@
-// #505. BREAK KEEPS BOTH CLOCKS RUNNING; LUNCH STOPS BOTH.
+// #505, CORRECTED 2026-10-13. Trey's rule:
+//   BREAK — pay keeps running, PRODUCTION STOPS.
+//   LUNCH — both stop.
 //
-// Trey's rule, 2026-10-12. A worker on a paid break is still on the job, and
-// the job cost it — so a break must not be removed from production, by either
-// mechanism that was removing it:
+// #505 shipped two changes together, and only one was right:
 //
-//   (1) the SCHEDULED window. sessionWorkedHours took its gross from
-//       productiveHoursBetween, which strips the org's dead windows (lunch AND
-//       both breaks) from a MEASURED span. A worker who works through lunch and
-//       clocks nothing lost it anyway.
-//   (2) the CLOCKED pause. breakStart/breakEnd called applyAutoJobPause, so a
-//       break paused the job clock as lunch does.
+//   (1) the SCHEDULED window — RIGHT, and kept. sessionWorkedHours took its
+//       gross from productiveHoursBetween, which strips the org's dead windows
+//       (lunch AND both breaks) from a MEASURED span. A worker who worked
+//       through lunch and clocked nothing lost it anyway. A measured session
+//       takes its RECORDED pauses, not the shop's estimate of them.
+//   (2) the CLOCKED pause — WRONG, and reverted. #505 stopped a clocked break
+//       pausing the job clock, so a break stayed in production. It pauses again
+//       (applyBreakJobPause at the server's five break sites).
 //
 // THE TWO FIXES MUST LAND TOGETHER OR LUNCH IS COUNTED AS WORK. Before, gross
 // removed the scheduled lunch and `manualH` deliberately EXCLUDED the auto
@@ -49,12 +51,22 @@ console.log("\n1. A MEASURED SESSION IS NOT CHARGED FOR A BREAK IT DID NOT TAKE"
   ok("09:00-16:00 with nothing clocked credits 7h", hrs({ clockInMs: at(9), clockOutMs: at(16) }), 7);
 }
 
-console.log("\n2. A CLOCKED BREAK IS STILL WORK — it comes off neither ledger");
+console.log("\n2. A CLOCKED BREAK COMES OFF PRODUCTION — EXACTLY ONCE");
 {
-  // After the fix a break never reaches totalPausedMs at all, because it no
-  // longer pauses the job clock. A session that took two 15m breaks therefore
-  // looks identical to one that took none.
-  ok("two 15m breaks clocked, production unchanged", hrs({ clockInMs: at(8), clockOutMs: at(17) }), 9);
+  // The break pauses the job clock, so it reaches totalPausedMs (and, being
+  // automatic, autoPausedMs). The gross no longer strips the scheduled break
+  // windows (section 1), so the recorded pause is the ONLY removal — which is
+  // what makes the full subtraction safe. The trap #505 named was a break
+  // removed twice: once as a scheduled window, once as a clocked pause. With no
+  // scheduled window in the gross, there is nothing for it to double with.
+  const Q = 0.25 * H;
+  ok("one 15m break clocked at 10:00 — inside the scheduled window — comes off once",
+    hrs({ clockInMs: at(8), clockOutMs: at(17), totalPausedMs: Q, autoPausedMs: Q }), 8.75);
+  ok("two 15m breaks clocked come off as 30m", hrs({ clockInMs: at(8), clockOutMs: at(17), totalPausedMs: 2 * Q, autoPausedMs: 2 * Q }), 8.5);
+  ok("a break clocked OUTSIDE the scheduled windows comes off the same", hrs({ clockInMs: at(8), clockOutMs: at(17), totalPausedMs: Q, autoPausedMs: Q }), 8.75);
+  ok("breaks and a 1h lunch, all clocked, come off once each",
+    hrs({ clockInMs: at(8), clockOutMs: at(17), totalPausedMs: 2 * Q + H, autoPausedMs: 2 * Q + H }), 7.5);
+  ok("a break NOT clocked takes nothing off (no scheduled estimate)", hrs({ clockInMs: at(8), clockOutMs: at(17) }), 9);
 }
 
 console.log("\n3. A CLOCKED LUNCH COMES OFF, EXACTLY ONCE");
@@ -89,17 +101,23 @@ console.log("\n4. #194 IS NOT RE-BROKEN — the calendar still bounds the window
   ok("a session over a weekend does not credit the weekend", r.hours <= 2, true);
 }
 
-console.log("\n5. BREAKS NO LONGER TOUCH THE JOB CLOCK — at every call site");
+console.log("\n5. A BREAK PAUSES THE JOB CLOCK AGAIN — at every one of the five sites");
 {
   // Pinned by SITE. There are five, and a count alone would stay green with the
   // wrong five (R4).
   const TC = readFileSync(new URL("../netlify/functions/timeclock.js", import.meta.url), "utf8");
-  ok("no site asks applyAutoJobPause to pause for a break",
-    /applyAutoJobPause\([^)]*"break"/.test(TC), false);
-  ok("breakStart still records the event", /type: "breakStart", ts: timestamp/.test(TC), true);
-  ok("breakEnd still records the event", /type: "breakEnd", ts: timestamp/.test(TC), true);
-  ok("breakBegin still sets activeBreak", /activeBreak: \{ startedAt: bbStart, durationMinutes: bbMinutes \}/.test(TC), true);
-  ok("breakClear still clears it", /activeBreak: null/.test(TC), true);
+  ok("the break alias exists, beside lunch's",
+    /const applyBreakJobPause = \(person, starting, nowIso\) => applyAutoJobPause\(person, "break", starting, nowIso\);/.test(TC), true);
+  ok("admin break events pause / resume it (admin handler)",
+    /albIsLunch \? applyLunchJobPause\(withEvent, evtType === "lunchStart", albTimestamp\) : applyBreakJobPause\(withEvent, evtType === "breakStart", albTimestamp\)/.test(TC), true);
+  ok("breakBegin pauses it (kiosk / phone break pill)",
+    /applyBreakJobPause\(\{ \.\.\.fresh, activeBreak: \{ startedAt: bbStart, durationMinutes: bbMinutes \} \}, true, bbStart\)/.test(TC), true);
+  ok("breakClear resumes it",
+    /applyBreakJobPause\(\{ \.\.\.fresh, activeBreak: null \}, false, bcEnd\)/.test(TC), true);
+  ok("breakStart pauses it", /applyBreakJobPause\([\s\S]{0,260}?type: "breakStart", ts: timestamp/.test(TC), true);
+  ok("breakEnd resumes it", /applyBreakJobPause\([\s\S]{0,260}?type: "breakEnd", ts: timestamp/.test(TC), true);
+  ok("no #505 'not paused' comment survives at a break site",
+    /#505: (a break does not pause the job clock|nothing to resume|recorded, not paused)/.test(TC), false);
   // Lunch must keep doing exactly what it did.
   // REWRITTEN FOR #292, which moved these into mutatePersonFresh. The old
   // assertions pinned the literal call text (`{ ...person, activeClockIn: ... }`)

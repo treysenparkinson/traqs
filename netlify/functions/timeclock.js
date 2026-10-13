@@ -492,6 +492,13 @@ function applyAutoJobPause(person, reason, starting, nowIso) {
 }
 // Back-compat alias for the lunch call sites.
 const applyLunchJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "lunch", starting, nowIso);
+// Trey's rule (#505, corrected 2026-10-13): BREAK — pay keeps running, PRODUCTION
+// STOPS; LUNCH — both stop. So a break pauses the job clock exactly as lunch does.
+// #505 had removed this and left breaks in production; restored at all five break
+// sites. The gross no longer strips the scheduled windows (statsMath
+// sessionWorkedHours, `deadWindows: []`), so this recorded pause is the ONLY thing
+// that removes a break — once (break-lunch-ledger-test §2).
+const applyBreakJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "break", starting, nowIso);
 
 // ── Dynamic-schedule session derivation ─────────────────────────────────────
 // The native clients (iOS APIService.swift jobClockIn, Android ApiService.kt jobClockIn) post
@@ -1296,12 +1303,10 @@ export async function handler(event) {
             if (evtType === "breakEnd" && (!lastBreak || lastBreak.type !== "breakStart")) refuse(409, "Not on break");
           }
           const withEvent = { ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: evtType, ts: albTimestamp }] } };
-          // #505: LUNCH stops both clocks; a BREAK stops neither. A worker on a
-          // paid break is still on the job and the job cost it, so only the
-          // lunch events reach the job clock. The break events are still
-          // recorded — payhours keeps the row, the board still shows "on break"
-          // — they just cost nothing.
-          return albIsLunch ? applyLunchJobPause(withEvent, evtType === "lunchStart", albTimestamp) : withEvent;
+          // LUNCH stops both clocks; a BREAK stops production and leaves pay
+          // running (Trey's rule; #505 corrected 2026-10-13). Both reach the job
+          // clock; only lunch stops pay, which the pay ledger handles itself.
+          return albIsLunch ? applyLunchJobPause(withEvent, evtType === "lunchStart", albTimestamp) : applyBreakJobPause(withEvent, evtType === "breakStart", albTimestamp);
         });
       } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
@@ -2107,7 +2112,7 @@ export async function handler(event) {
       try {
         await mutatePersonFresh(peopleKey, bbPId, (fresh) => {
           if (fresh.activeBreak) refuse(409, "Already on break");
-          return { ...fresh, activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };   // #505: a break does not pause the job clock
+          return applyBreakJobPause({ ...fresh, activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } }, true, bbStart);   // a break stops production
         });
       } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
@@ -2132,7 +2137,7 @@ export async function handler(event) {
       try {
         await mutatePersonFresh(peopleKey, bcPId, (fresh) => {
           if (!fresh.activeBreak) refuse(409, "Not on break");
-          return { ...fresh, activeBreak: null };   // #505: nothing to resume — a break never paused it
+          return applyBreakJobPause({ ...fresh, activeBreak: null }, false, bcEnd);   // production resumes
         });
       } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
 
@@ -2522,7 +2527,7 @@ export async function handler(event) {
           const evs = fresh.activeClockIn.events || [];
           const last = [...evs].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
           if (last?.type === "breakStart") refuse(409, "Already on break");
-          return ({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakStart", ts: timestamp }] } })   // #505: recorded, not paused;
+          return applyBreakJobPause({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakStart", ts: timestamp }] } }, true, timestamp);   // a break stops production
         });
       } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakStart", timestamp };
@@ -2543,7 +2548,7 @@ export async function handler(event) {
           const evs = fresh.activeClockIn.events || [];
           const last = [...evs].reverse().find(e => e.type === "breakEnd" || e.type === "breakStart");
           if (!last || last.type !== "breakStart") refuse(409, "Not on break");
-          return ({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakEnd", ts: timestamp }] } })   // #505: recorded, not paused;
+          return applyBreakJobPause({ ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...evs, { type: "breakEnd", ts: timestamp }] } }, false, timestamp);   // production resumes
         });
       } catch (e) { return err(e.status || e.statusCode || 500, (e.status || e.statusCode) ? e.message : "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakEnd", timestamp };

@@ -3110,8 +3110,10 @@ class AppState {
         clockChangeAt = Date()
     }
 
-    /// Start a break using the configured break length. Job clock is left
-    /// running. Schedules the local "ending soon" reminder. Returns whether it
+    /// Start a break using the configured break length. The SERVER pauses the job
+    /// clock (a break stops production, pay keeps running — #505 corrected
+    /// 2026-10-13); the refresh below brings that back. Schedules the local
+    /// "ending soon" reminder. Returns whether it
     /// stuck, so the caller can show the BREAK STARTED banner only on success.
     @discardableResult
     /// Start a break. Returns as soon as the LOCAL state is correct.
