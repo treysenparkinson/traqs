@@ -212,7 +212,7 @@ enum CompletionRequestRules {
 // MARK: - Nobody to approve it (#288)
 //
 // With nobody holding approveCompletions, the web records the request and tells the
-// requester nobody can receive it. Both phone paths said "sent" instead — each built a
+// requester nobody can receive it. The phone said "sent" instead — it built a
 // "Completion Requests" thread holding only the requester and posted into it.
 extension CompletionRequestRules {
     /// The web's text, word for word.
@@ -224,10 +224,4 @@ extension CompletionRequestRules {
         people.filter { $0.can(.approveCompletions) }.map(\.id)
     }
 
-    /// The server's `finishRequest` answers `noApprover: true` when it recorded the request
-    /// and had nobody to post it to.
-    static func serverSaysNoApprover(_ body: Data) -> Bool {
-        struct Answer: Decodable { let noApprover: Bool? }
-        return (try? JSONDecoder().decode(Answer.self, from: body))?.noApprover == true
-    }
 }

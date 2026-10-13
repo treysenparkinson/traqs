@@ -52,14 +52,15 @@ struct JobDetailTarget: Identifiable, Equatable {
 
 // MARK: - Job detail — a read-only popup
 //
-// Replaces the pushed JobDetailView for "what is this job?". Tapping a job card
+// Replaced the pushed JobDetailView for "what is this job?". Tapping a job card
 // opens this over the list instead of navigating away from it, so you can check
 // a panel's dates or who's on an op without losing your place.
 //
 // READ-ONLY, deliberately. Edit, Delete, Reschedule, the team picker, the
-// engineering sign-off buttons and the per-op Request Finish all stayed behind
-// in JobDetailView (still in the repo, no longer reachable — see the note at the
-// top of that file). What's left here reports state and never changes it, which
+// engineering sign-off buttons and the per-op Request Finish stayed behind in
+// JobDetailView, and were DELETED with it and JobEditView (#363, 2026-10-13):
+// nothing could reach them. If iOS needs one again, build it on the web's rules
+// rather than restoring the old file. What's left here reports state and never changes it, which
 // is what lets it be a popup at all: nothing in here can fail, so nothing needs
 // room to say so.
 //
@@ -110,7 +111,7 @@ struct JobDetailPopup: View {
         job.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", ")
     }
 
-    /// Department tag styling, mirroring JobDetailView's mapping.
+    /// Department tag styling, mirroring the desktop's job-type tag.
     private var dept: (label: String, kind: TagKind) {
         let key = (job.jobType ?? "").lowercased()
         if key.contains("repair") || key.contains("break") { return (job.jobType?.uppercased() ?? "REPAIR", .amber) }
@@ -644,4 +645,12 @@ struct JobDetailPopup: View {
             .tLabel(tracking: 1.2)
             .foregroundStyle(Color(hex: T.muted))
     }
+}
+
+/// Matches the desktop's `pctColor`: green ≥ 80, amber ≥ 40, otherwise muted. Used here and by
+/// ScheduleJobSheet; moved from JobDetailView when that file was deleted (#363).
+func progressFill(_ pct: Int) -> Color {
+    if pct >= 80 { return Color(hex: T.statusFinished) }
+    if pct >= 40 { return Color(hex: "#f59e0b") }
+    return Color(hex: T.muted)
 }

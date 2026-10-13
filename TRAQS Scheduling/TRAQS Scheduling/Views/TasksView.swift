@@ -2517,7 +2517,7 @@ struct JobRow: View {
     }
 }
 
-// MARK: - StatusBadge / PriorityDot (used by JobDetailView)
+// MARK: - StatusBadge / PriorityDot
 
 // SHOWS WHAT THE SERVER HOLDS (#447). This took a `JobStatus`, so a status iOS
 // does not model arrived as `.notStarted` and the badge said "Not Started" —

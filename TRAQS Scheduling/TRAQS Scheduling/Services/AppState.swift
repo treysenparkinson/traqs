@@ -942,10 +942,6 @@ class AppState {
         }
     }
 
-    func deleteJob(id: String) {
-        updateJobs(jobs.filter { $0.id != id })
-    }
-
     // MARK: - Engineering Sign-Off
 
     func signOff(jobId: String, panelId: String, step: EngStep, personId: String, personName: String) {
@@ -991,27 +987,6 @@ class AppState {
                 ))
             }
         }
-    }
-
-    func revertSignOff(jobId: String, panelId: String, step: EngStep) {
-        guard var job = jobs.first(where: { $0.id == jobId }),
-              let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
-        var panel = job.subs[pi]
-        var eng = panel.engineering ?? Engineering()
-        switch step {
-        case .designed:
-            eng.designed = nil
-            eng.verified = nil
-            eng.sentToPerforex = nil
-        case .verified:
-            eng.verified = nil
-            eng.sentToPerforex = nil
-        case .sentToPerforex:
-            eng.sentToPerforex = nil
-        }
-        panel.engineering = eng
-        job.subs[pi] = panel
-        updateJob(job)
     }
 
     // MARK: - People
@@ -2501,42 +2476,6 @@ class AppState {
         // Server publishes the change → delta-sync reconciles. loadAll removed.
     }
 
-    func timeclockFinishRequest(jobId: String, panelId: String, opId: String) async {
-        guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
-        // Optimistic update so the user sees "Finish Requested" immediately.
-        if let ji = jobs.firstIndex(where: { $0.id == jobId }),
-           let pi = jobs[ji].subs.firstIndex(where: { $0.id == panelId }),
-           let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
-            jobs[ji].subs[pi].subs[oi].pendingFinish = true
-        }
-        do {
-            let answer = try await api.timeclockFinishRequest(personId: personId, pin: pin,
-                                                              jobId: jobId, panelId: panelId, opId: opId)
-            // #288. Recorded, but nobody can approve it — say so, as the web does.
-            if CompletionRequestRules.serverSaysNoApprover(answer) {
-                clockError = CompletionRequestRules.noApproverMessage
-            }
-            // Server updates pendingFinish in tasks.json. Refetch so the
-            // local jobs array matches the canonical server state — if we
-            // don't, the flag lives only in memory and any subsequent
-            // saveJobs (from another mutation) could clobber it.
-            await refreshJobsQuietly()
-        } catch {
-            // Revert the optimistic flip so the user doesn't see a phantom
-            // "Finish Requested" state that the server never recorded.
-            if let ji = jobs.firstIndex(where: { $0.id == jobId }),
-               let pi = jobs[ji].subs.firstIndex(where: { $0.id == panelId }),
-               let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
-                jobs[ji].subs[pi].subs[oi].pendingFinish = false
-            }
-            if case APIError.httpError(401) = error {
-                clockError = APIError.httpError(401).localizedDescription
-            } else {
-                clockError = "Failed to request finish: \(error.localizedDescription)"
-            }
-        }
-    }
-
     // MARK: - Job Clock (Bearer-only, no PIN; uses currentPersonId)
 
     var myActiveJobClock: ActiveJobClock? { currentPerson?.activeJobClock }
@@ -3226,36 +3165,6 @@ class AppState {
         clockedInPin = nil
         activeClockIn = nil
         clockError = nil
-    }
-
-    // MARK: - Color Helpers
-
-    func nextAutoColor() -> String {
-        let key = "traqs_lastHue"
-        var hue = UserDefaults.standard.integer(forKey: key)
-        hue = (hue + 137) % 360
-        UserDefaults.standard.set(hue, forKey: key)
-        return hslToHex(h: hue, s: 0.70, l: 0.55)
-    }
-
-    private func hslToHex(h: Int, s: Double, l: Double) -> String {
-        let hf = Double(h) / 360.0
-        let c = (1 - abs(2 * l - 1)) * s
-        let x = c * (1 - abs(fmod(hf * 6, 2) - 1))
-        let m = l - c / 2
-        var r, g, b: Double
-        switch Int(hf * 6) {
-        case 0: (r, g, b) = (c, x, 0)
-        case 1: (r, g, b) = (x, c, 0)
-        case 2: (r, g, b) = (0, c, x)
-        case 3: (r, g, b) = (0, x, c)
-        case 4: (r, g, b) = (x, 0, c)
-        default: (r, g, b) = (c, 0, x)
-        }
-        let ri = Int((r + m) * 255)
-        let gi = Int((g + m) * 255)
-        let bi = Int((b + m) * 255)
-        return String(format: "#%02X%02X%02X", ri, gi, bi)
     }
 
     // MARK: - Computed

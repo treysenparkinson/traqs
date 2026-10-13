@@ -3,9 +3,10 @@ import Foundation
 @testable import TRAQS_Scheduling
 
 // #288. With nobody holding approveCompletions, the web records the request and tells the
-// requester nobody can receive it. Both phone paths said "sent" instead: the Tasks screen
-// built a "Completion Requests" thread holding only the requester and posted into it, and
-// the job-detail Request Finish (server `finishRequest`) did the same server-side.
+// requester nobody can receive it. The phone said "sent" instead: the Tasks screen built a
+// "Completion Requests" thread holding only the requester and posted into it. (The job-detail
+// Request Finish, which went through the server's `finishRequest`, was deleted with
+// JobDetailView in #363; the server still answers `noApprover` for older builds.)
 @Suite("A completion request with nobody to approve it says so (#288)")
 struct NoApproverTests {
     private func person(_ json: String) -> Person {
@@ -29,14 +30,6 @@ struct NoApproverTests {
             person(#"{"id":"7","name":"W","userRole":"user"}"#),
         ]
         #expect(CompletionRequestRules.approverIds(in: people).isEmpty)
-    }
-
-    @Test("the server's noApprover answer is read; its absence is not")
-    func serverAnswer() {
-        #expect(CompletionRequestRules.serverSaysNoApprover(Data(#"{"ok":true,"requestId":"r","noApprover":true}"#.utf8)))
-        #expect(!CompletionRequestRules.serverSaysNoApprover(Data(#"{"ok":true,"requestId":"r"}"#.utf8)))
-        #expect(!CompletionRequestRules.serverSaysNoApprover(Data(#"{"ok":true,"alreadyOpen":true}"#.utf8)))
-        #expect(!CompletionRequestRules.serverSaysNoApprover(Data()))
     }
 
     @Test("the message is the web's, word for word")

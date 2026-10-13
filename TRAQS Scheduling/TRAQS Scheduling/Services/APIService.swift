@@ -576,15 +576,6 @@ struct APIService {
         let pin: String
     }
 
-    private struct TimeclockFinishPayload: Encodable {
-        let action = "finishRequest"
-        let personId: String
-        let pin: String
-        let jobId: String
-        let panelId: String
-        let opId: String
-    }
-
     func timeclockIdentify(pin: String) async throws -> TimeclockIdentifyResponse {
         let body = try JSONEncoder().encode(TimeclockIdentifyPayload(pin: pin))
         let req = try await request("timeclock", method: "POST", body: body)
@@ -610,14 +601,6 @@ struct APIService {
         let body = try JSONEncoder().encode(TimeclockSimplePayload(action: action, personId: personId, pin: pin))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
-    }
-
-    /// Returns the response body: it says `noApprover` when nobody could receive it (#288).
-    @discardableResult
-    func timeclockFinishRequest(personId: String, pin: String, jobId: String, panelId: String, opId: String) async throws -> Data {
-        let body = try JSONEncoder().encode(TimeclockFinishPayload(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId))
-        let req = try await request("timeclock", method: "POST", body: body)
-        return try await perform(req)
     }
 
     // MARK: - Timeclock history (read)
