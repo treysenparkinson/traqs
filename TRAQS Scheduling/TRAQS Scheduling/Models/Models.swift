@@ -73,6 +73,23 @@ struct EngineeringSignOff: Codable, Equatable {
         by     = (try? c.decodeFlexID(forKey: .by)) ?? ""
         byName = (try? c.decode(String.self, forKey: .byName)) ?? ""
         at     = (try? c.decode(String.self, forKey: .at)) ?? ""
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable { case by, byName, at }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(by, forKey: .by)
+        try c.encode(byName, forKey: .byName)
+        try c.encode(at, forKey: .at)
     }
 }
 
@@ -81,8 +98,33 @@ struct Engineering: Codable, Equatable {
     var verified: EngineeringSignOff?
     var sentToPerforex: EngineeringSignOff?
 
-    enum CodingKeys: String, CodingKey {
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case designed, verified, sentToPerforex
+    }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        designed       = try? c.decodeIfPresent(EngineeringSignOff.self, forKey: .designed)
+        verified       = try? c.decodeIfPresent(EngineeringSignOff.self, forKey: .verified)
+        sentToPerforex = try? c.decodeIfPresent(EngineeringSignOff.self, forKey: .sentToPerforex)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// `extras` FIRST — see `JSONExtras.encode`. A cleared step encodes as absent,
+    /// as before.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(designed, forKey: .designed)
+        try c.encodeIfPresent(verified, forKey: .verified)
+        try c.encodeIfPresent(sentToPerforex, forKey: .sentToPerforex)
     }
 }
 
@@ -97,6 +139,41 @@ struct MoveLogEntry: Codable, Identifiable {
     var date: String
     var movedBy: String
     var reason: String?
+
+    /// #523 — the web's entries also carry hours, team, hpd and departments
+    /// (from/to). The server repairs a narrowed stored entry (#465's guard), but
+    /// keeping them here means there is nothing to repair.
+    var extras = JSONExtras()
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case fromStart, fromEnd, toStart, toEnd, date, movedBy, reason
+    }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fromStart = (try? c.decode(String.self, forKey: .fromStart)) ?? ""
+        fromEnd   = (try? c.decode(String.self, forKey: .fromEnd)) ?? ""
+        toStart   = (try? c.decode(String.self, forKey: .toStart)) ?? ""
+        toEnd     = (try? c.decode(String.self, forKey: .toEnd)) ?? ""
+        date      = (try? c.decode(String.self, forKey: .date)) ?? ""
+        movedBy   = (try? c.decode(String.self, forKey: .movedBy)) ?? ""
+        reason    = try? c.decodeIfPresent(String.self, forKey: .reason)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fromStart, forKey: .fromStart)
+        try c.encode(fromEnd, forKey: .fromEnd)
+        try c.encode(toStart, forKey: .toStart)
+        try c.encode(toEnd, forKey: .toEnd)
+        try c.encode(date, forKey: .date)
+        try c.encode(movedBy, forKey: .movedBy)
+        try c.encodeIfPresent(reason, forKey: .reason)
+    }
 }
 
 // MARK: - Operation (Level 2)
@@ -278,6 +355,30 @@ struct PanelAttachment: Codable, Identifiable, Equatable {
         uploadedByName = try? c.decodeIfPresent(String.self, forKey: .uploadedByName)
         uploadedAt     = try? c.decodeIfPresent(String.self, forKey: .uploadedAt)
         opId           = c.decodeFlexIDIfPresent(forKey: .opId)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case key, filename, mimeType, size, uploadedById, uploadedByName, uploadedAt, opId
+    }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(key, forKey: .key)
+        try c.encode(filename, forKey: .filename)
+        try c.encodeIfPresent(mimeType, forKey: .mimeType)
+        try c.encodeIfPresent(size, forKey: .size)
+        try c.encodeIfPresent(uploadedById, forKey: .uploadedById)
+        try c.encodeIfPresent(uploadedByName, forKey: .uploadedByName)
+        try c.encodeIfPresent(uploadedAt, forKey: .uploadedAt)
+        try c.encodeIfPresent(opId, forKey: .opId)
     }
 }
 
@@ -428,6 +529,24 @@ struct FinishRequestStamp: Codable, Equatable {
         by        = (try? c.decodeFlexID(forKey: .by)) ?? ""
         byName    = (try? c.decode(String.self, forKey: .byName)) ?? ""
         at        = (try? c.decode(String.self, forKey: .at)) ?? ""
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable { case requestId, by, byName, at }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(requestId, forKey: .requestId)
+        try c.encode(by, forKey: .by)
+        try c.encode(byName, forKey: .byName)
+        try c.encode(at, forKey: .at)
     }
 }
 
@@ -463,6 +582,31 @@ struct FinishRequestEntry: Codable, Equatable, Identifiable {
         resolvedByName = try? c.decodeIfPresent(String.self, forKey: .resolvedByName)
         resolvedAt     = try? c.decodeIfPresent(String.self, forKey: .resolvedAt)
         declineReason  = try? c.decodeIfPresent(String.self, forKey: .declineReason)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, by, byName, at, status, resolvedBy, resolvedByName, resolvedAt, declineReason
+    }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(by, forKey: .by)
+        try c.encode(byName, forKey: .byName)
+        try c.encode(at, forKey: .at)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(resolvedBy, forKey: .resolvedBy)
+        try c.encodeIfPresent(resolvedByName, forKey: .resolvedByName)
+        try c.encodeIfPresent(resolvedAt, forKey: .resolvedAt)
+        try c.encodeIfPresent(declineReason, forKey: .declineReason)
     }
 }
 
@@ -1353,6 +1497,25 @@ struct ChatGroup: Codable, Identifiable, Equatable {
         // Flex-decoded: person ids are mixed String/Int across the web app.
         createdBy = (try? c.decodeFlexID(forKey: .createdBy))
         createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// #523 — keys iOS doesn't model, written back as they came (see JSONExtras).
+    /// `saveJobs` / `saveGroups` POST the whole array, so a nested struct that
+    /// decoded a fixed key set dropped the rest for every client.
+    var extras = JSONExtras()
+    enum CodingKeys: String, CodingKey, CaseIterable { case id, name, memberIds, createdBy, createdAt }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(memberIds, forKey: .memberIds)
+        try c.encodeIfPresent(createdBy, forKey: .createdBy)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
     }
 }
 
