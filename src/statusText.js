@@ -61,3 +61,41 @@ export function statusLiteralViolations(src) {
   });
   return out;
 }
+
+/**
+ * #446 part 1 — whether an edited status or priority list may be saved.
+ *
+ * `draft` and `source` are the option NAMES after and before the edit. A name the edit
+ * added or renamed (one not present, exactly, in `source`) is trimmed and its inner runs
+ * of spaces collapsed; the save is refused if any normalised form now appears more often
+ * than it did before — a new `FINISHED` beside `Finished`, or a rename onto another entry.
+ *
+ * WHAT THE EDIT DID NOT TOUCH IS LEFT EXACTLY AS STORED, deliberately. Matrix's list
+ * already holds `Finished` and `finished`, and `Boxed up ` with a trailing space. Refusing
+ * the existing pair would lock the org out of its own list until the data cure (part 2)
+ * runs, and trimming `Boxed up ` here without trimming the job that stores it would turn a
+ * matching status into an orphan — that is a data change, and part 1 touches no data.
+ *
+ * Returns `{ names, problem }`: `names` aligned with `draft`, `problem` a sentence or null.
+ */
+export function checkOptionNames(draft, source) {
+  const stored = new Set(source || []);
+  const names = (draft || []).map(n => (stored.has(n) ? n : String(n ?? "").trim().replace(/\s+/g, " ")));
+  const count = (list, key) => {
+    const m = new Map();
+    for (const n of list) { const k = key(n); m.set(k, (m.get(k) || 0) + 1); }
+    return m;
+  };
+  // Normalised AND exact: renaming `finished` onto its twin's spelling keeps the normalised
+  // count at two but leaves two identical entries, which is still a collision the edit made.
+  const grew = (key) => {
+    const before = count(source || [], key);
+    for (const [k, n] of count(names, key)) if (n > 1 && n > (before.get(k) || 0)) return k;
+    return null;
+  };
+  const exact = grew(n => n);
+  const k = exact != null ? normalizeStatus(exact) : grew(normalizeStatus);
+  if (k == null) return { names, problem: null };
+  const same = names.filter(x => normalizeStatus(x) === k).map(x => `"${x}"`);
+  return { names, problem: `${same.join(" and ")} are the same option — names can't differ only by case or spacing.` };
+}

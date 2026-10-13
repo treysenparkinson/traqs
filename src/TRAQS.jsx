@@ -54,6 +54,7 @@ import { OUTCOME_APPLIED, OUTCOME_NOCHANGE, toolResultsFor } from "./aiActions.j
 import { serializeRuns } from "./saveQueue.js";
 import { markDerived, stripDerived } from "./derived.js";
 import { jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
+import { checkOptionNames } from "./statusText.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -28493,8 +28494,12 @@ ${jobsCtx || "No jobs found."}`;
           const draft = (optDraft && optDraft.key === draftKey) ? optDraft.list : source;
           const setDraft = next => setOptDraft(prev => { const cur = (prev && prev.key === draftKey) ? prev.list : source; return { key: draftKey, list: typeof next === "function" ? next(cur) : next }; });
           const dirty = JSON.stringify(draft) !== JSON.stringify(source);
+          // #446 part 1. The org's two lists may not gain two names that differ only by case
+          // or spacing; a name added or renamed is trimmed. What the edit did not touch is
+          // saved exactly as stored — see checkOptionNames.
+          const optCheck = isStd ? checkOptionNames(draft.map(optName), source.map(optName)) : null;
           const closeEditor = () => { setOptDraft(null); setColCtxMenu(prev => prev ? { ...prev, subMenu: null } : prev); };
-          const save = () => { if (isStd) (cid === "status" ? setStatusOpts : setPriOpts)(draft); else updateCustomCol(col.id, { options: draft }); closeEditor(); };
+          const save = () => { if (optCheck?.problem) return; if (isStd) (cid === "status" ? setStatusOpts : setPriOpts)(draft.map((o, i) => ({ ...o, name: optCheck.names[i] }))); else updateCustomCol(col.id, { options: draft }); closeEditor(); };
           const hasIcon = !(isStd && cid === "pri"); // status + custom lists carry an icon; priority is color-only
           const minOne = isStd; // built-in must keep ≥1; custom lists keep their blank/none sentinel instead
           // Status & priority cells follow the List Cells color mode. In Adaptive mode their colors are
@@ -28517,9 +28522,10 @@ ${jobsCtx || "No jobs found."}`;
           </>;
           const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
             <div key={optEditSeq} className="tq-opt-scroll" style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280 }}>{rows}</div>
+            {optCheck?.problem && <div style={{ fontSize: 11, color: T.danger || "#ef4444", lineHeight: 1.35 }}>{optCheck.problem}</div>}
             <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
               <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = T.card}>Cancel</button>
-              <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
+              <button onClick={save} disabled={!dirty || !!optCheck?.problem} title={optCheck?.problem || (dirty ? "Apply changes" : "No changes to save")} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: "none", background: dirty && !optCheck?.problem ? T.accent : T.border, color: dirty && !optCheck?.problem ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty && !optCheck?.problem ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
             </div>
           </div>;
           return <div>
