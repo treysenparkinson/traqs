@@ -287,6 +287,19 @@ export async function fetchMessages(getToken, orgCode) {
   return res.json();
 }
 
+// Remove a team member (#525). The ONLY way to delete someone: a full-roster save
+// keeps anyone it leaves out, because omission turned a stale roster into a mass
+// delete. Needs manageTeam on the server.
+export async function deletePerson(id, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/people?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw new Error(`deletePerson failed: ${res.status}`);
+  return res.json();
+}
+
 export async function deleteThread(threadKey, getToken, orgCode) {
   const headers = await authHeaders(getToken, orgCode);
   const res = await fetch(`${BASE}/messages?threadKey=${encodeURIComponent(threadKey)}`, {

@@ -51,9 +51,12 @@ for (const [who, auth] of [["worker", WORKER], ["admin without manageTeam", REST
 }
 seed(TEAM_ADMIN);
 {
+  // #525 reversed this control: omission deletes NOBODY now, not even for an admin
+  // with manageTeam — a stale roster was a mass delete. Removal is DELETE /people?id=,
+  // covered in people-delete-test.mjs.
   const res = await post(roster().filter(p => p.id !== 8));
-  ok("control: an admin with manageTeam removes Sam", [res.statusCode, state(sam())], [200, "tombstoned"]);
-  ok("control: and the tombstone drops the PIN", sam()?.pin ?? null, null);
+  ok("an admin with manageTeam leaving Sam out: Sam is kept (#525)", [res.statusCode, state(sam())], [200, "live"]);
+  ok("...and keeps the PIN", sam()?.pin != null, true);
 }
 
 console.log("\n2. Other ways to remove someone");

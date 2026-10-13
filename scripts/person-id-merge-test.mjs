@@ -138,10 +138,15 @@ console.log("\n4. THE MERGE AND THE DELETION RECONCILER NOW AGREE");
 
   // And removal still works for an admin, by id, across a type change — or the
   // fix would have made people undeletable from a client that normalises.
+  // #525: removal is DELETE /people?id= now (a roster save keeps anyone it omits),
+  // so the type-change property moves there: the client's string "100" must still
+  // find the stored numeric 100.
   seed();
-  const minusMax = asIosRoster().filter(p => p.id !== "100");
-  await post(minusMax);
-  ok("leaving a numeric-id person out still tombstones them", !!stored(100)?.deletedAt, true);
+  await post(asIosRoster().filter(p => p.id !== "100"));
+  ok("leaving a numeric-id person out of a roster save keeps them (#525)", !!stored(100)?.deletedAt, false);
+  seed();
+  const res = await peopleFn({ httpMethod: "DELETE", headers: {}, queryStringParameters: { id: "100" } });
+  ok("DELETE ?id=\"100\" tombstones the stored numeric 100", [res.statusCode, !!stored(100)?.deletedAt], [200, true]);
   ok("...and the tombstone still drops their PIN", stored(100)?.pin ?? null, null);
   ok("...while everyone else is untouched", stored(99)?.pin != null, true);
 }

@@ -335,21 +335,21 @@ export async function handler(event) {
         // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
         const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
         // Non-admins can't create people — drop any incoming record with no stored
-        // counterpart. (They still send the full roster, so existing rows aren't
-        // tombstoned by this.)
+        // counterpart.
         //
-        // Removing someone is the same: it needs manageTeam. Every stored person
-        // missing from the array used to be tombstoned whoever sent it, so any
-        // member could delete a colleague — or, by POSTing just their own row,
-        // the whole team. For anyone without manageTeam a missing row is kept.
-        let safeMerged = merged;
-        if (!can(member, "manageTeam")) {
-          const incomingIds = new Set(merged.map(p => String(p.id)));
-          safeMerged = [
-            ...merged.filter(p => existingMap.has(String(p.id))),
-            ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
-          ];
-        }
+        // A FULL-ROSTER SAVE NEVER DELETES ANYONE (#525). A stored person missing
+        // from the array is KEPT, whoever sent it; removal is DELETE /people?id=.
+        // Omission used to tombstone (PIN stripped) for a manageTeam caller, which
+        // turned any STALE roster into a mass delete — an iOS phone's push-token
+        // fallback posts its cached roster at launch on a network error, so anyone
+        // added since that phone last synced was deleted with nobody touching
+        // anything. (Before root cause 4 it was worse: any member could delete a
+        // colleague, or the whole team, by omission.)
+        const incomingIds = new Set(merged.map(p => String(p.id)));
+        const safeMerged = [
+          ...(can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(String(p.id)))),
+          ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
+        ];
         const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
         const stamped = stampArray(reconciled, existing);
         return { value: stamped, reconciled, existing };
@@ -477,6 +477,38 @@ export async function handler(event) {
   if (event.httpMethod === "DELETE") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+
+    // DELETE /people?id=X — removing SOMEONE ELSE (#525). The only way to delete a
+    // person now that a roster POST never does. manageTeam required; same tombstone
+    // shape as self-delete. One conditional read-modify-write (updateJson), so a
+    // concurrent approval or clock-in landing in the window isn't put back.
+    // An id naming the caller falls through to self-delete below. (Before this the
+    // id was ignored and the CALLER was deleted, whatever it named.)
+    const targetId = event.queryStringParameters?.id;
+    if (targetId != null && targetId !== "" && String(targetId) !== String(member.personId)) {
+      if (!can(member, "manageTeam")) return err(403, "Your account does not have permission to add, edit & remove team members");
+      try {
+        const result = await updateJson(s3Key, (stored) => {
+          const existing = Array.isArray(stored) ? stored : [];
+          const idx = existing.findIndex(p => p && String(p.id) === String(targetId));
+          if (idx === -1) return { abort: err(404, "Person not found") };
+          // Idempotent, as self-delete: a retry must not re-stamp or re-broadcast.
+          if (existing[idx].deletedAt) return { abort: json(200, { ok: true }) };
+          const { pin: _pin, ...rest } = existing[idx];
+          const next = existing.slice();
+          next[idx] = softDelete({ ...rest, pushToken: null });
+          return { value: next };
+        });
+        if (result && "abort" in result) return result.abort;
+        await publishChange(member.orgCode, "people", { ids: [String(targetId)] });
+        await sendSilentPush(member.orgCode, { entity: "people" });
+        return json(200, { ok: true });
+      } catch (e) {
+        console.error("people DELETE (admin) error:", e);
+        return err(500, "Failed to remove team member");
+      }
+    }
+
     if (member.personId == null) return err(404, "Person not found");
     try {
       const existing = (await readJson(s3Key)) ?? [];
