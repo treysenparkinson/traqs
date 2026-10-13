@@ -1,5 +1,6 @@
 package com.matrixsystems.traqs.models
 
+import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
 
 // MARK: - Enums
@@ -29,16 +30,18 @@ enum class Priority(val label: String) {
 // MARK: - Engineering
 
 data class EngineeringSignOff(
-    val by: Int = 0,
+    val by: String = "",   // a person id — a String, never Int (#442, #519)
     val byName: String = "",
-    val at: String = ""
-)
+    val at: String = "",
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 data class Engineering(
     val designed: EngineeringSignOff? = null,
     val verified: EngineeringSignOff? = null,
-    val sentToPerforex: EngineeringSignOff? = null
-)
+    val sentToPerforex: EngineeringSignOff? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 enum class EngStep(val label: String, val index: Int) {
     DESIGNED("Designed", 0),
@@ -59,8 +62,9 @@ data class MoveLogEntry(
     val toEnd: String = "",
     val date: String = "",
     val movedBy: String = "",
-    val reason: String? = null
-)
+    val reason: String? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Operation (Level 2)
 
@@ -72,15 +76,16 @@ data class Operation(
     val status: JobStatus = JobStatus.NOT_STARTED,
     val pri: Priority = Priority.MEDIUM,
     val team: List<String> = emptyList(),
-    val hpd: Double = 7.5,
+    val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
     val notes: String = "",
     val deps: List<String> = emptyList(),
     val locked: Boolean? = null,
     val moveLog: List<MoveLogEntry>? = null,
     val pid: String? = null,
     val pendingFinish: Boolean? = null,
-    val loggedHours: Double? = null
-)
+    val loggedHours: Double? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Panel (Level 1)
 
@@ -92,12 +97,13 @@ data class Panel(
     val status: JobStatus = JobStatus.NOT_STARTED,
     val pri: Priority = Priority.MEDIUM,
     val team: List<String> = emptyList(),
-    val hpd: Double = 7.5,
+    val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
     val notes: String = "",
     val deps: List<String> = emptyList(),
     val engineering: Engineering? = null,
-    val subs: List<Operation> = emptyList()
-)
+    val subs: List<Operation> = emptyList(),
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Job (Level 0) — named TRAQSJob to avoid conflict with kotlinx.coroutines.Job
 
@@ -113,7 +119,7 @@ data class TRAQSJob(
     val pri: Priority = Priority.MEDIUM,
     val team: List<String> = emptyList(),
     val color: String = "#3d7fff",
-    val hpd: Double = 7.5,
+    val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
     val notes: String = "",
     val clientId: String? = null,
     val deps: List<String> = emptyList(),
@@ -121,8 +127,9 @@ data class TRAQSJob(
     val moveLog: List<MoveLogEntry>? = null,
     val jobType: String? = null,
     val loggedHours: Double? = null,
-    val projectManagerId: String? = null
-) {
+    val projectManagerId: String? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough {
     val displayNumber: String get() = jobNumber?.let { "#$it" } ?: ""
 }
 
@@ -204,8 +211,9 @@ data class AdminPerms(
     val manageTeam: Boolean = false,
     val manageClients: Boolean = false,
     val undoHistory: Boolean = false,
-    val orgSettings: Boolean = false
-)
+    val orgSettings: Boolean = false,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Time Off
 
@@ -213,8 +221,9 @@ data class TimeOffEntry(
     val start: String = "",
     val end: String = "",
     val type: String = "PTO",
-    val reason: String? = null
-)
+    val reason: String? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Person
 
@@ -246,8 +255,9 @@ data class Person(
     val activeClockIn: ActiveClockIn? = null,
     val activeJobClock: ActiveJobClock? = null,
     val activeBreak: ActiveBreak? = null,
-    val pin: String? = null
-) {
+    val pin: String? = null,
+    @Transient override val extras: JsonObject? = null
+) : Passthrough {
     val isAdmin: Boolean get() = userRole == "admin"
 }
 
@@ -282,7 +292,7 @@ data class Message(
     val panelId: String? = null,
     val opId: String? = null,
     val text: String = "",
-    val authorId: Int = 0,
+    val authorId: String = "",   // a person id — a String, never Int (#442, #519)
     val authorName: String = "",
     val authorColor: String = "#3d7fff",
     val participantIds: List<String> = emptyList(),

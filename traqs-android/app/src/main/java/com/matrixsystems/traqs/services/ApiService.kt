@@ -25,6 +25,9 @@ private object SafeIntDeserializer : JsonDeserializer<Int> {
 private val lenientGson = GsonBuilder()
     .registerTypeAdapter(Int::class.javaObjectType, SafeIntDeserializer) // List<Int> uses boxed Integer
     .registerTypeAdapter(Int::class.java, SafeIntDeserializer)           // standalone Int fields
+    // Models implementing Passthrough keep the keys they don't model and write them
+    // back — every save here POSTs a whole array (#520, #228, #442).
+    .registerTypeAdapterFactory(PassthroughAdapterFactory)
     .create()
 
 interface TRAQSApi {

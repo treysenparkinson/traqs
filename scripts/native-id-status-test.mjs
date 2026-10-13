@@ -56,6 +56,7 @@ const TASKS = read("../TRAQS Scheduling/TRAQS Scheduling/Views/TasksView.swift")
 const KMODELS = read("../traqs-android/app/src/main/java/com/matrixsystems/traqs/models/Models.kt");
 const KAPI = read("../traqs-android/app/src/main/java/com/matrixsystems/traqs/services/ApiService.kt");
 const KTEAM = read("../traqs-android/app/src/main/java/com/matrixsystems/traqs/ui/screens/TeamScreen.kt");
+const KPASS = read("../traqs-android/app/src/main/java/com/matrixsystems/traqs/models/Passthrough.kt");
 
 console.log("\n0. THE SOURCES ARE WHERE THIS EXPECTS THEM");
 {
@@ -134,6 +135,37 @@ console.log("\n5. #442 — the delete compares the way the server does");
     /filter \{ it\.id != person!!\.id \}/.test(KTEAM), true);
   ok("the SafeInt deserialiser no longer sees ids, because none are Int",
     /registerTypeAdapter\(Int::class\.java, SafeIntDeserializer\)/.test(KAPI), true);
+}
+
+console.log("\n6. #519 — EVERY person id is a string on Android, not only Person.id");
+{
+  // 2a45156 made Person.id and team Strings and left two more person ids as Int,
+  // fed String ids at their call sites — so the #442 fix could not compile.
+  ok("an engineering sign-off's `by` is a String", /data class EngineeringSignOff\(\s*\n\s*val by: String = ""/.test(KMODELS), true);
+  ok("a message's authorId is a String", /val authorId: String = ""/.test(KMODELS), true);
+  ok("no person-id field is typed Int anywhere in the models",
+    /val (by|authorId|personId|memberId|createdBy|resolvedBy|projectManagerId): Int/.test(KMODELS), false);
+}
+
+console.log("\n7. #520 — an Android save writes back what it read");
+{
+  // Gson builds these through Kotlin's all-defaults constructor, so a default IS
+  // what an absent key becomes — and `hpd = 7.5` turned every unestimated node
+  // into 7.5 on the next whole-array save (#301, from Android).
+  ok("no model defaults hpd to 7.5", /val hpd: Double = 7\.5/.test(KMODELS), false);
+  ok("unestimated is 0, as on iOS", (KMODELS.match(/val hpd: Double = 0\.0/g) || []).length, 3);
+  // Keys a model doesn't declare were dropped on save: #228's planned-vs-actual
+  // fields, depsMode, finish requests, colours, department, the #295 permissions.
+  ok("the passthrough factory exists", /object PassthroughAdapterFactory : TypeAdapterFactory/.test(KPASS), true);
+  ok("...and is registered on the Gson the API uses",
+    /registerTypeAdapterFactory\(PassthroughAdapterFactory\)/.test(KAPI), true);
+  const carriers = ["TRAQSJob", "Panel", "Operation", "Engineering", "EngineeringSignOff",
+                    "MoveLogEntry", "Person", "AdminPerms", "TimeOffEntry"];
+  for (const name of carriers) {
+    const body = (new RegExp(`data class ${name}\\(([\\s\\S]*?)\\n\\)( : Passthrough)?`).exec(KMODELS) || []);
+    ok(`${name} carries its unmodelled keys`,
+      !!body[1] && /@Transient override val extras: JsonObject\? = null/.test(body[1]) && body[2] === " : Passthrough", true);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
