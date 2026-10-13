@@ -510,7 +510,10 @@ struct Avatar: View {
                         .strokeBorder(stroke ?? Color(hex: T.hair), lineWidth: 1)
                 }
                 Text(initials)
-                    .font(.traqs(.bold, size: size * 0.4))
+                    // Sized to the CIRCLE, not to Dynamic Type: the circle is a
+                    // fixed size, and the scaled font grew past it under the app's
+                    // xLarge/xxLarge floor. 0.34 of the diameter (was 0.4, scaled).
+                    .font(.system(size: size * 0.34, weight: .bold))
                     // Legible on whatever the circle is filled with: readable
                     // black/white for the gradient or a colored fill, ink on the
                     // neutral surface circle.
