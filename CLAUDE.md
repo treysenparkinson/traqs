@@ -34,4 +34,9 @@ several items and pushes once.
 - New behaviour gets a suite, written red first, wired into `npm run build`, and
   proved by mutation: change the fix, confirm an assertion fails. A mutant that is
   SKIPPED on a duplicated anchor, or "caught" by a crash rather than a failed
-  assertion, has proved nothing.
+  assertion, has proved nothing. Nor has one that lands on a SIBLING, and that
+  one hides: a mutant on a sibling guard tests the sibling, and its output reads
+  exactly like the real thing. Count the ANCHOR before mutating, not the mutated text
+  after — replacing the first of two matches leaves the new text appearing exactly
+  once, which looks like a hit (#288: `adminIds.length === 0` also guards a push at
+  timeclock.js:409, the mutant landed there, and "survived").
