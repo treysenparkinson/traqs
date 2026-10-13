@@ -2383,7 +2383,10 @@ struct ThreadTopBar: View {
                         .padding(.bottom, 9)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Capsule())
+                // Plain, NOT `.interactive()`: interactive glass stretches toward
+                // the finger and springs back, and this pill has to hold its size
+                // and place no matter what.
+                .glassEffect(.regular, in: Capsule())
                 .modifier(MembersZoomSource(namespace: zoomSource))
                 .accessibilityLabel("\(context.title). Show people")
             }
@@ -2391,6 +2394,11 @@ struct ThreadTopBar: View {
             // instead of running under it; a short one still hugs its text.
             .padding(.horizontal, 72)
             .frame(maxWidth: .infinity)
+            // Never animate: the title and avatars resolve after the thread opens,
+            // and any transaction in flight (the tab spring, a publish) would
+            // otherwise ease the pill to its new width — the "moving and snapping".
+            // A change, if one comes, lands in one frame.
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }
 
             Button(action: context.onBack) {
                 HeaderGlassCircle {
