@@ -389,7 +389,9 @@ struct MessagesView: View {
     /// `tabPillBottomInset` already covers the pill and its offset from the
     /// bottom edge; with the bar hidden only the home indicator is left to clear.
     private var listBottomClearance: CGFloat {
-        (appNav.hideTabBar ? 40 : tabPillBottomInset) + 24
+        // The list draws under the bar (ignoresSafeArea), so it clears the
+        // native tab bar's height by hand: 49pt bar + 34pt home indicator.
+        (appNav.hideTabBar ? 40 : 83) + 24
     }
 
     /// Renders a single inbox row, switching between navigation mode and
