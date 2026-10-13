@@ -1785,8 +1785,8 @@ struct TaskCardV1: View {
 
     // MARK: Block face (Jobs list)
 
-    /// The job being worked stands out in sky; everything else is mint.
-    private var blockTint: Rv.Tint { isActive ? .sky : .mint }
+    /// Every job card is sky (blue) — including the one being worked.
+    private var blockTint: Rv.Tint { .sky }
 
     /// True when `dept` named a real department rather than falling back to
     /// the task's own title — the fallback would just repeat the block title.
@@ -2239,7 +2239,7 @@ private struct BasicJobCard: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Rv.Tint.mint.fill))
+                    .fill(Rv.Tint.sky.fill))
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else {
             SBox(size: .lg, radius: T.cornerHero, frosted: true) {
