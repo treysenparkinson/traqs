@@ -1248,7 +1248,7 @@ struct ThreadDetailView: View {
                                     TextField("Message", text: $newText, axis: .vertical)
                                         .textFieldStyle(.plain)
                                         .focused($composerFocused)
-                                        .font(TTypo.sm(15))
+                                        .font(TTypo.sm(14))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1...5)
                                         // 28 + 2×6 = 40 on one line, matching the +
