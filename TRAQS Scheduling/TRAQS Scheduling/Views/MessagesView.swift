@@ -753,6 +753,17 @@ struct ThreadDetailView: View {
         )
     }
 
+    /// The window's top safe-area inset (status bar / Dynamic Island), read the
+    /// same way the overlay header reads it, so the header copy lands exactly on
+    /// the overlay's header and the page clears the status bar. NOT the overlay's
+    /// GeometryReader: it ignores the safe area, so it reports 0 — which put the
+    /// copy and the page's back button up under the Dynamic Island on a phone.
+    private var windowTopInset: CGFloat {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let key = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
+        return key?.safeAreaInsets.top ?? 0
+    }
+
     /// Grow the pill into the members page. Each step waits a pass for the one
     /// before it to be on screen: the header copy (so the overlay header can go
     /// transparent behind an identical stand-in), then the hero mounted AT the
@@ -1273,7 +1284,10 @@ struct ThreadDetailView: View {
                     }
                     .padding(.horizontal, 22)   // narrower bar (was 12)
                     .padding(.top, 8)
-                    .padding(.bottom, 0)        // sits 6pt lower (was 6)
+                    // Down on the home-indicator edge when the keyboard is away;
+                    // a 10pt gap above the keyboard when it's up, instead of
+                    // sitting flush on it.
+                    .padding(.bottom, composerFocused ? 10 : 0)
                     .frame(maxWidth: .infinity)
                     // No backdrop of our own. `safeAreaBar` (iOS 26) gives the
                     // bar the system's scroll-edge effect, so messages soften as
@@ -1319,11 +1333,11 @@ struct ThreadDetailView: View {
                         if showMembers {
                             MembersHero(progress: membersProgress, from: from, full: full,
                                         title: displayTitle,
-                                        page: membersPage(topInset: geo.safeAreaInsets.top))
+                                        page: membersPage(topInset: windowTopInset))
                         }
                         // On top at the start, so the hero's first frame is exactly
                         // the header as it was; fades as the page grows over it.
-                        ThreadTopBar(context: headerContext, topInset: geo.safeAreaInsets.top,
+                        ThreadTopBar(context: headerContext, topInset: windowTopInset,
                                      onPillFrame: { if $0 != pillFrame { pillFrame = $0 } },
                                      hidePill: showMembers)
                             .opacity(Double(max(0, 1 - membersProgress * 3)))
