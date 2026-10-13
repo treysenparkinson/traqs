@@ -677,6 +677,13 @@ struct ThreadDetailView: View {
     @State private var sendError: String? = nil
     @State private var sendShakeToken = 0      // bumped on send failure → shakes the composer
     @State private var myMessageIds: Set<String> = []
+    /// Server id → the id its bubble was first shown under. A message I send
+    /// appears instantly under a local id, then the server's copy replaces it with
+    /// a new id. Keyed by the raw id, SwiftUI tore the bubble (and, if the message
+    /// opened a new time cluster, its header) down and built new ones — the
+    /// flicker on send — and the id change fired a second scroll. Rows are keyed
+    /// by `viewId` instead, which never changes for a given message.
+    @State private var viewIds: [String: String] = [:]
     @State private var showAddPeople = false            // add/edit-members popup?
     /// The members page, pushed when the header's name pill is tapped.
     @State private var showMembers = false
@@ -858,6 +865,9 @@ struct ThreadDetailView: View {
     /// shows when that cluster started (e.g. "Today at 9:30PM", "June 30 at
     /// 2:15PM"). `liveMessages` is already sorted ascending, so a single pass
     /// appends to the current section or opens a new one.
+    /// The identity a message's row keeps for its whole life on screen.
+    private func viewId(_ m: Message) -> String { viewIds[m.id] ?? m.id }
+
     private var messageSections: [MessageSection] {
         let sectionGap: TimeInterval = 60 * 60   // 1 hour
         var sections: [MessageSection] = []
@@ -869,7 +879,7 @@ struct ThreadDetailView: View {
                thisDate.timeIntervalSince(lastDate) < sectionGap {
                 sections[sections.count - 1].messages.append(m)
             } else {
-                sections.append(MessageSection(id: m.id,
+                sections.append(MessageSection(id: viewId(m),
                                                header: m.timestamp.sectionStamp,
                                                messages: [m]))
             }
@@ -1071,21 +1081,25 @@ struct ThreadDetailView: View {
                         }
                         ForEach(messageSections) { section in
                             SectionTimeHeader(text: section.header)
-                            ForEach(section.messages) { msg in
-                                if msg.type == "finish_request" {
-                                    CompletionRequestBubble(message: msg)
-                                        .id(msg.id)
-                                } else if msg.type == "timeoff_request" {
-                                    TimeOffRequestBubble(message: msg)
-                                        .id(msg.id)
-                                } else {
-                                    MessageBubble(message: msg,
-                                                  isMe: isMyMessage(msg),
-                                                  animateIn: shouldAnimate(msg),
-                                                  status: deliveryStatus(for: msg),
-                                                  onAppeared: { markAnimated(msg.id) })
-                                        .id(msg.id)
+                            // Keyed by viewId — the ForEach's own identity is what
+                            // decides whether a row survives the id swap.
+                            ForEach(section.messages.map { (viewId($0), $0) }, id: \.0) { row in
+                                let msg = row.1
+                                Group {
+                                    if msg.type == "finish_request" {
+                                        CompletionRequestBubble(message: msg)
+                                    } else if msg.type == "timeoff_request" {
+                                        TimeOffRequestBubble(message: msg)
+                                    } else {
+                                        MessageBubble(message: msg,
+                                                      isMe: isMyMessage(msg),
+                                                      animateIn: shouldAnimate(msg),
+                                                      status: deliveryStatus(for: msg),
+                                                      onAppeared: { markAnimated(msg.id) })
+                                    }
                                 }
+                                // Stable across the local → server id swap.
+                                .id(viewId(msg))
                             }
                         }
                         // Stable bottom anchor. Scrolling to a fixed id is far
@@ -1130,7 +1144,7 @@ struct ThreadDetailView: View {
                     // clear while viewing without a second, differently-stamped call.
                     Task { await markThreadReadNow() }
                 }
-                .onChange(of: liveMessages.last?.id) {
+                .onChange(of: liveMessages.last.map(viewId)) {
                     // Same guard — but always follow the optimistic→server id swap
                     // of my OWN latest message so its bubble doesn't jump.
                     if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
@@ -1201,8 +1215,8 @@ struct ThreadDetailView: View {
 
                         // The iOS 26 Messages bar, built from Apple's own glass:
                         // + in its own glass circle on the left, the field in a
-                        // glass capsule beside it, and send — tinted (prominent)
-                        // glass — inside the field's right end, shown only once
+                        // glass capsule beside it, and send — a solid accent
+                        // circle — inside the field's right end, shown only once
                         // there is something to send. One GlassEffectContainer
                         // holds both, so their glass blends and reacts as one
                         // system the way the native bar's does. Everything rests
@@ -1263,10 +1277,13 @@ struct ThreadDetailView: View {
                                             .contentShape(Circle())
                                         }
                                         .buttonStyle(.plain)
-                                        // Tinted glass is the native "prominent" send —
-                                        // a solid accent with the glass's own light.
-                                        .glassEffect(.regular.tint(Color(hex: T.accent)).interactive(), in: Circle())
-                                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                                        // A SOLID accent circle, not tinted glass. As
+                                        // glass it sat inside the field's glass, in the
+                                        // same GlassEffectContainer, so the two shapes
+                                        // fused and pulled apart every time it came and
+                                        // went — part of the glitch on send.
+                                        .background(Circle().fill(Color(hex: T.accent)))
+                                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                                         .accessibilityLabel("Send")
                                         .disabled(isSending)
                                     }
@@ -1709,6 +1726,9 @@ struct ThreadDetailView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         do {
             let serverId = try await appState.sendMessageThrowing(msg)
+            // Same turn as the swap inside sendMessageThrowing (no await between),
+            // so the swapped row renders under its original identity.
+            if serverId != msgId { viewIds[serverId] = msgId }
             myMessageIds.insert(serverId)   // track server-assigned id too
             // Mark the server id as already-animated BEFORE SwiftUI renders the
             // swapped bubble, so the optimistic pop doesn't play a second time.
