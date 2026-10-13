@@ -36,22 +36,33 @@ struct SchedulableUnit: Equatable {
     /// Which operation this is, so the result can be written back.
     let id: String
     let title: String
-    /// Business days the unit's crew needs: each person's share of `hpd` (the
-    /// unit's total for the whole team) over a productive day, at least one. A
-    /// 15-hour operation for two people in a 7.5-hour day is one business day;
-    /// a 40-hour one for one person is six.
+    /// Business days ONE person needs: the whole `hpd` over a productive day, at least
+    /// one. A crew is resized in `place` — `days(forCrewOf:)` — once it is known who is on
+    /// it: a 15-hour operation for two people in a 7.5-hour day is one business day; for
+    /// one person, two.
     let durationDays: Int
     /// The departments that may do it — `unitDepartments`: the nearest of op, panel, job
     /// that states any, as a set. [] is anyone. Never inferred from the title.
     let departments: [String]
-    /// The team already on it. `candidatesFor`: an existing team wins outright.
+    /// The team the form put on it — a CREW: everyone in it who matches the department is
+    /// placed (#302, `staffing`). Empty: one person from the pool.
     var team: [String] = []
     /// The panel this belongs to, or nil when the panel IS the unit.
     let panelID: String
-    /// The one assignee's productive hours on it — the whole `hpd`, since the
-    /// scheduler puts one person on each unit. 0 is unestimated, which the
-    /// overlap rule reads as one productive day.
+    /// The unit's whole `hpd` — the total for its team (#212). A crew of N each holds
+    /// `hours / N` (#302). 0 is unestimated, which the overlap rule reads as one
+    /// productive day per person.
     var hours: Double = 0
+    /// The productive day `durationDays` was sized against, so a crew is sized the same way.
+    var productiveHoursPerDay: Double = 0
+
+    /// Business days a crew of `count` needs: each person's even share over a productive
+    /// day, at least one (#302, ruling 1).
+    func days(forCrewOf count: Int) -> Int {
+        guard count > 1, productiveHoursPerDay > 0 else { return durationDays }
+        return JobsScheduler.durationDays(hpd: hours, teamSize: count,
+                                          productiveHoursPerDay: productiveHoursPerDay)
+    }
 }
 
 /// One offered start date.
@@ -79,6 +90,23 @@ struct SchedulePlacement: Equatable {
     let start: String
     let end: String
     let team: [String]
+    /// Who the form put on the unit and is NOT on it, each with the reason (#302). Nobody
+    /// the form named is dropped silently.
+    var left: [CrewGap] = []
+}
+
+/// Someone the form put on a unit whom the placement could not (#302).
+struct CrewGap: Equatable {
+    enum Reason: Equatable {
+        /// Not free for the unit's span — booked, or off.
+        case busy
+        /// Outside the unit's required department. Everyone in a crew must match it.
+        case department
+        /// Not on the schedulable roster: left the org, or opted out of auto-scheduling.
+        case notSchedulable
+    }
+    let personID: String
+    let reason: Reason
 }
 
 enum JobsScheduler {
@@ -121,10 +149,8 @@ enum JobsScheduler {
     /// the panel itself is assignable." Untitled units are skipped, as the web
     /// skips `o.title?.trim()`.
     static func units(of job: Job, productiveHoursPerDay: Double) -> [SchedulableUnit] {
-        // ONE person per unit: `place` writes a single assignee over whatever
-        // team the form had, so that one person does the whole `hpd`. Sizing by
-        // the form's team would book a two-person op for half the days its one
-        // real assignee needs.
+        // Sized for ONE person here. Who is actually on the unit — the form's crew, or one
+        // person from the pool — is decided in `place`, which resizes for a crew (#302).
         let crewSize = 1
 
         return job.subs.flatMap { panel -> [SchedulableUnit] in
@@ -142,7 +168,8 @@ enum JobsScheduler {
                         departments: Departments.unit(op.extras, panel: panel.extras, job: job.extras),
                         team: op.team,
                         panelID: panel.id,
-                        hours: op.hpd > 0 ? op.hpd / Double(crewSize) : 0)
+                        hours: op.hpd > 0 ? op.hpd / Double(crewSize) : 0,
+                        productiveHoursPerDay: productiveHoursPerDay)
                 }
             }
             guard !panel.title.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
@@ -154,7 +181,8 @@ enum JobsScheduler {
                 departments: Departments.unit(panel.extras, panel: nil, job: job.extras),
                 team: panel.team,
                 panelID: panel.id,
-                hours: panel.hpd > 0 ? panel.hpd / Double(crewSize) : 0)]
+                hours: panel.hpd > 0 ? panel.hpd / Double(crewSize) : 0,
+                productiveHoursPerDay: productiveHoursPerDay)]
         }
     }
 
@@ -175,10 +203,43 @@ enum JobsScheduler {
     }
 
     /// The units nobody on `crew` may take — a stated department with no one in it, or a
-    /// team none of whom is on the roster. They fail every window; the sheet names them
-    /// instead of reporting that nobody is free for 200 days.
+    /// form crew none of whom matches the department. They fail every window; the sheet
+    /// names them instead of reporting that nobody is free for 200 days.
     static func unstaffable(_ units: [SchedulableUnit], crew: [Person]) -> [SchedulableUnit] {
-        units.filter { Departments.candidates(team: $0.team, departments: $0.departments, crew: crew).isEmpty }
+        units.filter { staffing($0, crew: crew).eligible.isEmpty }
+    }
+
+    /// Who may be on a unit (#302).
+    struct Staffing: Equatable {
+        /// True when the form named a crew on the roster: EVERY eligible person goes on it.
+        /// False: the pool, from which one person is picked, as before.
+        var isCrew: Bool
+        var eligible: [Person]
+        /// Named on the form and ruled out before any date is tried.
+        var left: [CrewGap]
+    }
+
+    /// The form's crew, when it names one. Everyone in it must match the unit's
+    /// department (ruling 2) — the requirement is who may do the work, not who leads it —
+    /// and anyone named who isn't on the schedulable roster is reported, not dropped.
+    ///
+    /// With no crew on the form, or none of it on the roster (a stale assignment), it is
+    /// the pool `candidatesFor` gives — departments, else anyone — and ONE of it is placed.
+    static func staffing(_ unit: SchedulableUnit, crew: [Person]) -> Staffing {
+        var seen = Set<String>()
+        let named = unit.team.filter { !$0.isEmpty && seen.insert($0).inserted }
+        let onRoster = crew.filter { named.contains($0.id) }
+        let offRoster = named.filter { id in !onRoster.contains { $0.id == id } }
+            .map { CrewGap(personID: $0, reason: .notSchedulable) }
+        guard !onRoster.isEmpty else {
+            return Staffing(isCrew: false,
+                            eligible: Departments.candidates(team: [], departments: unit.departments, crew: crew),
+                            left: offRoster)
+        }
+        let matching = onRoster.filter { Departments.matches($0, unit.departments) }
+        let outside = onRoster.filter { !Departments.matches($0, unit.departments) }
+            .map { CrewGap(personID: $0.id, reason: .department) }
+        return Staffing(isCrew: true, eligible: matching, left: outside + offRoster)
     }
 }
 
@@ -479,35 +540,66 @@ extension JobsScheduler {
         var firstBlocks: [OverlapRule.Block] = []
 
         for unit in request.units {
-            let unitEnd = request.calendar.addingWorkDays(unit.durationDays - 1, to: cursor)
-            // From the start of the day: no `startHour` is written (see the top).
-            let blocks = OverlapRule.blocks(start: cursor, end: unitEnd, startHour: nil,
-                                            hours: unit.hours, context: rule)
-            if placements.isEmpty { firstBlocks = blocks }
-            // `candidatesFor`: the existing team, else the department set, else anyone — and
-            // NOBODY when a stated department has no one. No fallback to all crew (4ee9598).
-            let eligible = Departments.candidates(team: unit.team, departments: unit.departments,
-                                                  crew: request.crew)
-            let free = eligible.filter {
-                isFree($0.id, blocks: blocks, from: cursor, to: unitEnd, in: booked)
+            // The form's crew, department-checked, else the pool — and NOBODY when a stated
+            // department has no one. No fallback to all crew (4ee9598).
+            let staffing = staffing(unit, crew: request.crew)
+
+            // The span and the hours each person holds, for a crew of `count`. Each holds an
+            // even share of the unit's total (ruling 1). From the start of the day: no
+            // `startHour` is written (see the top).
+            func span(_ count: Int) -> (days: Int, end: String, blocks: [OverlapRule.Block]) {
+                let days = unit.days(forCrewOf: count)
+                let end = request.calendar.addingWorkDays(days - 1, to: cursor)
+                let share = unit.hours > 0 ? unit.hours / Double(max(1, count)) : 0
+                return (days, end, OverlapRule.blocks(start: cursor, end: end, startHour: nil,
+                                                      hours: share, context: rule))
+            }
+            func free(_ people: [Person], over s: (days: Int, end: String, blocks: [OverlapRule.Block])) -> [Person] {
+                people.filter { isFree($0.id, blocks: s.blocks, from: cursor, to: s.end, in: booked) }
+            }
+
+            var team: [Person]
+            var placed: (days: Int, end: String, blocks: [OverlapRule.Block])
+            if staffing.isCrew {
+                // PLACE WHO'S FREE (ruling 3). Sized for the whole crew first; anyone not
+                // free for that span is left off, and the rest are resized — a smaller crew
+                // takes longer, so the free check runs again over the longer span until it
+                // settles. It only ever shrinks, so it ends.
+                team = staffing.eligible
+                placed = span(team.count)
+                while true {
+                    let stillFree = free(team, over: placed)
+                    if stillFree.count == team.count || stillFree.isEmpty { team = stillFree; break }
+                    team = stillFree
+                    placed = span(team.count)
+                }
+            } else {
+                // ONE person, the first free in roster order — the pool is everyone who MAY
+                // do it, not a crew the form asked for.
+                placed = span(1)
+                team = Array(free(staffing.eligible, over: placed).prefix(1))
             }
             // Nobody can take this unit on these days, so this whole start day
             // fails — the web abandons the window the same way.
-            guard !free.isEmpty else { return nil }
-            booked[free[0].id, default: []].append(Booking(
-                personID: free[0].id, start: cursor, end: unitEnd, blocks: blocks))
+            guard !team.isEmpty else { return nil }
+            if placements.isEmpty { firstBlocks = placed.blocks }
+            for person in team {
+                booked[person.id, default: []].append(Booking(
+                    personID: person.id, start: cursor, end: placed.end, blocks: placed.blocks))
+            }
+            let busy = staffing.isCrew
+                ? staffing.eligible.filter { p in !team.contains { $0.id == p.id } }
+                    .map { CrewGap(personID: $0.id, reason: .busy) }
+                : []
 
             placements.append(SchedulePlacement(
                 unitID: unit.id, panelID: unit.panelID,
-                start: cursor, end: unitEnd,
-                // ONE person per unit, the first free and best-matched. The web
-                // splits a batch across a crew when a panel is replicated; a job
-                // being created has each unit once, so "who does this" has one
-                // answer: the first free candidate, in roster order.
-                team: [free[0].id]))
+                start: cursor, end: placed.end,
+                team: team.map(\.id),
+                left: busy + staffing.left))
 
-            totalDays += unit.durationDays
-            cursor = request.calendar.addingWorkDays(unit.durationDays, to: cursor)
+            totalDays += placed.days
+            cursor = request.calendar.addingWorkDays(placed.days, to: cursor)
         }
 
         guard let last = placements.last else { return nil }

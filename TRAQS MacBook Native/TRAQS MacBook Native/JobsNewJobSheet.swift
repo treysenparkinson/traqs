@@ -631,6 +631,16 @@ struct JobsNewJobSheet: View {
                             .foregroundStyle(theme.accent)
                             .lineLimit(1)
                     }
+                    // Who the form put on it and isn't, with why (#302) — the crew is placed
+                    // with whoever is free, so the rest have to be said out loud.
+                    if !place.left.isEmpty {
+                        Text("Not on it: " + place.left.map { "\(named($0.personID)) (\(Self.gapReason($0.reason)))" }
+                                .joined(separator: ", "))
+                            .font(TFont.body(10))
+                            .foregroundStyle(theme.danger)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .padding(.top, 2)
@@ -649,6 +659,15 @@ struct JobsNewJobSheet: View {
             .fill(theme.surface))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(theme.border, lineWidth: 1))
+    }
+
+    /// Why someone the form named is not on a placement (#302).
+    private static func gapReason(_ reason: CrewGap.Reason) -> String {
+        switch reason {
+        case .busy: return "not free"
+        case .department: return "outside its department"
+        case .notSchedulable: return "not schedulable"
+        }
     }
 
     /// The title of a unit by id, for the placement list. Looked up on the FORM
