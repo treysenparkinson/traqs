@@ -607,20 +607,31 @@ private struct DayTimeline: View {
                 // block inside workStart…workEnd, so the filter/clamp below are a
                 // safety net rather than the thing deciding what's visible;
                 // overflow is deferred to the next work day, not clipped here.
-                ForEach(blocks.filter { $0.start < endHour }) { b in
-                    // Clamped both ways: a stored startHour before the day opens (kept as-is,
-                    // as on the web) must not draw above the grid.
-                    let clampedStart = max(b.start, startHour)
-                    let clampedEnd = min(b.end, endHour)
-                    let top = CGFloat(clampedStart - startHour) * pxPerHour + 2
-                    let h = max(20, CGFloat(clampedEnd - clampedStart) * pxPerHour - 4)
-                    Button { onSelect(b) } label: {
-                        ScheduleBlockView(block: b, height: h)
+                // Overlapping blocks share the row in lanes (#360) — two multi-day units
+                // over the same hours used to paint one over the other, hiding a whole unit.
+                // A block that overlaps nothing keeps the full width, as before.
+                let visible = blocks.filter { $0.start < endHour }
+                let lanes = GanttLayout.lanes(visible.map { (start: max($0.start, startHour), end: min($0.end, endHour)) })
+                GeometryReader { geo in
+                    let inner = max(0, geo.size.width - 12)
+                    ForEach(Array(visible.enumerated()), id: \.element.id) { i, b in
+                        // Clamped both ways: a stored startHour before the day opens (kept
+                        // as-is, as on the web) must not draw above the grid.
+                        let clampedStart = max(b.start, startHour)
+                        let clampedEnd = min(b.end, endHour)
+                        let top = CGFloat(clampedStart - startHour) * pxPerHour + 2
+                        let h = max(20, CGFloat(clampedEnd - clampedStart) * pxPerHour - 4)
+                        let lane = lanes[i]
+                        let laneW = inner / CGFloat(lane.of)
+                        Button { onSelect(b) } label: {
+                            ScheduleBlockView(block: b, height: h)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: max(0, laneW - (lane.of > 1 ? 3 : 0)))
+                        .offset(x: 6 + CGFloat(lane.lane) * laneW, y: top)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 6)
-                    .offset(y: top)
                 }
+                .frame(height: height, alignment: .topLeading)
 
                 // Punched break / lunch, over the blocks. Translucent on
                 // purpose — the bar underneath has to stay readable, since the
@@ -1145,17 +1156,25 @@ private struct WeekDayColumn: View {
 
             // Event rectangles painted by time range — clamped to endHour so
             // blocks never bleed past the configured shift.
-            ForEach(blocks.filter { $0.start < endHour }) { b in
-                let clampedStart = max(b.start, startHour)
-                let clampedEnd = min(b.end, endHour)
-                let top = CGFloat(clampedStart - startHour) * pxPerHour + 1
-                let h = max(2, CGFloat(clampedEnd - clampedStart) * pxPerHour - 2)
-                Button { onSelect(b) } label: {
-                    WeekBlockTile(block: b, height: h)
+            // Lanes, as on the day view (#360): overlapping blocks side by side.
+            let visible = blocks.filter { $0.start < endHour }
+            let lanes = GanttLayout.lanes(visible.map { (start: max($0.start, startHour), end: min($0.end, endHour)) })
+            GeometryReader { geo in
+                let inner = max(0, geo.size.width - 4)
+                ForEach(Array(visible.enumerated()), id: \.element.id) { i, b in
+                    let clampedStart = max(b.start, startHour)
+                    let clampedEnd = min(b.end, endHour)
+                    let top = CGFloat(clampedStart - startHour) * pxPerHour + 1
+                    let h = max(2, CGFloat(clampedEnd - clampedStart) * pxPerHour - 2)
+                    let lane = lanes[i]
+                    let laneW = inner / CGFloat(lane.of)
+                    Button { onSelect(b) } label: {
+                        WeekBlockTile(block: b, height: h)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: max(0, laneW - (lane.of > 1 ? 1 : 0)))
+                    .offset(x: 2 + CGFloat(lane.lane) * laneW, y: top)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 2)
-                .offset(y: top)
             }
 
             // Punched break / lunch. Unlabelled at this scale — the column is

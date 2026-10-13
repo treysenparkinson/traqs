@@ -198,3 +198,47 @@ extension GanttLayout {
             .sorted { ($0.start, $0.nodeId) < ($1.start, $1.nodeId) }
     }
 }
+
+// MARK: - Lanes for overlapping blocks (#360)
+
+extension GanttLayout {
+    /// Which lane a block takes, and how many lanes its overlapping cluster has.
+    struct Lane: Equatable {
+        let lane: Int
+        let of: Int
+    }
+
+    /// The web's `barLanes`: blocks that overlap in time share the row side by side
+    /// instead of one painting over another. Each block takes the lowest lane free by
+    /// its start; a cluster of mutually overlapping blocks is as wide as its busiest
+    /// moment, and a block that overlaps nothing keeps the whole row. An end that only
+    /// touches a start is not an overlap. Results are in the input order.
+    ///
+    /// Presentation only — it never moves a block in time. Multi-day units are placed by
+    /// their own walk (held to the web by the parity fixture) and two of them can cover
+    /// the same hours; this is what keeps both visible (#360).
+    static func lanes(_ spans: [(start: Double, end: Double)]) -> [Lane] {
+        let order = spans.indices.sorted { (spans[$0].start, $0) < (spans[$1].start, $1) }
+        var lane = Array(repeating: 0, count: spans.count)
+        var cluster = Array(repeating: 0, count: spans.count)
+        var laneEnds: [Double] = []          // per lane, where its last block ends
+        var clusterId = -1, clusterEnd = -Double.infinity
+        var clusterWidth: [Int] = []
+        for i in order {
+            let s = spans[i]
+            if s.start >= clusterEnd {       // nothing still running: a new cluster
+                clusterId += 1
+                clusterWidth.append(0)
+                laneEnds.removeAll()
+            }
+            let free = laneEnds.firstIndex { $0 <= s.start }
+            let l = free ?? laneEnds.count
+            if l == laneEnds.count { laneEnds.append(s.end) } else { laneEnds[l] = s.end }
+            lane[i] = l
+            cluster[i] = clusterId
+            clusterWidth[clusterId] = max(clusterWidth[clusterId], l + 1)
+            clusterEnd = max(clusterEnd, s.end)
+        }
+        return spans.indices.map { Lane(lane: lane[$0], of: clusterWidth[cluster[$0]]) }
+    }
+}
