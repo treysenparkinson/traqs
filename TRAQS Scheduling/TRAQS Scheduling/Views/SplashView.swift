@@ -6,7 +6,7 @@ import SwiftUI
 // never redrawn — and two moves: the wordmark fades and settles in from 0.8×,
 // centred on its own; then the four bars draw left to right, each a beat after the
 // one above, while the wordmark slides left so the finished lockup lands centred.
-// "Loading your day…" sits near the bottom. The finished scene fades into the app.
+// No caption. The finished scene fades into the app.
 //
 // Timing: wordmark 0–0.5s, bars from 0.45s (overlapping its settle), 0.38s each with a 0.08s stagger
 // (the slide runs the bars' whole span on the same curve), hold, then fade.
@@ -66,15 +66,6 @@ struct SplashView: View {
                 .offset(x: slid ? endOffset : startOffset)
                 .opacity(markIn ? 1 : 0)
                 .scaleEffect(markIn ? 1 : 0.8)
-
-            VStack {
-                Spacer()
-                Text("Loading your day…")
-                    .font(.traqs(.medium, size: 12))
-                    .tracking(0.5)
-                    .foregroundStyle(Color(hex: T.muted))
-                    .padding(.bottom, 60)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(overallOpacity)
