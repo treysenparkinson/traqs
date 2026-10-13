@@ -41,14 +41,15 @@ enum Rv {
     ///
     /// Strengths are spread so tiles that sit side by side read as different
     /// shades: Home pairs lavender/mint, Analytics sky/lavender over peach/butter.
+    /// The box colours: blue, green, red, yellow — and nothing else. Lavender
+    /// (purple) was removed 2026-10-13 so no box can pick it up again.
     enum Tint: CaseIterable {
-        case lavender, mint, peach, sky, butter
+        case mint, peach, sky, butter
 
         private var strength: Double {
             switch self {
             case .sky:      return 0.10
             case .mint:     return 0.12
-            case .lavender: return 0.18
             case .peach:    return 0.25
             case .butter:   return 0.32
             }
@@ -69,7 +70,6 @@ enum Rv {
         /// The Wireframes v2 pastels, with a dark-theme pair each.
         private var designLight: String {
             switch self {
-            case .lavender: return "#E9E6FB"
             case .mint:     return "#DFF5EC"
             case .peach:    return "#FDE8E3"
             case .sky:      return "#E0F3FC"
@@ -78,7 +78,6 @@ enum Rv {
         }
         private var designDark: String {
             switch self {
-            case .lavender: return "#2C2843"
             case .mint:     return "#1E3A30"
             case .peach:    return "#43292A"
             case .sky:      return "#1D3746"

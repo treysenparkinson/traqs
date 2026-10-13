@@ -372,7 +372,7 @@ struct MoreView: View {
             RvTile(eyebrow: "Utilization", value: "\(utilization)%", tint: .sky) {
                 InfoButton(text: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (productive hours per day × its work days), capped at 100%, then averaged across the team.")
             }
-            RvTile(eyebrow: "Task Switching", value: "\(switching)", tint: .lavender) {
+            RvTile(eyebrow: "Task Switching", value: "\(switching)", tint: .mint) {
                 InfoButton(text: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
             }
             RvTile(eyebrow: "Reworks", value: "—", tint: .peach) {
@@ -423,7 +423,7 @@ struct MoreView: View {
             RvTile(eyebrow: "Utilization", value: "\(utilizationPercent(for: personId))%", tint: .sky) {
                 InfoButton(text: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (productive hours per day × its work days), capped at 100%.")
             }
-            RvTile(eyebrow: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)", tint: .lavender) {
+            RvTile(eyebrow: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)", tint: .mint) {
                 InfoButton(text: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
             }
             RvTile(eyebrow: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)", tint: .peach) {

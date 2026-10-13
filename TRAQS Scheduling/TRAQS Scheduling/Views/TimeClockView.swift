@@ -483,7 +483,7 @@ private struct PayPeriodTile: View {
         }
         .padding(16 * k)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 20 * k, style: .continuous).fill(Rv.Tint.lavender.fill))
+        .background(RoundedRectangle(cornerRadius: 20 * k, style: .continuous).fill(Rv.Tint.sky.fill))
     }
 }
 

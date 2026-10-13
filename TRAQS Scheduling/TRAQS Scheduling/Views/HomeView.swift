@@ -273,7 +273,7 @@ private struct ShiftTile: View {
         RvTile(eyebrow: "SHIFT",
                value: idle ? "Offline" : elapsed,
                sub: idle ? nil : statusText,
-               tint: .lavender,
+               tint: .sky,
                action: onOpen) {
             if status.dot {
                 RvDot(color: Color(hex: isPaused ? T.amber : T.green))
