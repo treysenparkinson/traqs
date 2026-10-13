@@ -78,6 +78,16 @@ enum JobGridRow: Identifiable, Equatable {
         }
     }
 
+    /// The priority exactly as stored — what to SHOW. `priority` falls back to
+    /// Medium for a value iOS doesn't model ("On time", "Late"…), see #518.
+    var priorityRaw: String {
+        switch self {
+        case .job(let j):             return j.priRaw
+        case .panel(let p, _, _):     return p.priRaw
+        case .operation(let o, _, _, _): return o.priRaw
+        }
+    }
+
     var start: String {
         switch self {
         case .job(let j):             return j.start

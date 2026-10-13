@@ -100,7 +100,7 @@ struct JobDetailView: View {
                                     .foregroundStyle(Color(hex: T.muted))
                             }
                             PriorityDot(priority: job.pri)
-                            Text(job.pri.rawValue)
+                            Text(job.priRaw)   // as stored, not the enum's fallback (#518)
                                 .font(TTypo.xsBold(11))
                                 .foregroundStyle(job.pri.color)
                         }

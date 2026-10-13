@@ -236,8 +236,12 @@ struct JobEditView: View {
             updated.end = df.string(from: end)
         }
         updated.dueDate = dueDate.map { df.string(from: $0) }
-        updated.status = status
-        updated.pri = priority
+        // Only a status / priority the user actually changed. Both pickers start
+        // from the enum view, which reads an unmodelled value ("MTX FAT", "On time")
+        // as Not Started / Medium, so an unconditional write flattened it on every
+        // save — #447's shape, missed here, and #518's.
+        if job == nil || status != job?.status { updated.status = status }
+        if job == nil || priority != job?.pri { updated.pri = priority }
         updated.color = color
         updated.notes = notes
         updated.clientId = selectedClientId

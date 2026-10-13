@@ -1236,13 +1236,15 @@ private struct JobsGridCell: View {
     // MARK: Priority
 
     private var priorityCell: some View {
-        let color = Color.hex(context.priorityStyles[row.priority.rawValue]?.color
+        // Shown and styled by the STORED string; the enum is only the fallback
+        // colour for a value it doesn't model (#518).
+        let color = Color.hex(context.priorityStyles[row.priorityRaw]?.color
                               ?? row.priority.hex)
         // No `editable` test here, and there was a bound one that nothing read.
         // The level guard lives in `wholeCellTap`, which is where the click is —
         // a cell that cannot be cycled simply gets no gesture, and the pill looks
         // the same either way (the web draws it identically at all three levels).
-        return Text(row.priority.rawValue)
+        return Text(row.priorityRaw)
             .font(TFont.body(11, 700))
             .tracking(11 * -0.045)
             .textCase(.uppercase)

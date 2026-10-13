@@ -188,7 +188,7 @@ struct JobsExportSheet: View {
 
                 HStack(spacing: 4) {
                     Circle().fill(statusColor).frame(width: 6, height: 6)
-                    Text(job.status.rawValue)
+                    Text(job.statusRaw)
                         .font(TFont.body(11))
                         .foregroundStyle(statusColor)
                         .lineLimit(1)
@@ -306,8 +306,8 @@ enum JobsExportTable {
                 job.jobNumber.map { "#\($0)" } ?? "",
                 job.title,
                 job.clientId.flatMap { clients[$0]?.name } ?? "",
-                job.status.rawValue,
-                job.pri.rawValue,
+                job.statusRaw,
+                job.priRaw,
                 job.start,
                 job.end,
                 job.dueDate ?? "",
@@ -324,7 +324,7 @@ enum JobsExportTable {
 
             for panel in job.subs {
                 let panelBase: [String] = [
-                    panel.title, panel.status.rawValue, panel.start, panel.end,
+                    panel.title, panel.statusRaw, panel.start, panel.end,
                     hours(JobsQuery.estimatedHours(of: panel)),
                 ]
                 guard !panel.subs.isEmpty else {
@@ -333,7 +333,7 @@ enum JobsExportTable {
                 }
                 for op in panel.subs {
                     rows.append(jobBase + panelBase + [
-                        op.title, op.status.rawValue, op.pri.rawValue,
+                        op.title, op.statusRaw, op.priRaw,
                         op.start, op.end,
                         hours(JobsQuery.estimatedHours(of: op)),
                         "\(progress[op.id])%",

@@ -685,7 +685,10 @@ struct JobsNewJobSheet: View {
                       poNumber: draft.poNumber.isEmpty ? nil : draft.poNumber,
                       start: "", end: "",
                       dueDate: draft.dueDate.isEmpty ? nil : draft.dueDate,
-                      status: .notStarted,
+                      // A String since #447 (the stored status, not the enum).
+                      // This call site was missed by 6c61924, and the Mac target
+                      // did not compile from 2026-10-07 until it was fixed here.
+                      status: JobStatus.notStarted.rawValue,
                       pri: .medium,
                       // `job.team` is what the grid's Team column shows at level
                       // 0 and what a notification is addressed to. Derived from

@@ -123,7 +123,18 @@ struct Operation: Codable, Identifiable, Equatable {
         set { statusRaw = newValue.rawValue }
     }
     var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
-    var pri: Priority
+    // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
+    // has "On time" and "Late"), and decoding into the three-case enum with a
+    // `.medium` fallback, then re-encoding the whole array on save, rewrote every
+    // other priority as "Medium" for every client. Stored and sent as the raw
+    // string; `pri` stays as the enum view for code that needs it, and
+    // `priKnown` tells "iOS does not model this" apart from "Medium".
+    var priRaw: String
+    var pri: Priority {
+        get { Priority(rawValue: priRaw) ?? .medium }
+        set { priRaw = newValue.rawValue }
+    }
+    var priKnown: Priority? { Priority(rawValue: priRaw) }
     var team: [String]
     /// TOTAL estimated productive hours for the whole team — not a per-day
     /// rate, not clock hours; a person's share is `hpd / team.count`. 0 means
@@ -179,7 +190,7 @@ struct Operation: Codable, Identifiable, Equatable {
         start  = (try? c.decode(String.self, forKey: .start)) ?? ""
         end    = (try? c.decode(String.self, forKey: .end)) ?? ""
         statusRaw  = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
-        pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
+        priRaw    = (try? c.decode(String.self, forKey: .pri)) ?? Priority.medium.rawValue
         team   = c.decodeFlexIDs(forKey: .team)
         // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
         // encode leaves the key off again (see AbsentOnDecode).
@@ -207,7 +218,7 @@ struct Operation: Codable, Identifiable, Equatable {
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
         try c.encode(statusRaw, forKey: .status)
-        try c.encode(pri, forKey: .pri)
+        try c.encode(priRaw, forKey: .pri)
         try c.encode(team, forKey: .team)
         // Absent stays absent: an unestimated record the server never gave an
         // `hpd` must not come back with one. An explicit 0 is still written.
@@ -294,7 +305,18 @@ struct Panel: Codable, Identifiable, Equatable {
         set { statusRaw = newValue.rawValue }
     }
     var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
-    var pri: Priority
+    // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
+    // has "On time" and "Late"), and decoding into the three-case enum with a
+    // `.medium` fallback, then re-encoding the whole array on save, rewrote every
+    // other priority as "Medium" for every client. Stored and sent as the raw
+    // string; `pri` stays as the enum view for code that needs it, and
+    // `priKnown` tells "iOS does not model this" apart from "Medium".
+    var priRaw: String
+    var pri: Priority {
+        get { Priority(rawValue: priRaw) ?? .medium }
+        set { priRaw = newValue.rawValue }
+    }
+    var priKnown: Priority? { Priority(rawValue: priRaw) }
     var team: [String]
     /// TOTAL estimated productive hours for the whole team — not a per-day
     /// rate, not clock hours; a person's share is `hpd / team.count`. 0 means
@@ -341,7 +363,7 @@ struct Panel: Codable, Identifiable, Equatable {
         start       = (try? c.decode(String.self, forKey: .start)) ?? ""
         end         = (try? c.decode(String.self, forKey: .end)) ?? ""
         statusRaw       = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
-        pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
+        priRaw         = (try? c.decode(String.self, forKey: .pri)) ?? Priority.medium.rawValue
         team        = c.decodeFlexIDs(forKey: .team)
         // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
         // encode leaves the key off again (see AbsentOnDecode).
@@ -366,7 +388,7 @@ struct Panel: Codable, Identifiable, Equatable {
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
         try c.encode(statusRaw, forKey: .status)
-        try c.encode(pri, forKey: .pri)
+        try c.encode(priRaw, forKey: .pri)
         try c.encode(team, forKey: .team)
         // Absent stays absent: an unestimated record the server never gave an
         // `hpd` must not come back with one. An explicit 0 is still written.
@@ -472,7 +494,18 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         set { statusRaw = newValue.rawValue }
     }
     var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
-    var pri: Priority
+    // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
+    // has "On time" and "Late"), and decoding into the three-case enum with a
+    // `.medium` fallback, then re-encoding the whole array on save, rewrote every
+    // other priority as "Medium" for every client. Stored and sent as the raw
+    // string; `pri` stays as the enum view for code that needs it, and
+    // `priKnown` tells "iOS does not model this" apart from "Medium".
+    var priRaw: String
+    var pri: Priority {
+        get { Priority(rawValue: priRaw) ?? .medium }
+        set { priRaw = newValue.rawValue }
+    }
+    var priKnown: Priority? { Priority(rawValue: priRaw) }
     var team: [String]
     var color: String
     /// TOTAL estimated productive hours for the whole team — not a per-day
@@ -515,7 +548,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         start     = (try? c.decode(String.self, forKey: .start)) ?? ""
         end       = (try? c.decode(String.self, forKey: .end)) ?? ""
         statusRaw     = (try? c.decode(String.self, forKey: .status)) ?? "Not Started"
-        pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
+        priRaw       = (try? c.decode(String.self, forKey: .pri)) ?? Priority.medium.rawValue
         team      = c.decodeFlexIDs(forKey: .team)
         color     = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
         // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
@@ -549,7 +582,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
          finishRequest: FinishRequestStamp? = nil, finishRequests: [FinishRequestEntry]? = nil) {
         self.id = id; self.title = title; self.jobNumber = jobNumber; self.poNumber = poNumber
         self.start = start; self.end = end; self.dueDate = dueDate
-        self.statusRaw = status; self.pri = pri; self.team = team; self.color = color
+        self.statusRaw = status; self.priRaw = pri.rawValue; self.team = team; self.color = color
         self.hpd = hpd; self.notes = notes; self.clientId = clientId
         self.deps = deps; self.subs = subs; self.moveLog = moveLog; self.jobType = jobType
         self.loggedHours = loggedHours; self.projectManagerId = projectManagerId
@@ -564,7 +597,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
         try c.encode(statusRaw, forKey: .status)
-        try c.encode(pri, forKey: .pri)
+        try c.encode(priRaw, forKey: .pri)
         try c.encode(team, forKey: .team)
         try c.encode(color, forKey: .color)
         // Absent stays absent: an unestimated record the server never gave an
@@ -1574,7 +1607,7 @@ extension Panel {
         self.start = ""
         self.end = ""
         self.statusRaw = JobStatus.notStarted.rawValue   // not `status`: its setter reads self before init completes
-        self.pri = .medium
+        self.priRaw = Priority.medium.rawValue   // not `pri`: its setter reads self before init completes
         self.team = []
         self.hpd = hpd
         self.notes = ""
@@ -1601,7 +1634,7 @@ extension Operation {
         self.start = ""
         self.end = ""
         self.statusRaw = JobStatus.notStarted.rawValue   // not `status`: its setter reads self before init completes
-        self.pri = .medium
+        self.priRaw = Priority.medium.rawValue   // not `pri`: its setter reads self before init completes
         self.team = []
         self.hpd = hpd
         self.notes = ""
