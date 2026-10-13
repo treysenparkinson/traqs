@@ -35,21 +35,27 @@ const parseNative = (s) => {
 // still names every place a divergence would reach.
 const variants = [
   {
-    id: "iOS HoursCalculator.swift:51  (shared helper)\n" +
-        "    callers: AppState.swift:3255/3299, AppState+JobsProgress.swift:51,\n" +
-        "             MoreView.swift:570/723/1214, TasksView.swift:1343",
+    // Callers by SYMBOL, not line (#281): line numbers in this list went stale twice.
+    id: "iOS HoursCalculator.liveElapsedHours  (shared helper)\n" +
+        "    callers: AppState.liveElapsedHours(for:), AppState+JobsProgress jobsProgressIndex,\n" +
+        "             MoreView liveAccrual / liveJobHours / elapsedLabel, TasksView elapsedLabel(at:)",
     kind: "helper",
+    // Since #521 it stops at a hold (`frozenAtMs`), and an open pause is measured to the same
+    // instant. No held-clock CASE is in the grid yet: Android's helper has no hold (#283, on
+    // #524's list), so the case would fail the build on an open Android item.
     // guard let started = Date.fromFlexibleISO8601(clockIn) else { return 0 }
-    // var ms = now.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
+    // let effNow = frozenAtMs.map { min(now, Date(timeIntervalSince1970: $0 / 1000)) } ?? now
+    // var ms = effNow.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
     // if let pa = pausedAt, let pausedSince = ... {
-    //     ms -= max(0, now.timeIntervalSince(pausedSince) * 1000) }
+    //     ms -= max(0, effNow.timeIntervalSince(pausedSince) * 1000) }
     // return max(0, ms) / 3_600_000
-    fn: ({ clockIn, pausedAt, totalPausedMs = 0, now }) => {
+    fn: ({ clockIn, pausedAt, totalPausedMs = 0, frozenAtMs = null, now }) => {
       const started = parseNative(clockIn);
       if (started === null) return 0;
-      let ms = now - started - (totalPausedMs || 0);
+      const effNow = frozenAtMs != null ? Math.min(now, frozenAtMs) : now;
+      let ms = effNow - started - (totalPausedMs || 0);
       const ps = pausedAt ? parseNative(pausedAt) : null;
-      if (ps !== null) ms -= Math.max(0, now - ps);
+      if (ps !== null) ms -= Math.max(0, effNow - ps);
       return Math.max(0, ms) / H;
     },
   },
