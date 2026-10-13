@@ -1588,10 +1588,11 @@ struct JobsAvatar: View {
 
 enum JobsDate {
 
-    /// `TD` — today as a LOCAL `yyyy-MM-dd`. The web's `toDS` reads
-    /// `getFullYear/getMonth/getDate`, so "overdue" turns over at the user's
-    /// midnight rather than London's.
-    static var todayKey: String { keyFormatter.string(from: Date()) }
+    /// `TD` — today as the SHOP's `yyyy-MM-dd`. The web's `TD` is `shopDay()` — the
+    /// org's zone — and this used the Mac's own, so "overdue" and the New Job
+    /// scheduler's earliest day turned over at the wrong midnight whenever the two
+    /// differ (#366). `ShopTime.current` follows the org's settings (AppState sets it).
+    static var todayKey: String { ShopTime.current.ymd(Date()) }
 
     /// `safeDate` — `toLocaleDateString("en-US", { month: "short", day: "numeric" })`,
     /// so "Mar 10". An unparseable day gives the em dash the web gives, rather
@@ -1636,7 +1637,8 @@ enum JobsDate {
         return stampFormatter.string(from: date)
     }
 
-    /// The inverse. Local, matching `todayKey`.
+    /// The inverse, for a date a PICKER produced — local, since the picker shows the
+    /// user's calendar. Not for "today": that is the shop's day (`todayKey`, #366).
     static func key(from date: Date) -> String { keyFormatter.string(from: date) }
 
     private static func parse(_ day: String) -> Date? {

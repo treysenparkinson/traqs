@@ -408,7 +408,7 @@ enum WebIcon {
 struct ScheduleGlyph: View {
     var size: CGFloat = 17
     var color: Color = .primary
-    var day: Int = Calendar.current.component(.day, from: Date())
+    var day: Int = ShopTime.current.calendar.component(.day, from: Date())   // the shop's date (#366)
 
     private var fontSize: CGFloat { day > 9 ? 9.5 : 10.5 }
     private var baseline: CGFloat { 14.7 + fontSize * 0.35 }
