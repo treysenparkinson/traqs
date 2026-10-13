@@ -1228,9 +1228,9 @@ struct ThreadDetailView: View {
                                 // (camera / photos / files).
                                 Button { showAttachSheet = true } label: {
                                     Image(systemName: "plus")
-                                        .font(.system(size: 19, weight: .medium))
+                                        .font(.system(size: 18, weight: .medium))
                                         .foregroundStyle(.primary)
-                                        .frame(width: 44, height: 44)
+                                        .frame(width: 40, height: 40)
                                         .contentShape(Circle())
                                 }
                                 .buttonStyle(.plain)
@@ -1248,12 +1248,12 @@ struct ThreadDetailView: View {
                                     TextField("Message", text: $newText, axis: .vertical)
                                         .textFieldStyle(.plain)
                                         .focused($composerFocused)
-                                        .font(TTypo.sm(16))
+                                        .font(TTypo.sm(15))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1...5)
-                                        // 32 + 2×6 = 44 on one line, matching the +
-                                        // circle; the 22pt radius below is half of it.
-                                        .frame(minHeight: 32)
+                                        // 28 + 2×6 = 40 on one line, matching the +
+                                        // circle; the 20pt radius below is half of it.
+                                        .frame(minHeight: 28)
                                         .padding(.leading, 10)
                                         .padding(.trailing, canSend || isSending ? 0 : 10)
 
@@ -1271,9 +1271,6 @@ struct ThreadDetailView: View {
                                                 }
                                             }
                                             .frame(width: 28, height: 28)
-                                            // 28 in the field's 32pt line: 2pt clear above
-                                            // and below, so it sits inside, not edge to edge.
-                                            .padding(.vertical, 2)
                                             .contentShape(Circle())
                                         }
                                         .buttonStyle(.plain)
@@ -1289,9 +1286,9 @@ struct ThreadDetailView: View {
                                     }
                                 }
                                 .padding(6)
-                                // A capsule on one line (radius = half of 44); a
+                                // A capsule on one line (radius = half of 40); a
                                 // rounded rectangle as it wraps, as Messages' field.
-                                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                             }
                         }
                         .animation(.bouncy(duration: 0.3), value: canSend || isSending)
