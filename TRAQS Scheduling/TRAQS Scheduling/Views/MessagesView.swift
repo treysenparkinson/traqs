@@ -1262,7 +1262,17 @@ struct ThreadDetailView: View {
                 },
                 canAdd: canAddPeople,
                 onAddWillOpen: { appNav.modalBlur = true },
-                addCover: { addPeopleCover }
+                addCover: { addPeopleCover },
+                canLeave: editableGroup.map { g in
+                    appState.currentPersonId.map { g.memberIds.contains($0) } ?? false
+                } ?? false,
+                onLeave: {
+                    guard let group = editableGroup, let me = appState.currentPersonId else { return }
+                    Task { await appState.removeGroupMember(groupId: group.id, personId: me) }
+                    // Out of the group: pop the thread (and this page with it) back
+                    // to the inbox.
+                    appState.messagesPopRequested = true
+                }
             )
             .navigationTransition(.zoom(sourceID: "members", in: membersZoom))
         }
@@ -2476,8 +2486,13 @@ struct ThreadMembersPage<AddCover: View>: View {
     /// The add-people / Edit Group cover. Presented from HERE, the visible page —
     /// not from the thread underneath it.
     @ViewBuilder let addCover: () -> AddCover
+    /// Group threads you're in. Leaving drops you from the group and returns to the
+    /// inbox — there's nothing left to show here once you're out.
+    var canLeave: Bool = false
+    var onLeave: () -> Void = {}
 
     @State private var showAdd = false
+    @State private var showLeaveConfirm = false
     @State private var renaming = false
     @State private var draftName = ""
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 3)
@@ -2541,11 +2556,33 @@ struct ThreadMembersPage<AddCover: View>: View {
                     }
                 }
                 .padding(.horizontal, 20)
+
+                if canLeave {
+                    // Apple's Liquid Glass button, in red: leaving is the one
+                    // destructive thing on this page.
+                    Button(role: .destructive) { showLeaveConfirm = true } label: {
+                        Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+                            .font(TTypo.smBold(16))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                }
             }
             .padding(.top, 12)
             .padding(.bottom, 32)
         }
         .background(Color(hex: T.bg).ignoresSafeArea())
+        .confirmationDialog("Leave this group?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
+            Button("Leave", role: .destructive) { onLeave() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You'll stop receiving messages from this group.")
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .alert("Rename Group", isPresented: $renaming) {
