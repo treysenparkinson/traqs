@@ -208,3 +208,26 @@ enum CompletionRequestRules {
         return job
     }
 }
+
+// MARK: - Nobody to approve it (#288)
+//
+// With nobody holding approveCompletions, the web records the request and tells the
+// requester nobody can receive it. Both phone paths said "sent" instead — each built a
+// "Completion Requests" thread holding only the requester and posted into it.
+extension CompletionRequestRules {
+    /// The web's text, word for word.
+    static let noApproverMessage = "No admins are available to receive this request. Please contact your administrator directly."
+
+    /// Who a request goes to: admins who can approve completions (the web's `permGranted`
+    /// rule, and the server's `personCan`).
+    static func approverIds(in people: [Person]) -> [String] {
+        people.filter { $0.can(.approveCompletions) }.map(\.id)
+    }
+
+    /// The server's `finishRequest` answers `noApprover: true` when it recorded the request
+    /// and had nobody to post it to.
+    static func serverSaysNoApprover(_ body: Data) -> Bool {
+        struct Answer: Decodable { let noApprover: Bool? }
+        return (try? JSONDecoder().decode(Answer.self, from: body))?.noApprover == true
+    }
+}

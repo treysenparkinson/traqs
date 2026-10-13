@@ -2672,6 +2672,17 @@ export async function handler(event) {
       if (alreadyOpen) return json(200, { ok: true, alreadyOpen: true });
       if (!updated) return err(404, "Operation not found");
 
+      // The audience is the admins who can APPROVE completions, not every
+      // admin — an admin with the toggle off has no button on these cards and
+      // was being added to the thread anyway. (personCan treats an absent key
+      // as granted, so only an explicit false drops someone.)
+      const adminIds = people.filter(p => personCan(p, "approveCompletions")).map(p => p.id);
+      // #288. Nobody can approve it: the request stays recorded (it shows in the requests
+      // tab once someone gets the permission), but there is no one to post to. Building a
+      // thread for the requester alone told the phone "sent" when nobody was told — the web
+      // says so instead, and this lets the phone say it too.
+      if (adminIds.length === 0) return json(200, { ok: true, requestId, noApprover: true });
+
       // Drop it into the same "Completion Requests" group the desktop uses, so
       // web- and iOS-originated requests land in one thread. Matched by name
       // because that is how the desktop's ensureCompletionGroup finds it.
@@ -2685,11 +2696,6 @@ export async function handler(event) {
         const messagesKey = `orgs/${orgCode}/messages.json`;
         let messages = (await readJson(messagesKey)) ?? [];
         if (!Array.isArray(messages)) messages = [];
-        // The audience is the admins who can APPROVE completions, not every
-        // admin — an admin with the toggle off has no button on these cards and
-        // was being added to the thread anyway. (personCan treats an absent key
-        // as granted, so only an explicit false drops someone.)
-        const adminIds = people.filter(p => personCan(p, "approveCompletions")).map(p => p.id);
         const want = [...new Set([...adminIds, ...(byId != null ? [byId] : [])])];
         let grp = groups.find(g => g.name === "Completion Requests");
         if (!grp) {

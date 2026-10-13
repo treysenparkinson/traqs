@@ -168,6 +168,24 @@ reset();
     action: "finishRequest", jobId: "JOB", panelId: "PANEL", opId: "NOSUCH", personId: 7, pin: "PIN7" }) });
   ok("an op that does not exist is still a 404", res.statusCode, 404);
 }
+reset();
+{
+  // #288. With nobody holding approveCompletions, the web records the request and tells the
+  // requester nobody can receive it. The server path (iOS) built a "Completion Requests"
+  // thread holding only the requester and posted the bubble into it — the phone said "sent"
+  // and nobody was told.
+  globalThis.__S3[K.people][2].adminPerms = { approveCompletions: false };
+  const res = await req(7);
+  ok("#288: with no approver the request is still recorded", [res.statusCode, op().pendingFinish], [200, true]);
+  ok("#288: ...the response says nobody can receive it", res.body.noApprover, true);
+  ok("#288: ...no thread is made for the requester alone", globalThis.__S3[K.groups] ?? null, null);
+  ok("#288: ...and no bubble is posted", globalThis.__S3[K.messages] ?? null, null);
+}
+reset();
+{
+  const res = await req(7);
+  ok("#288: with an approver the bubble still posts", [res.body.noApprover ?? null, (globalThis.__S3[K.messages] || []).length], [null, 1]);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n5. #177/#179 — releasing the hold a finish request put on a session");

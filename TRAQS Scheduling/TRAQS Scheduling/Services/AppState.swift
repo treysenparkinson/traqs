@@ -1383,7 +1383,7 @@ class AppState {
     /// receiving every request anyway. `can` treats an absent key as granted
     /// (see AdminPerms.init), so only an explicit false drops someone.
     private func completionGroupMembers(requesterId: String) -> [String] {
-        var ids = people.filter { $0.can(.approveCompletions) }.map(\.id)
+        var ids = CompletionRequestRules.approverIds(in: people)
         if !ids.contains(requesterId) { ids.append(requesterId) }
         return ids
     }
@@ -1426,10 +1426,16 @@ class AppState {
 
     func requestJobCompletion(jobId: String) async {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
-        let members = completionGroupMembers(requesterId: me.id)
-        guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await syncCompletionGroupMembers(requesterId: me.id)
-        let group = groups.first(where: { $0.id == created.id }) ?? created
+        // #288. Nobody can approve it: the request is still recorded below (it shows in the
+        // requests tab once someone gets the permission), but there is no thread to make for
+        // the requester alone and no bubble to post — say so instead, as the web does.
+        var group: ChatGroup?
+        if !CompletionRequestRules.approverIds(in: people).isEmpty {
+            let members = completionGroupMembers(requesterId: me.id)
+            guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
+            await syncCompletionGroupMembers(requesterId: me.id)
+            group = groups.first(where: { $0.id == created.id }) ?? created
+        }
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
@@ -1442,6 +1448,10 @@ class AppState {
             to: jobs[idx], panelId: nil, opId: nil, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
+        guard let group else {
+            clockError = CompletionRequestRules.noApproverMessage
+            return
+        }
 
         let jobNumTxt = job.jobNumber.map { "Job #\($0) — " } ?? ""
         let msg = Message(
@@ -1459,10 +1469,16 @@ class AppState {
     func requestTaskCompletion(jobId: String, panelId: String, opId: String?,
                                panelTitle: String, opTitle: String?) async {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
-        let members = completionGroupMembers(requesterId: me.id)
-        guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await syncCompletionGroupMembers(requesterId: me.id)
-        let group = groups.first(where: { $0.id == created.id }) ?? created
+        // #288. Nobody can approve it: the request is still recorded below (it shows in the
+        // requests tab once someone gets the permission), but there is no thread to make for
+        // the requester alone and no bubble to post — say so instead, as the web does.
+        var group: ChatGroup?
+        if !CompletionRequestRules.approverIds(in: people).isEmpty {
+            let members = completionGroupMembers(requesterId: me.id)
+            guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
+            await syncCompletionGroupMembers(requesterId: me.id)
+            group = groups.first(where: { $0.id == created.id }) ?? created
+        }
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
@@ -1481,6 +1497,10 @@ class AppState {
             to: jobs[idx], panelId: panelId, opId: opId, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
+        guard let group else {
+            clockError = CompletionRequestRules.noApproverMessage
+            return
+        }
 
         let contextLabel = opTitle.map { "\(panelTitle) › \($0)" } ?? panelTitle
         let jobNumTxt = job.jobNumber.map { "Job #\($0) — " } ?? ""
@@ -2490,8 +2510,12 @@ class AppState {
             jobs[ji].subs[pi].subs[oi].pendingFinish = true
         }
         do {
-            try await api.timeclockFinishRequest(personId: personId, pin: pin,
-                                                 jobId: jobId, panelId: panelId, opId: opId)
+            let answer = try await api.timeclockFinishRequest(personId: personId, pin: pin,
+                                                              jobId: jobId, panelId: panelId, opId: opId)
+            // #288. Recorded, but nobody can approve it — say so, as the web does.
+            if CompletionRequestRules.serverSaysNoApprover(answer) {
+                clockError = CompletionRequestRules.noApproverMessage
+            }
             // Server updates pendingFinish in tasks.json. Refetch so the
             // local jobs array matches the canonical server state — if we
             // don't, the flag lives only in memory and any subsequent
