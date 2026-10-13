@@ -749,15 +749,28 @@ class AppState {
         // list for the next render cycle ("split-second flash then gone").
         // Real "everything deleted" cases are handled by user-driven refreshes
         // and will catch up once the array is empty on both sides.
-        if let r = try? await api.fetchJobs(), !r.isEmpty || jobs.isEmpty {
+        //
+        // All six fetched AT ONCE, then applied together in one synchronous pass.
+        // They used to run one after another — launch waited out six round trips
+        // in a row, and each result was assigned as it landed, so the screen
+        // re-rendered six times while the app was coming up. Now the wait is the
+        // slowest single request, and SwiftUI coalesces the whole apply into one
+        // update.
+        async let jobsR = try? api.fetchJobs()
+        async let peopleR = try? api.fetchPeople()
+        async let clientsR = try? api.fetchClients()
+        async let messagesR = try? api.fetchMessagesData()
+        async let groupsR = try? api.fetchGroups()
+        async let settingsR = try? api.fetchOrgSettings()
+        let (j, p, c, m, g, s) = await (jobsR, peopleR, clientsR, messagesR, groupsR, settingsR)
+
+        if let r = j, !r.isEmpty || jobs.isEmpty {
             withoutAnimation { jobs = r }
         }
-        if let r = try? await api.fetchPeople(), !r.isEmpty || people.isEmpty {
+        if let r = p, !r.isEmpty || people.isEmpty {
             // Capture the optimistic clock IMMEDIATELY before overwriting
-            // `people`. Doing it here (not at the top of loadAll) handles
-            // the race where the user taps START TIMER mid-fetch — by the
-            // time we get the people response, the local mutation has
-            // already happened and we can preserve it.
+            // `people` — after the fetch, with no suspension between, so a START
+            // TIMER tapped mid-fetch has already happened locally and is kept.
             //
             // Shared with rehydrateFromCache via OptimisticClocks — the pay
             // clock is preserved for the same reason as the job clock: the Home
@@ -769,16 +782,16 @@ class AppState {
                 people = OptimisticClocks.apply(snap, to: r)
             }
         }
-        if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
+        if let r = c, !r.isEmpty || clients.isEmpty {
             withoutAnimation { clients = r }
         }
-        if let data = try? await api.fetchMessagesData() {
+        if let data = m {
             applyServerMessages(data)
         }
-        if let r = try? await api.fetchGroups(), !r.isEmpty || groups.isEmpty {
+        if let r = g, !r.isEmpty || groups.isEmpty {
             withoutAnimation { groups = r }
         }
-        if let r = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = r } }
+        if let r = s { withoutAnimation { orgSettings = r } }
         await refreshBilling()
         withoutAnimation { autoMatchPerson() }
 
