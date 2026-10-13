@@ -53,10 +53,12 @@ enum JobShifts {
         return (s, walk.days > 1 ? day.workEnd : walk.endHour)
     }
 
-    /// `startHour` as the web stores it on a panel or op — a number in extras.
+    /// `startHour` as the web stores it on a panel or op. The overlap rule's reader, not a
+    /// second one (#361): this took a number only while the overlap rule also takes the
+    /// numeric string the web's clamp coerces, so one op could start at 10:00 for the
+    /// overlap rule and at the start of the day on its card.
     static func startHour(_ extras: JSONExtras) -> Double? {
-        if case .number(let h)? = extras["startHour"] { return h }
-        return nil
+        OverlapRule.startHour(extras)
     }
 
     /// Every scheduled shift in `jobs`. Unscheduled units (no start date) have

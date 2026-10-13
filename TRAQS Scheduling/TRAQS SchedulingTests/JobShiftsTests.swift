@@ -56,6 +56,25 @@ struct JobShiftsTests {
         #expect(Set(shifts.map(\.id)) == ["a/\(op.id)", "b/\(panel.id)"])
     }
 
+    /// #361. The day view and the overlap rule read `startHour` from the same op, and
+    /// read it differently: the overlap rule takes the numeric string the web's clamp
+    /// coerces, the shift reader took a number only — so a "10" start was 10:00 to the
+    /// overlap rule and the start of the day on the card. One reader now.
+    @Test func startHourIsReadOneWay() {
+        for value: JSONValue in [.number(10), .string("10"), .string("x"), .null] {
+            var e = JSONExtras(); e.set("startHour", value)
+            #expect(JobShifts.startHour(e) == OverlapRule.startHour(e), "\(value)")
+        }
+        var panel = Panel.empty(title: "P1")
+        panel.start = "2026-10-01"; panel.end = "2026-10-01"
+        var op = Operation.empty(title: "Wire", hpd: 2)
+        op.start = "2026-10-01"; op.end = "2026-10-01"; op.team = ["a"]
+        op.extras.set("startHour", .string("10"))
+        panel.subs = [op]
+        let job = Job(id: "j", title: "J", start: "2026-10-01", end: "2026-10-01", subs: [panel])
+        #expect(JobShifts.all(in: [job], day: day).first?.startHour == 10)
+    }
+
     @Test func labels() {
         #expect(JobShifts.hourLabel(13.5) == "1:30 PM")
         #expect(JobShifts.hourLabel(0) == "12:00 AM")
