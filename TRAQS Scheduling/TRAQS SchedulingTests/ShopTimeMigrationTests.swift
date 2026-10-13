@@ -62,6 +62,22 @@ struct ShopTimeMigrationTests {
         }
     }
 
+    /// #372. The web has one pay-period rule — `getPayPeriodFromDates`, an empty list
+    /// read as [5, 20]. iOS kept weekly / biweekly / semimonthly branches for an org whose
+    /// payDates is explicitly empty and whose payMode isn't "setdate", and they disagreed
+    /// with the web: a "weekly" org got Mon–Sun where the web shows the 20th–4th.
+    @Test func anEmptyPayDatesListIsTheWebsDefaultNotALegacyCycle() throws {
+        for type in ["weekly", "biweekly", "semimonthly"] {
+            let org = try JSONDecoder().decode(OrgSettings.self, from: Data(
+                #"{"payMode":"rolling","payDates":[],"payPeriodType":"\#(type)","payPeriodStart":"2026-09-01"}"#.utf8))
+            inDenver {
+                let w = PayPeriod.window(org: org, now: lateSunday)
+                #expect(w.start == at("2026-09-20T06:00:00Z"), "\(type)")
+                #expect(w.end == at("2026-10-04T06:00:00Z"), "\(type)")
+            }
+        }
+    }
+
     /// `personId` is whoever the test host is signed in as — writing `currentPersonId` would
     /// persist into the simulator app's defaults.
     private func entry(_ clockIn: String, hours: Double, person: String) -> TimeclockEntry {

@@ -6,7 +6,7 @@ import Combine
 // desktop time clock, minus lunch/break, for the configured pay period. Job
 // time (hours logged ON jobs) lives in its own "Job Hours" section at the
 // bottom, with a dated log scoped to the same pay period. The pay period comes
-// straight from the org's time-clock settings (weekly/biweekly/semimonthly).
+// straight from the org's pay dates (`PayPeriod.window`, the web's rule).
 
 // One shared ISO8601 formatter for the whole Hours tab.
 private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
@@ -361,8 +361,8 @@ struct TimeClockView: View {
 
     // MARK: - Pay-period window — from the org's time-clock settings
 
-    // Single source of truth — AppState.payPeriodWindow (semi-monthly payDates
-    // when configured, else legacy biweekly/weekly/semimonthly). Kept as a thin
+    // Single source of truth — AppState.payPeriodWindow (the org's payDates, [5, 20]
+    // when none are set — the web's one rule, #372). Kept as a thin
     // property so the rest of the view (and the 1s `now` ticker) is unchanged.
     private var periodWindow: (start: Date, end: Date) {
         appState.payPeriodWindow(now: now)

@@ -70,44 +70,12 @@ enum PayPeriod {
     /// days. Was AppState.payPeriodWindow, on the device's calendar: late Sunday in Denver a
     /// New York phone was already in Monday's period.
     static func window(org s: OrgSettings, now: Date, shop: ShopTime = .current) -> (start: Date, end: Date) {
-        let cal = shop.calendar
-        let today = cal.startOfDay(for: now)
-        // Orgs configure pay periods via explicit days-of-month (payDates, e.g.
-        // [5, 20]) in "setdate" mode — the semi-monthly model the desktop
-        // payroll table actually uses (getPayPeriodFromDates). Prefer it whenever
-        // payDates is present or payMode is "setdate"; otherwise fall back to the
-        // legacy biweekly/weekly/semimonthly rolling logic below.
-        if s.payMode == "setdate" || !s.payDates.isEmpty {
-            let p = fromDates(s.payDates, today: shop.day(now))
-            return (shop.date(ofDay: p.start) ?? today, shop.date(ofDay: p.end) ?? today)
-        }
-        let anchor = s.payPeriodStart.flatMap { shop.date(ofDay: $0) } ?? today
-        switch s.payPeriodType {
-        case "weekly":
-            let weekday = cal.component(.weekday, from: today)
-            let toMonday = weekday == 1 ? -6 : -(weekday - 2)
-            let start = cal.date(byAdding: .day, value: toMonday, to: today) ?? today
-            let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-            return (start, end)
-        case "semimonthly":
-            let day = cal.component(.day, from: today)
-            let comps = cal.dateComponents([.year, .month], from: today)
-            let monthStart = cal.date(from: comps) ?? today
-            if day <= 15 {
-                let end = cal.date(byAdding: .day, value: 14, to: monthStart) ?? today
-                return (monthStart, end)
-            } else {
-                let start = cal.date(byAdding: .day, value: 15, to: monthStart) ?? today
-                let nextMonth = cal.date(byAdding: .month, value: 1, to: monthStart) ?? today
-                let end = cal.date(byAdding: .day, value: -1, to: nextMonth) ?? today
-                return (start, end)
-            }
-        default: // biweekly
-            let days = cal.dateComponents([.day], from: anchor, to: today).day ?? 0
-            let cycles = days / 14
-            let start = cal.date(byAdding: .day, value: cycles * 14, to: anchor) ?? today
-            let end = cal.date(byAdding: .day, value: 13, to: start) ?? today
-            return (start, end)
-        }
+        let today = shop.calendar.startOfDay(for: now)
+        // ONE RULE, the web's (#372): `getPayPeriodFromDates`, an empty list read as [5, 20].
+        // The weekly / biweekly / semimonthly cycles that stood here ran only for an org whose
+        // payDates was explicitly empty and payMode not "setdate", and disagreed with the web
+        // there — a "weekly" org saw Mon–Sun on the phone and the 20th–4th on the desktop.
+        let p = fromDates(s.payDates, today: shop.day(now))
+        return (shop.date(ofDay: p.start) ?? today, shop.date(ofDay: p.end) ?? today)
     }
 }
