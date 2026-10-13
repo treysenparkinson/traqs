@@ -270,8 +270,9 @@ data class Client(
     val email: String = "",
     val phone: String = "",
     val color: String = "#3d7fff",
-    val notes: String = ""
-)
+    val notes: String = "",
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Attachment
 
@@ -305,8 +306,9 @@ data class Message(
 data class ChatGroup(
     val id: String = "",
     val name: String = "",
-    val memberIds: List<String> = emptyList()
-)
+    val memberIds: List<String> = emptyList(),
+    @Transient override val extras: JsonObject? = null
+) : Passthrough
 
 // MARK: - Notification Payload
 
@@ -347,8 +349,9 @@ data class OrgSettings(
     val payPeriodType: String = "biweekly",
     val payPeriodStart: String? = null,
     val breaks: List<OrgBreak> = listOf(OrgBreak("10:00", 15)),
-    val lunch: OrgBreak = OrgBreak("12:00", 30)
-) {
+    val lunch: OrgBreak = OrgBreak("12:00", 30),
+    @Transient override val extras: JsonObject? = null
+) : Passthrough {
     companion object {
         val DEFAULT = OrgSettings()
     }

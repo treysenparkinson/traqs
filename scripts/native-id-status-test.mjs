@@ -79,7 +79,13 @@ console.log("\n1. #447 — the status is STORED as the server sent it");
     /try\? c\.decode\(JobStatus\.self, forKey: \.status\)/.test(MODELS), false);
   // Encoded verbatim — this is the half that was destroying data.
   ok("the raw string is encoded", (MODELS.match(/try c\.encode\(statusRaw, forKey: \.status\)/g) || []).length, 3);
-  ok("the enum is never encoded", /try c\.encode\(status, forKey: \.status\)/.test(MODELS), false);
+  // Scoped to the three structs that hold a JobStatus (R4): other models encode a
+  // plain-String `status` of their own (FinishRequestEntry, since #523), which this
+  // pattern cannot tell apart from the enum.
+  const tree = ["Operation", "Panel", "Job"].map((n) =>
+    (new RegExp(`\\nstruct ${n}: [^\\n]*\\{[\\s\\S]*?\\n\\}\\n`).exec(MODELS) || [""])[0]).join("");
+  ok("the job tree's three structs were found", ["struct Operation", "struct Panel", "struct Job"].every((h) => tree.includes(h)), true);
+  ok("the enum is never encoded", /try c\.encode\(status, forKey: \.status\)/.test(tree), false);
 }
 
 console.log("\n2. #447 — the enum survives as a DERIVED view, so no read site moves");
@@ -160,7 +166,10 @@ console.log("\n7. #520 — an Android save writes back what it read");
   ok("...and is registered on the Gson the API uses",
     /registerTypeAdapterFactory\(PassthroughAdapterFactory\)/.test(KAPI), true);
   const carriers = ["TRAQSJob", "Panel", "Operation", "Engineering", "EngineeringSignOff",
-                    "MoveLogEntry", "Person", "AdminPerms", "TimeOffEntry"];
+                    "MoveLogEntry", "Person", "AdminPerms", "TimeOffEntry",
+                    // #523: the other three whole-array saves (saveClients,
+                    // saveGroups, saveOrgSettings).
+                    "Client", "ChatGroup", "OrgSettings"];
   for (const name of carriers) {
     const body = (new RegExp(`data class ${name}\\(([\\s\\S]*?)\\n\\)( : Passthrough)?`).exec(KMODELS) || []);
     ok(`${name} carries its unmodelled keys`,
