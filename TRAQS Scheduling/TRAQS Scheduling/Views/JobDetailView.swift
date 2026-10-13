@@ -85,7 +85,7 @@ struct JobDetailView: View {
                         }
 
                         Text(job.title)
-                            .font(.custom(TFontName.bold.rawValue, size: 26))
+                            .font(.traqs(.bold, size: 26))
                             .foregroundStyle(Color(hex: T.ink))
 
                         HStack(spacing: 8) {

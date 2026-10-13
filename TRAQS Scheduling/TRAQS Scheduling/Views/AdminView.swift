@@ -94,7 +94,7 @@ struct AdminView: View {
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Live status")
-                .font(.custom(TFontName.bold.rawValue, size: 30))
+                .font(.traqs(.bold, size: 30))
                 .foregroundStyle(Color(hex: T.ink))
             // TimelineView re-renders every 30s so the time in the
             // subtitle stays visibly fresh — same primitive we use for
@@ -270,7 +270,7 @@ private struct StatTile: View {
     var body: some View {
         VStack(alignment: .center, spacing: 2) {
             Text("\(count)")
-                .font(.custom(TFontName.bold.rawValue, size: 24))
+                .font(.traqs(.bold, size: 24))
                 .foregroundStyle(color)
                 .tnum()
             Text(label)
@@ -299,7 +299,7 @@ private struct SectionHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .font(.traqs(.bold, size: 22))
                 .foregroundStyle(Color(hex: T.ink))
             Spacer()
             Text("\(count)")

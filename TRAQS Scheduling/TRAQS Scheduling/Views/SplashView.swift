@@ -70,7 +70,7 @@ struct SplashView: View {
             VStack {
                 Spacer()
                 Text("Loading your day…")
-                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .font(.traqs(.medium, size: 12))
                     .tracking(0.5)
                     .foregroundStyle(Color(hex: T.muted))
                     .padding(.bottom, 60)

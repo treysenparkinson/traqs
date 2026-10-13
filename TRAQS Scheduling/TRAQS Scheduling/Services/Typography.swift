@@ -52,72 +52,106 @@ extension TFontName {
     }
 }
 
+extension TFontName {
+    /// The system-font weight this face stands for on iOS.
+    var systemWeight: Font.Weight {
+        switch self {
+        case .regular:   return .regular
+        case .medium:    return .medium
+        case .semibold:  return .semibold
+        case .bold:      return .bold
+        case .extrabold: return .heavy
+        }
+    }
+}
+
+extension Font {
+    /// Every face in the app goes through here.
+    ///
+    /// iOS: Apple's system font (SF Pro) at the face's weight (2026-10-13). Asked
+    /// for BY NAME through `.custom(_:size:relativeTo:)` rather than as
+    /// `.system(size:weight:)`, because only the custom-font API scales with Dynamic
+    /// Type — and the app leans on that (ContentView's xLarge/xxLarge floor).
+    /// Measured in the simulator, not assumed: `.AppleSystemUIFont` + `.weight` is
+    /// pixel-identical to `.system(size:weight:)` at regular, semibold, bold and
+    /// heavy, and still grows under xxLarge (293 → 338pt for one test line).
+    ///
+    /// macOS: the face itself (DM Sans), unchanged.
+    static func traqs(_ face: TFontName, size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+        #if os(iOS)
+        return .custom(".AppleSystemUIFont", size: size, relativeTo: style).weight(face.systemWeight)
+        #else
+        return .custom(face.rawValue, size: size, relativeTo: style)
+        #endif
+    }
+}
+
 enum TTypo {
     /// Brand wordmark — "traqs" 28pt ExtraBold, -0.04em letter-spacing.
     static func wordmark(_ size: CGFloat = 28) -> Font {
-        Font.custom(TFontName.extrabold.rawValue, size: size, relativeTo: .largeTitle)
+        Font.traqs(.extrabold, size: size, relativeTo: .largeTitle)
     }
 
     /// h1 (currently unused — header is replaced by the wordmark)
     static func h1(_ size: CGFloat = 32) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .title)
+        Font.traqs(.bold, size: size, relativeTo: .title)
     }
 
     /// h2 — hero numbers in cards
     static func h2(_ size: CGFloat = 26) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .title2)
+        Font.traqs(.bold, size: size, relativeTo: .title2)
     }
 
     /// h3 — section titles, card titles
     static func h3(_ size: CGFloat = 22) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .title3)
+        Font.traqs(.bold, size: size, relativeTo: .title3)
     }
 
     /// Body 15pt / 500
     static func body(_ size: CGFloat = 15) -> Font {
-        Font.custom(TFontName.medium.rawValue, size: size, relativeTo: .body)
+        Font.traqs(.medium, size: size, relativeTo: .body)
     }
 
     /// Body bold — for emphasized inline content
     static func bodyBold(_ size: CGFloat = 15) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .body)
+        Font.traqs(.bold, size: size, relativeTo: .body)
     }
 
     /// Secondary text — 14pt / 500
     static func sm(_ size: CGFloat = 14) -> Font {
-        Font.custom(TFontName.medium.rawValue, size: size, relativeTo: .callout)
+        Font.traqs(.medium, size: size, relativeTo: .callout)
     }
 
     /// Secondary bold — 14pt / 700
     static func smBold(_ size: CGFloat = 14) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .callout)
+        Font.traqs(.bold, size: size, relativeTo: .callout)
     }
 
     /// Caption / chip / label — 12pt / 600 (often UPPERCASE + 0.12em tracking)
     static func xs(_ size: CGFloat = 12) -> Font {
-        Font.custom(TFontName.semibold.rawValue, size: size, relativeTo: .caption)
+        Font.traqs(.semibold, size: size, relativeTo: .caption)
     }
 
     /// Caption bold — 12pt / 700
     static func xsBold(_ size: CGFloat = 12) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .caption)
+        Font.traqs(.bold, size: size, relativeTo: .caption)
     }
 
     /// Tiny — 10pt / 700 (tab labels, badges)
     static func xxs(_ size: CGFloat = 10) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .caption2)
+        Font.traqs(.bold, size: size, relativeTo: .caption2)
     }
 
     /// "Mono" — DM Sans Medium with tabular figures, used wherever the desktop product
     /// used JetBrains Mono (timestamps, durations, percentages). We keep ONE typeface
     /// and rely on tabular-nums to keep digit columns aligned.
     static func mono(_ size: CGFloat = 12) -> Font {
-        Font.custom(TFontName.medium.rawValue, size: size, relativeTo: .caption)
+        Font.traqs(.medium, size: size, relativeTo: .caption)
     }
 
     /// Mono bold — for tabular numbers that should stand out (hero totals, percentages).
     static func monoBold(_ size: CGFloat = 12) -> Font {
-        Font.custom(TFontName.bold.rawValue, size: size, relativeTo: .caption)
+        Font.traqs(.bold, size: size, relativeTo: .caption)
     }
 }
 

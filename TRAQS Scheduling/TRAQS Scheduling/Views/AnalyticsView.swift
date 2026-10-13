@@ -330,7 +330,7 @@ private struct AnalyticsStatTile: View {
                 .tLabel(tracking: 1.0)
                 .foregroundStyle(Color(hex: T.muted))
             Text(value)
-                .font(.custom(TFontName.bold.rawValue, size: 30))
+                .font(.traqs(.bold, size: 30))
                 .foregroundStyle(Color(hex: T.ink))
             Capsule()
                 .fill(accent)

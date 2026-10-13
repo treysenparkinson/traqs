@@ -108,7 +108,7 @@ struct ForgotOrgView: View {
 
             TextField("you@yourcompany.com", text: $email)
                 .textFieldStyle(.plain)
-                .font(.custom(TFontName.bold.rawValue, size: 17))
+                .font(.traqs(.bold, size: 17))
                 .foregroundStyle(Paper.ink)
                 .focused($emailFocused)
                 .autocorrectionDisabled()

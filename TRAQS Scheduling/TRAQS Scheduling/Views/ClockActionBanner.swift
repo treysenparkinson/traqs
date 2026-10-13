@@ -64,14 +64,14 @@ struct ClockActionBanner: View {
                 // The shout. minimumScaleFactor keeps it on one line at the
                 // largest Dynamic Type sizes instead of wrapping mid-word.
                 Text(kind.word)
-                    .font(.custom(TFontName.extrabold.rawValue, size: 32))
+                    .font(.traqs(.extrabold, size: 32))
                     .tLabel(tracking: 1.2)
                     .foregroundStyle(T.brandGradient(start: .top, end: .bottom))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
                 Text(kind.state)
-                    .font(.custom(TFontName.bold.rawValue, size: 17))
+                    .font(.traqs(.bold, size: 17))
                     .tLabel(tracking: 2.2)
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)

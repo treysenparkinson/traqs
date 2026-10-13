@@ -357,13 +357,13 @@ private struct DateSelector: View {
             // thumb. Wide enough for the longest form.
             VStack(alignment: .center, spacing: 0) {
                 Text(subTitle)
-                    .font(.custom(TFontName.bold.rawValue, size: 9))
+                    .font(.traqs(.bold, size: 9))
                     .kerning(1.3)
                     .textCase(.uppercase)
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
                 Text(mainTitle)
-                    .font(.custom(TFontName.bold.rawValue, size: 14))
+                    .font(.traqs(.bold, size: 14))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -513,7 +513,7 @@ private struct DayTimeline: View {
                                 .fill(Color(hex: T.sky).opacity(0.55))
                                 .frame(height: 1)
                             Text("NOW")
-                                .font(.custom(TFontName.bold.rawValue, size: 9))
+                                .font(.traqs(.bold, size: 9))
                                 .kerning(0.6)
                                 .foregroundStyle(T.onAccent)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -746,7 +746,7 @@ private struct ScheduleBlockView: View {
     /// The web's DONE tag on a finished bar (#252).
     private var doneTag: some View {
         Text("DONE")
-            .font(.custom(TFontName.bold.rawValue, size: 9))
+            .font(.traqs(.bold, size: 9))
             .kerning(0.8)
             .foregroundStyle(Color(hex: T.muted))
             .lineLimit(1)
@@ -1079,20 +1079,20 @@ private struct WeekBlockTile: View {
         VStack(alignment: .leading, spacing: 2) {
             if showLabel {
                 Text(block.isFinished ? "DONE" : block.typeLabel)
-                    .font(.custom(TFontName.bold.rawValue, size: 9))
+                    .font(.traqs(.bold, size: 9))
                     .kerning(0.6)
                     .lineLimit(1)
                     .foregroundStyle(textColor)
             }
             if showJobNum {
                 Text("#\(block.jobNumber)")
-                    .font(.custom(TFontName.medium.rawValue, size: 9))
+                    .font(.traqs(.medium, size: 9))
                     .lineLimit(1)
                     .foregroundStyle(textColor.opacity(0.85))
             }
             if showTitle {
                 Text(block.title)
-                    .font(.custom(TFontName.bold.rawValue, size: 10))
+                    .font(.traqs(.bold, size: 10))
                     .lineLimit(2)
                     .foregroundStyle(textColor)
             }

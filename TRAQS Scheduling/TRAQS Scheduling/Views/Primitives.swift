@@ -510,7 +510,7 @@ struct Avatar: View {
                         .strokeBorder(stroke ?? Color(hex: T.hair), lineWidth: 1)
                 }
                 Text(initials)
-                    .font(.custom(TFontName.bold.rawValue, size: size * 0.4))
+                    .font(.traqs(.bold, size: size * 0.4))
                     // Legible on whatever the circle is filled with: readable
                     // black/white for the gradient or a colored fill, ink on the
                     // neutral surface circle.
@@ -773,7 +773,7 @@ struct Segmented<Value: Hashable>: View {
             HStack(spacing: 0) {
                 ForEach(options, id: \.self) { o in
                     Text(labels[o] ?? "")
-                        .font(.custom(TFontName.bold.rawValue, size: 13))
+                        .font(.traqs(.bold, size: 13))
                         .foregroundStyle(o == selection ? (gradient ? T.onGradient : T.onAccent) : Color(hex: T.ink))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -1745,7 +1745,7 @@ struct PageTitle: View {
         _ = theme.bgPresetId
         return VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.custom(TFontName.extrabold.rawValue, size: size))
+                .font(.traqs(.extrabold, size: size))
                 .tracking(tracking)
                 .foregroundStyle(titleFill)
             if let subtitle {

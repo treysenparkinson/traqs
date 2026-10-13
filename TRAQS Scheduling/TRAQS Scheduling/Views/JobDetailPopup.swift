@@ -241,7 +241,7 @@ struct JobDetailPopup: View {
             }
 
             Text(job.title)
-                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .font(.traqs(.bold, size: 22))
                 .foregroundStyle(Color(hex: T.ink))
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -512,7 +512,7 @@ struct JobDetailPopup: View {
 
     private var basicTitle: some View {
         Text(job.title)
-            .font(.custom(TFontName.bold.rawValue, size: 22))
+            .font(.traqs(.bold, size: 22))
             .foregroundStyle(Color(hex: T.ink))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

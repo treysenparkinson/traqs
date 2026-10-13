@@ -114,7 +114,7 @@ struct RvTitle: View {
         let _ = theme.bgPresetId
         HStack(alignment: .lastTextBaseline, spacing: 12) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: size))
+                .font(.traqs(.bold, size: size))
                 .tracking(-size * 0.044)
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
@@ -122,7 +122,7 @@ struct RvTitle: View {
             Spacer(minLength: 0)
             if let meta {
                 Text(meta)
-                    .font(.custom(TFontName.medium.rawValue, size: 13))
+                    .font(.traqs(.medium, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
             }
@@ -183,7 +183,7 @@ struct RvSectionAction: View {
 
     var body: some View {
         let text = Text(label)
-            .font(.custom(TFontName.semibold.rawValue, size: 12))
+            .font(.traqs(.semibold, size: 12))
             .foregroundStyle(Color(hex: perform == nil ? T.muted : T.accent))
         if let perform {
             Button(action: perform) { text }.buttonStyle(.plain)
@@ -201,7 +201,7 @@ struct RvEyebrow: View {
 
     var body: some View {
         Text(text.uppercased())
-            .font(.custom(TFontName.semibold.rawValue, size: 11))
+            .font(.traqs(.semibold, size: 11))
             .tracking(1.1)
             .foregroundStyle(color ?? Color(hex: T.muted))
             .lineLimit(1)
@@ -236,12 +236,12 @@ struct RvRowText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.custom(TFontName.semibold.rawValue, size: 15))
+                .font(.traqs(.semibold, size: 15))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.custom(emphasizeSubtitle ? TFontName.medium.rawValue : TFontName.regular.rawValue,
+                    .font(.traqs(emphasizeSubtitle ? .medium : .regular,
                                   size: 12.5))
                     .foregroundStyle(Color(hex: emphasizeSubtitle ? T.ink : T.muted))
                     .lineLimit(1)
@@ -299,7 +299,7 @@ struct RvTile<Accessory: View>: View {
             }
             Spacer(minLength: 6)
             Text(value)
-                .font(.custom(TFontName.bold.rawValue, size: 28))
+                .font(.traqs(.bold, size: 28))
                 .tracking(-1)
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
@@ -307,7 +307,7 @@ struct RvTile<Accessory: View>: View {
                 .monospacedDigit()
             if let sub {
                 Text(sub)
-                    .font(.custom(TFontName.regular.rawValue, size: 12))
+                    .font(.traqs(.regular, size: 12))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
                     .padding(.top, 4)
@@ -367,7 +367,7 @@ struct RvTabs<Value: Hashable>: View {
                         withAnimation(.easeInOut(duration: 0.22)) { selection = option.value }
                     } label: {
                         Text(option.label)
-                            .font(.custom(TFontName.semibold.rawValue, size: 14))
+                            .font(.traqs(.semibold, size: 14))
                             .foregroundStyle(Color(hex: on ? T.ink : T.muted))
                             .padding(.bottom, 10)
                             .overlay(alignment: .bottom) {
@@ -385,7 +385,7 @@ struct RvTabs<Value: Hashable>: View {
                 Spacer(minLength: 0)
                 if let trailing {
                     Text(trailing)
-                        .font(.custom(TFontName.medium.rawValue, size: 13))
+                        .font(.traqs(.medium, size: 13))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                         .padding(.bottom, 10)
@@ -462,7 +462,7 @@ struct RvBars: View {
 
     private func cell(_ text: String, on: Bool) -> some View {
         Text(text)
-            .font(.custom(on ? TFontName.semibold.rawValue : TFontName.regular.rawValue, size: 11))
+            .font(.traqs(on ? .semibold : .regular, size: 11))
             .foregroundStyle(Color(hex: on ? T.ink : T.muted))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -520,10 +520,10 @@ struct RvWeekStrip: View {
             ForEach(days) { d in
                 let cell = VStack(spacing: 6) {
                     Text(d.letter)
-                        .font(.custom(TFontName.semibold.rawValue, size: 11))
+                        .font(.traqs(.semibold, size: 11))
                         .foregroundStyle(Color(hex: T.muted))
                     Text(d.number)
-                        .font(.custom(TFontName.semibold.rawValue, size: 16))
+                        .font(.traqs(.semibold, size: 16))
                         .foregroundStyle(d.isOn ? T.onAccent : Color(hex: T.ink))
                         .frame(width: 36 * k, height: 36 * k)
                         .background {
@@ -559,7 +559,7 @@ struct RvTag: View {
 
     var body: some View {
         Text(text)
-            .font(.custom(TFontName.semibold.rawValue, size: 11))
+            .font(.traqs(.semibold, size: 11))
             .foregroundStyle(foreground)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

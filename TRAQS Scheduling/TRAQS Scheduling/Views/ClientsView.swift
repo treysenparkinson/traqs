@@ -176,7 +176,7 @@ struct ClientDetailView: View {
                                    gradient: true)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(client.name)
-                                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                                    .font(.traqs(.bold, size: 22))
                                     .foregroundStyle(Color(hex: T.ink))
                                 if !client.contact.isEmpty {
                                     Text(client.contact)

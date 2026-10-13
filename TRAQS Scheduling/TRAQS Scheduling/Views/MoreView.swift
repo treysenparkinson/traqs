@@ -216,7 +216,7 @@ struct MoreView: View {
             // reads as the title's subtitle.
             if let name = selectedWorkerName {
                 Text("\(name)'s Analytics")
-                    .font(.custom(TFontName.medium.rawValue, size: 13))
+                    .font(.traqs(.medium, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -815,7 +815,7 @@ private struct OverHoursTab: View {
             RvSection(title: "Over-hours") {
                 HStack(spacing: 10) {
                     Text(value)
-                        .font(.custom(TFontName.semibold.rawValue, size: 15))
+                        .font(.traqs(.semibold, size: 15))
                         .foregroundStyle(Color(hex: T.ink))
                         .tnum()
                     RvChevron(direction: .down)
@@ -861,7 +861,7 @@ private struct OverHoursList: View {
 
             if jobs.isEmpty {
                 Text("No jobs over their estimate.")
-                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                    .font(.traqs(.regular, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 14)
@@ -879,22 +879,22 @@ private struct OverHoursRow: View {
         RvRow {
             HStack(spacing: 8) {
                 Text(job.title)
-                    .font(.custom(TFontName.semibold.rawValue, size: 14))
+                    .font(.traqs(.semibold, size: 14))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 Spacer()
                 Text(fmtHours(job.est))
-                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                    .font(.traqs(.regular, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .tnum()
                     .frame(width: 46, alignment: .trailing)
                 Text(fmtHours(job.actual))
-                    .font(.custom(TFontName.semibold.rawValue, size: 13))
+                    .font(.traqs(.semibold, size: 13))
                     .foregroundStyle(Color(hex: T.ink))
                     .tnum()
                     .frame(width: 46, alignment: .trailing)
                 Text("+" + fmtHours(job.over))
-                    .font(.custom(TFontName.semibold.rawValue, size: 13))
+                    .font(.traqs(.semibold, size: 13))
                     .foregroundStyle(Color(hex: T.amber))
                     .tnum()
                     .frame(width: 52, alignment: .trailing)
@@ -962,7 +962,7 @@ private struct EfficiencySection: View {
                 HStack(spacing: 8) {
                     if !info.isEmpty { InfoButton(text: info) }
                     Text(percent)
-                        .font(.custom(TFontName.bold.rawValue, size: 18))
+                        .font(.traqs(.bold, size: 18))
                         .foregroundStyle(Color(hex: T.ink))
                         .tnum()
                 }
@@ -1015,7 +1015,7 @@ private struct EfficiencySection: View {
                 .fill(color)
                 .frame(width: 10, height: 10)
             Text(text)
-                .font(.custom(TFontName.regular.rawValue, size: 12))
+                .font(.traqs(.regular, size: 12))
                 .foregroundStyle(Color(hex: T.muted))
         }
     }
@@ -1077,7 +1077,7 @@ private struct EffBarsRow: View {
                     VStack(spacing: 1) {
                         cell(d.label, on: on)
                         Text(d.dayNumber)
-                            .font(.custom(TFontName.semibold.rawValue, size: 11))
+                            .font(.traqs(.semibold, size: 11))
                             .foregroundStyle(Color(hex: T.ink))
                             .tnum()
                     }
@@ -1091,7 +1091,7 @@ private struct EffBarsRow: View {
 
     private func cell(_ text: String, on: Bool) -> some View {
         Text(text)
-            .font(.custom(on ? TFontName.semibold.rawValue : TFontName.regular.rawValue, size: 11))
+            .font(.traqs(on ? .semibold : .regular, size: 11))
             .foregroundStyle(Color(hex: on ? T.ink : T.muted))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -1130,13 +1130,13 @@ private struct JobHoursSummaryRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 RvEyebrow("This pay period")
                 Text(String(format: "%.2f h on jobs", periodHours))
-                    .font(.custom(TFontName.bold.rawValue, size: 17))
+                    .font(.traqs(.bold, size: 17))
                     .foregroundStyle(Color(hex: T.ink))
                     .tnum()
             }
             Spacer(minLength: 8)
             Text("\(sessions) session\(sessions == 1 ? "" : "s")")
-                .font(.custom(TFontName.regular.rawValue, size: 12))
+                .font(.traqs(.regular, size: 12))
                 .foregroundStyle(Color(hex: T.muted))
         }
     }
@@ -1165,7 +1165,7 @@ private struct RunningEntryCard: View {
             RvDot(color: Color(hex: T.accent))
             VStack(alignment: .leading, spacing: 5) {
                 Text(jobClock.jobTitle ?? "Job")
-                    .font(.custom(TFontName.semibold.rawValue, size: 15))
+                    .font(.traqs(.semibold, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 HStack(spacing: 8) {
@@ -1243,7 +1243,7 @@ private struct EntryRow: View {
             RvDot(color: entry.deptColor)
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.jobTitle)
-                    .font(.custom(TFontName.semibold.rawValue, size: 15))
+                    .font(.traqs(.semibold, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 Text(timeRange)
@@ -1271,10 +1271,10 @@ private struct HoursEmptyState: View {
         VStack(spacing: 8) {
             TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
             Text("No job time this pay period")
-                .font(.custom(TFontName.semibold.rawValue, size: 14))
+                .font(.traqs(.semibold, size: 14))
                 .foregroundStyle(Color(hex: T.muted))
             Text("Start a job from the Jobs tab to log time.")
-                .font(.custom(TFontName.regular.rawValue, size: 12))
+                .font(.traqs(.regular, size: 12))
                 .foregroundStyle(Color(hex: T.muted))
         }
         .frame(maxWidth: .infinity)

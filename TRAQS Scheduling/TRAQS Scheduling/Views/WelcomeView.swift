@@ -262,7 +262,7 @@ struct WelcomeView: View {
 
             TextField("Enter your organization code", text: $code)
                 .textFieldStyle(.plain)
-                .font(.custom(TFontName.bold.rawValue, size: 17))
+                .font(.traqs(.bold, size: 17))
                 .foregroundStyle(ink)
                 .focused($codeFocused)
                 .autocorrectionDisabled()

@@ -592,7 +592,7 @@ private struct ActivatedPanel: View {
                 .padding(.bottom, 18)
 
             Text(code)
-                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .font(.traqs(.bold, size: 22))
                 .tracking(2.2)
                 .foregroundStyle(Color(hex: "#2B2926"))
                 .textSelection(.enabled)

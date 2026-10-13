@@ -160,7 +160,7 @@ struct TimeClockView: View {
                                 let recent = DayTotal.group(recentEntries)
                                 if recent.isEmpty {
                                     Text("No shifts in the last 8 days")
-                                        .font(.custom(TFontName.regular.rawValue, size: 13))
+                                        .font(.traqs(.regular, size: 13))
                                         .foregroundStyle(Color(hex: T.muted))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.vertical, 14)
@@ -421,7 +421,7 @@ private struct ClockTimerBlock: View {
         let _ = theme.bgPresetId
         VStack(spacing: 12) {
             Text(time)
-                .font(.custom(TFontName.bold.rawValue, size: 56))
+                .font(.traqs(.bold, size: 56))
                 .tracking(-2.5)
                 .monospacedDigit()
                 .foregroundStyle(Color(hex: T.ink))
@@ -456,24 +456,24 @@ private struct PayPeriodTile: View {
                 RvEyebrow("Pay period", color: Color(hex: T.ink).opacity(0.55))
                 Spacer(minLength: 8)
                 Text(range)
-                    .font(.custom(TFontName.medium.rawValue, size: 12))
+                    .font(.traqs(.medium, size: 12))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(String(format: "%.1f", hours))
-                    .font(.custom(TFontName.bold.rawValue, size: 28))
+                    .font(.traqs(.bold, size: 28))
                     .tracking(-1)
                     .foregroundStyle(Color(hex: T.ink))
                     .monospacedDigit()
                 Text(String(format: "/ %.0f h", target))
-                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                    .font(.traqs(.regular, size: 13))
                     .foregroundStyle(Color(hex: T.muted))
                     .monospacedDigit()
                 Spacer(minLength: 8)
                 Button(action: onTimesheet) {
                     Text("View timesheet")
-                        .font(.custom(TFontName.semibold.rawValue, size: 12))
+                        .font(.traqs(.semibold, size: 12))
                         .foregroundStyle(Color(hex: T.accent))
                 }
                 .buttonStyle(.plain)
@@ -549,7 +549,7 @@ private struct DayLine: View {
         RvRow(divider: divider) {
             RvRowText(title: title, subtitle: subtitle)
             Text(String(format: "%.2f h", day.hours))
-                .font(.custom(TFontName.semibold.rawValue, size: 14))
+                .font(.traqs(.semibold, size: 14))
                 .foregroundStyle(Color(hex: T.ink))
                 .monospacedDigit()
         }
@@ -578,13 +578,13 @@ private struct TimesheetSheet: View {
                         VStack(spacing: 0) {
                             RvSection(title: "Days", top: 0) {
                                 Text(String(format: "%.1f / %.0f h", total, target))
-                                    .font(.custom(TFontName.semibold.rawValue, size: 12))
+                                    .font(.traqs(.semibold, size: 12))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .monospacedDigit()
                             }
                             if entries.isEmpty {
                                 Text("No completed shifts this pay period")
-                                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                                    .font(.traqs(.regular, size: 13))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.vertical, 14)
@@ -942,7 +942,7 @@ private struct ClockPinOverlay: View {
     private var entryContent: some View {
         VStack(spacing: 4) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: 20))
+                .font(.traqs(.bold, size: 20))
                 .foregroundStyle(Color(hex: T.ink))
             Text(personName.map { "Enter \($0)'s PIN" } ?? "Enter your PIN")
                 .font(TTypo.xs(12))
@@ -997,7 +997,7 @@ private struct ClockPinOverlay: View {
         VStack(spacing: 16) {
             ClockProgressMark(done: phase == .done)
             Text(phase == .done ? doneTitle : title)
-                .font(.custom(TFontName.bold.rawValue, size: 17))
+                .font(.traqs(.bold, size: 17))
                 .foregroundStyle(Color(hex: T.ink))
                 .contentTransition(.opacity)
                 .lineLimit(1)
@@ -1025,7 +1025,7 @@ private struct ClockPinOverlay: View {
             pin.append(d)
         } label: {
             Text(d)
-                .font(.custom(TFontName.bold.rawValue, size: 27))
+                .font(.traqs(.bold, size: 27))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: keySize, height: keySize)
                 // Neutral Liquid Glass, the same material as every other round

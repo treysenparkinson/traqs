@@ -46,7 +46,7 @@ struct EmployeesView: View {
                         LazyVStack(spacing: 0) {
                             RvSection(title: "Everyone") {
                                 Text("\(people.count)")
-                                    .font(.custom(TFontName.semibold.rawValue, size: 12))
+                                    .font(.traqs(.semibold, size: 12))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .tnum()
                             }
@@ -55,7 +55,7 @@ struct EmployeesView: View {
                             }
                             if people.isEmpty {
                                 Text(search.isEmpty ? "No employees yet." : "No one matches “\(search)”.")
-                                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                                    .font(.traqs(.regular, size: 13))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 28)
@@ -121,23 +121,23 @@ private struct EmployeeCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(person.name)
-                        .font(.custom(TFontName.semibold.rawValue, size: 15))
+                        .font(.traqs(.semibold, size: 15))
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     if isMe {
                         Text("You")
-                            .font(.custom(TFontName.semibold.rawValue, size: 11))
+                            .font(.traqs(.semibold, size: 11))
                             .foregroundStyle(Color(hex: T.muted))
                     }
                 }
                 if !person.role.isEmpty {
                     Text(person.role)
-                        .font(.custom(TFontName.regular.rawValue, size: 12.5))
+                        .font(.traqs(.regular, size: 12.5))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                 }
                 Text(phone.map(PhoneNumber.display) ?? "No phone number")
-                    .font(.custom(TFontName.regular.rawValue, size: 13))
+                    .font(.traqs(.regular, size: 13))
                     .foregroundStyle(Color(hex: phone == nil ? T.muted : T.ink))
                     .tnum()
                     .lineLimit(1)

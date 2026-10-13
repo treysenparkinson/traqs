@@ -369,7 +369,7 @@ struct TasksView: View {
                 RvEyebrow(title, color: tint.map { Color(hex: $0) })
                 Spacer(minLength: 8)
                 Text("\(count)")
-                    .font(.custom(TFontName.semibold.rawValue, size: 12))
+                    .font(.traqs(.semibold, size: 12))
                     .foregroundStyle(Color(hex: tint ?? T.muted))
                     .monospacedDigit()
             }
@@ -1341,7 +1341,7 @@ struct JobsHeaderBar: View {
     var body: some View {
         let _ = theme.bgPresetId
         Text("Jobs")
-            .font(.custom(TFontName.bold.rawValue, size: Rv.titleSize))
+            .font(.traqs(.bold, size: Rv.titleSize))
             .tracking(-Rv.titleSize * 0.044)
             .foregroundStyle(Color(hex: T.ink))
             .lineLimit(1)
@@ -1697,7 +1697,7 @@ struct TaskCardV1: View {
 
                 // Headline: customer / job name (big, like the wireframe).
                 Text(headline)
-                    .font(.custom(TFontName.bold.rawValue, size: 20))
+                    .font(.traqs(.bold, size: 20))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                     .padding(.top, 10)
@@ -1845,7 +1845,7 @@ struct TaskCardV1: View {
             }
 
             Text(task.title.isEmpty ? headline : task.title)
-                .font(.custom(TFontName.bold.rawValue, size: 18))
+                .font(.traqs(.bold, size: 18))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1854,7 +1854,7 @@ struct TaskCardV1: View {
             let sub = blockSubline
             if !sub.isEmpty {
                 Text(sub)
-                    .font(.custom(TFontName.regular.rawValue, size: 12.5))
+                    .font(.traqs(.regular, size: 12.5))
                     .foregroundStyle(Color(hex: T.muted))
                     .lineLimit(1)
                     .padding(.top, 3)
@@ -1883,7 +1883,7 @@ struct TaskCardV1: View {
                     color: overdue ? Color(hex: T.amber)
                          : busyByOther ? Color(hex: T.statusInProgress) : dept.color)
             Text("\(Int(pct))%")
-                .font(.custom(TFontName.semibold.rawValue, size: 12))
+                .font(.traqs(.semibold, size: 12))
                 .foregroundStyle(Color(hex: overdue ? T.amber : T.muted))
                 .tnum()
                 .fixedSize()
@@ -2258,7 +2258,7 @@ private struct BasicJobCard: View {
     private func content(dateText: String, timeText: String, titleSize: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(task.job.title.isEmpty ? task.title : task.job.title)
-                .font(.custom(TFontName.bold.rawValue, size: titleSize))
+                .font(.traqs(.bold, size: titleSize))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2396,7 +2396,7 @@ private struct StartJobOverlay: View {
             }
 
             Text(task.title)
-                .font(.custom(TFontName.bold.rawValue, size: 20))
+                .font(.traqs(.bold, size: 20))
                 .foregroundStyle(Color(hex: T.ink))
             if let customer, !customer.isEmpty {
                 Text(customer)
@@ -2495,7 +2495,7 @@ private struct StartJobOverlay: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
                 Text(value)
-                    .font(.custom(TFontName.bold.rawValue, size: 14))
+                    .font(.traqs(.bold, size: 14))
                     .foregroundStyle(Color(hex: T.ink))
                     .tnum()
                 if let sub {

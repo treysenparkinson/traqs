@@ -573,19 +573,19 @@ private struct ChannelRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(thread.displayTitle)
-                        .font(.custom(TFontName.semibold.rawValue, size: 15))
+                        .font(.traqs(.semibold, size: 15))
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if !timeLabel.isEmpty {
                         Text(timeLabel)
-                            .font(.custom(TFontName.medium.rawValue, size: 12))
+                            .font(.traqs(.medium, size: 12))
                             .foregroundStyle(Color(hex: T.muted))
                             .lineLimit(1)
                     }
                 }
                 Text(subtitle)
-                    .font(.custom(isUnread ? TFontName.medium.rawValue : TFontName.regular.rawValue,
+                    .font(.traqs(isUnread ? .medium : .regular,
                                   size: 12.5))
                     .foregroundStyle(Color(hex: isUnread ? T.ink : T.muted))
                     .lineLimit(1)
