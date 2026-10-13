@@ -538,6 +538,7 @@ private extension MoreView {
                 out.append((s, 0, HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
                                                                    pausedAt: jc.pausedAt,
                                                                    totalPausedMs: jc.totalPausedMs,
+                                                                   frozenAtMs: jc.frozenAtMs,
                                                                    now: now)))
             }
         }
@@ -691,6 +692,7 @@ private extension MoreView {
         return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
                                                 pausedAt: jc.pausedAt,
                                                 totalPausedMs: jc.totalPausedMs,
+                                                frozenAtMs: jc.frozenAtMs,
                                                 now: Date())
     }
 
@@ -1155,6 +1157,7 @@ private struct RunningEntryCard: View {
         let hours = HoursCalculator.liveElapsedHours(clockIn: jobClock.clockIn,
                                                      pausedAt: jobClock.pausedAt,
                                                      totalPausedMs: jobClock.totalPausedMs,
+                                                     frozenAtMs: jobClock.frozenAtMs,
                                                      now: now)
         let secs = Int(hours * 3600)
         return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)

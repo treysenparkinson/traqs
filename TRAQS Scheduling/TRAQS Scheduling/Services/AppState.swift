@@ -3325,6 +3325,7 @@ class AppState {
         return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
                                                 pausedAt: jc.pausedAt,
                                                 totalPausedMs: jc.totalPausedMs,
+                                                frozenAtMs: jc.frozenAtMs,
                                                 now: Date())
     }
 

@@ -1505,6 +1505,7 @@ struct TaskCardV1: View {
         let hours = HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
                                                      pausedAt: jc.pausedAt,
                                                      totalPausedMs: jc.totalPausedMs,
+                                                     frozenAtMs: jc.frozenAtMs,
                                                      now: ref)
         let secs = Int(hours * 3600)
         return String(format: "%dh %dm %ds", secs / 3600, (secs % 3600) / 60, secs % 60)

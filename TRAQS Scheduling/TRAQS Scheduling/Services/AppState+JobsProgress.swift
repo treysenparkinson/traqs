@@ -49,6 +49,7 @@ extension AppState {
                     HoursCalculator.liveElapsedHours(clockIn: $0.clockIn,
                                                      pausedAt: $0.pausedAt,
                                                      totalPausedMs: $0.totalPausedMs,
+                                                     frozenAtMs: $0.frozenAtMs,
                                                      now: now)
                 } ?? 0)
         }

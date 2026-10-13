@@ -48,11 +48,17 @@ enum HoursCalculator {
     /// pause in when it ends, so without `pausedAt` a lunch keeps counting. The
     /// open-pause term is floored at 0: a `pausedAt` ahead of `now` (clock skew)
     /// can only ever remove time, never add it.
-    static func liveElapsedHours(clockIn: String, pausedAt: String?, totalPausedMs: Double?, now: Date) -> Double {
+    ///
+    /// A HELD clock (`frozenAtMs`, a pending finish request) stops at the hold, and an
+    /// open pause is measured against that same instant — as the web's does (#521, the
+    /// iOS twin of #283). Required, not defaulted, so no caller can quietly omit it.
+    static func liveElapsedHours(clockIn: String, pausedAt: String?, totalPausedMs: Double?,
+                                 frozenAtMs: Double?, now: Date) -> Double {
         guard let started = Date.fromFlexibleISO8601(clockIn) else { return 0 }
-        var ms = now.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
+        let effNow = frozenAtMs.map { min(now, Date(timeIntervalSince1970: $0 / 1000)) } ?? now
+        var ms = effNow.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
         if let pa = pausedAt, let pausedSince = Date.fromFlexibleISO8601(pa) {
-            ms -= max(0, now.timeIntervalSince(pausedSince) * 1000)
+            ms -= max(0, effNow.timeIntervalSince(pausedSince) * 1000)
         }
         return max(0, ms) / 3_600_000
     }
