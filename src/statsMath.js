@@ -297,46 +297,46 @@ export function payProdByDay({ timeclock, productionHours, people, personId = nu
 /**
  * Total pay / production / break / working / idle hours over a set of days.
  *
- * WORKING TIME IS PAID TIME, and IDLE IS PAID TIME WITH NO JOB CLOCKED — a
- * worker on the pay clock with no `activeJobClock` (#507, Trey's ruling,
- * 2026-10-12).
+ * WORKING TIME IS PAID TIME MINUS BREAKS, and IDLE IS PAID TIME WITH NO JOB
+ * CLOCKED — a worker on the pay clock with no `activeJobClock` (#507, Trey's
+ * rulings, 2026-10-12 and 2026-10-13).
  *
- * IT USED TO BE `working = pay − break`, argued as: "breaks are mandatory paid
- * downtime that cannot be converted into production, so they come out of the
- * denominator — otherwise following the rules caps everyone at ~93.75%". That
- * argument held only while a break was DELETED from production. #505 made a
- * clocked break production — a worker on a paid break is still on the job and
- * the job cost it — so the break then sat in the NUMERATOR and was subtracted
- * from the DENOMINATOR, and efficiency could read over 100%. A metric that
- * shows 104% teaches people to ignore it, which costs more than the metric is
- * worth.
+ * A break is paid, and on it PRODUCTION STOPS (the restored break rule, #505):
+ * the job clock is paused, so break time is in pay and not in production.
+ * Breaks are mandatory paid downtime that cannot become production, so they
+ * come out of the denominator — otherwise following the rules caps everyone at
+ * ~93.75%. And a worker on a break is ON a job, paused, so the break is not
+ * idle either: idle = pay − break − prod.
  *
- * THAT IDLE IS USUALLY ZERO IS THE POINT, not a flaw. The old figure was
- * non-zero by construction for every rule-following worker, so it measured the
- * RULE rather than the worker: a number that cannot reach zero however well
- * somebody works is not telling you about the work. This one is zero for a
- * worker who was on a job all day, and non-zero exactly when there is paid time
- * nobody can account for — which is the thing worth knowing.
+ * FROM 2026-10-12 TO 2026-10-13 IT WAS `working = pay`, and why matters because
+ * the denominator has now moved twice. #505 was first built backwards — a
+ * clocked break was credited to the JOB — so the break sat in the numerator and
+ * was subtracted from the denominator, and efficiency could read over 100%;
+ * `pay` was the fix for that. When the break rule was restored, breaks left
+ * production, `pay − break` could no longer exceed 100%, and the reason for
+ * `pay` was gone.
  *
- * `brk` is still reported. It is no longer arithmetic, and "of your paid time,
- * X was breaks" is a statement a card can still make.
+ * THAT IDLE IS USUALLY ZERO IS THE POINT, not a flaw. A worker on a job all day
+ * who takes their breaks reads zero; it is non-zero exactly when there is paid
+ * time nobody can account for — which is the thing worth knowing.
  *
  * Clamped PER DAY and floored at zero, because malformed data can record more
- * production than pay (two people on one op, a job clock running past a pay
- * clock-out) and a single bad day must not eat a good one.
+ * break than pay, or more production than working time (two people on one op, a
+ * job clock running past a pay clock-out), and a single bad day must not eat a
+ * good one.
  */
 export function totalsForDays({ payByDay, prodByDay, breakByDay }, days) {
   let pay = 0, prod = 0, brk = 0, working = 0, idle = 0;
   for (const d of days || []) {
     const p = payByDay[d] || 0, r = prodByDay[d] || 0, b = breakByDay[d] || 0;
     pay += p; prod += r; brk += b;
-    working += Math.max(0, p);
-    idle += Math.max(0, p - r);
+    working += Math.max(0, p - b);
+    idle += Math.max(0, p - b - r);
   }
   return { pay, prod, brk, working, idle };
 }
 
-/** Production ÷ working time as a whole percent, or null when there is no working time. */
+/** Production ÷ working time (pay − break) as a whole percent, or null when there is none. */
 export function efficiencyPct({ prod, working }) {
   return working > 0 ? Math.round((prod / working) * 100) : null;
 }

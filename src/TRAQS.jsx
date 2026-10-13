@@ -18597,11 +18597,10 @@ ${jobsCtx || "No jobs found."}`;
       const totalPay = rows.reduce((a, r) => a + r.pay, 0);
       const totalProd = rows.reduce((a, r) => a + r.prod, 0);
       const totalBreak = rows.reduce((a, r) => a + r.brk, 0);
-      // #507: the denominator is PAID TIME. It used to be pay minus break, and
-      // that stopped being right the moment #505 made a clocked break count as
-      // production — the break was then in the numerator and out of the
-      // denominator, so this could read over 100%. 100% now means "every paid
-      // hour was on a job", and idle is the paid time that was not.
+      // #507: the denominator is paid time minus breaks (re-ruled 2026-10-13, after
+      // the break restore took breaks back out of production — see totalsForDays).
+      // 100% means "every paid, non-break hour was on a job", and idle is the
+      // paid, non-break time that was not.
       const totalWorking = rows.reduce((a, r) => a + r.working, 0);
       const totalIdle = rows.reduce((a, r) => a + r.idle, 0);
       const pct = totalWorking > 0 ? Math.round(totalProd / totalWorking * 100) : 0;

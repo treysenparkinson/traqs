@@ -1,21 +1,21 @@
-// #507. IDLE IS PAID TIME WITH NO JOB CLOCKED, AND THE DENOMINATOR IS PAID TIME.
+// #507. IDLE IS PAID TIME WITH NO JOB CLOCKED, AND THE DENOMINATOR IS PAID TIME
+// MINUS BREAKS — re-ruled 2026-10-13 after the break restore.
 //
-// Trey's ruling, 2026-10-12, after #505 made a clocked break count as production.
+// THE HISTORY, because the denominator has now moved twice.
+//   * Originally `working = pay − break`: breaks are mandatory paid downtime that
+//     cannot become production, so counting them caps everyone at ~93.75%.
+//   * 2026-10-12 (#505 as first built): a break was credited to the JOB, so it sat
+//     in the numerator and was subtracted from the denominator — efficiency read
+//     over 100%. Trey ruled `working = pay`.
+//   * 2026-10-13: the break rule was BACKWARDS and was restored — on a break pay
+//     keeps running and PRODUCTION STOPS. With breaks out of production,
+//     `pay − break` cannot exceed 100%, so the reason for `pay` is gone. Trey:
+//     the denominator is `pay − break`.
 //
-// WHAT WAS THERE. `working = pay − break`, on the reasoning that "breaks are
-// mandatory paid downtime that cannot be converted into production, so they
-// come out of the denominator — otherwise following the rules caps everyone at
-// ~93.75%". That was true while a break was deleted from production. #505 made
-// a break production, so the break sat in the NUMERATOR and was removed from
-// the DENOMINATOR, and efficiency could read over 100%. A metric that shows
-// 104% teaches people to ignore it.
-//
-// WHAT IT IS NOW. `working = pay`, and idle is `pay − prod`: paid time with no
-// job clocked at all — a worker on the pay clock with no `activeJobClock`.
-// THAT IT IS USUALLY ZERO IS THE POINT. The old number was non-zero by
-// construction for every rule-following worker, so it measured the RULE rather
-// than the worker; a figure that cannot reach zero however well someone works
-// is not telling you about the work.
+// IDLE IS UNCHANGED IN MEANING: paid time with no job clocked at all. A break is
+// paid and is not production, but the worker is ON a job (paused), so it is not
+// idle either: idle = pay − break − prod. THAT IT IS USUALLY ZERO IS THE POINT —
+// a worker on a job all day who takes their breaks reads zero.
 //
 //   node scripts/idle-metric-test.mjs
 import { readFileSync } from "node:fs";
@@ -34,33 +34,31 @@ const maps = (rows) => ({
 });
 const D = ["2026-10-05", "2026-10-06"];
 
-console.log("\n1. THE DENOMINATOR IS PAID TIME — BREAKS STAY IN IT");
+console.log("\n1. THE DENOMINATOR IS PAID TIME MINUS BREAKS");
 {
-  // The exact shape that produced 104%: a worker paid 8h who took a 30m break
-  // and, since #505, is credited for all 8h of production.
-  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 8, brk: 0.5 }]), [D[0]]);
-  ok("working is pay, not pay minus break", t.working, 8);
-  ok("efficiency is 100, not 107", efficiencyPct(t), 100);
+  // A worker paid 8h who took a 30m break and was on a job for the rest: on the
+  // restored rule production is 7.5h, not 8.
+  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 7.5, brk: 0.5 }]), [D[0]]);
+  ok("working is pay minus break", t.working, 7.5);
+  ok("a rule-following worker on a job all day is 100%, not 94", efficiencyPct(t), 100);
   ok("break is still reported", t.brk, 0.5);
-  ok("pay and prod are unchanged", [t.pay, t.prod], [8, 8]);
+  ok("pay and prod are unchanged", [t.pay, t.prod], [8, 7.5]);
 }
 
 console.log("\n2. IDLE IS PAID TIME WITH NO JOB CLOCKED");
 {
-  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 6.5, brk: 0.5 }]), [D[0]]);
-  ok("idle is pay minus production", t.idle, 1.5);
-  ok("...and the break is NOT part of it — it was on a job", t.idle === 8 - 6.5, true);
-  ok("efficiency reads against paid time", efficiencyPct(t), 81);
+  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 6, brk: 0.5 }]), [D[0]]);
+  ok("idle is pay minus break minus production", t.idle, 1.5);
+  ok("...the break is NOT idle — the worker was on a job, paused", t.idle === 8 - 0.5 - 6, true);
+  ok("efficiency reads against paid time minus breaks", efficiencyPct(t), 80);
 }
 {
-  // THE POINT OF THE RULING: a worker always on a job reads zero, which the old
-  // metric could never do.
-  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 8, brk: 0.5 }]), [D[0]]);
-  ok("a worker who was on a job all day has NO idle time", t.idle, 0);
-  ok("...which the old break-subtracting rule could not report", t.working - t.prod, 0);
+  // THE POINT OF THE RULING: a worker always on a job reads zero.
+  const t = totalsForDays(maps([{ d: D[0], pay: 8, prod: 7.5, brk: 0.5 }]), [D[0]]);
+  ok("a worker who was on a job all day, breaks taken, has NO idle time", t.idle, 0);
 }
 {
-  // Production can exceed pay — two people on one op, or a job clock left
+  // Production can exceed working time — two people on one op, or a job clock left
   // running past a pay clock-out. Idle floors at zero rather than going negative.
   const t = totalsForDays(maps([{ d: D[0], pay: 4, prod: 6, brk: 0 }]), [D[0]]);
   ok("idle never goes negative", t.idle, 0);
@@ -94,13 +92,13 @@ console.log("\n5. THE REASONING THAT NO LONGER HOLDS IS GONE FROM THE SOURCE");
   // phrase it searched for happened to straddle a line break in the new text.
   // So the assertions are on the CODE, plus a check that the history is kept.
   const S = readFileSync(new URL("../src/statsMath.js", import.meta.url), "utf8");
-  ok("working is no longer computed as pay minus break",
-    /working \+= Math\.max\(0, p - b\)/.test(S), false);
-  ok("working is paid time", /working \+= Math\.max\(0, p\);/.test(S), true);
-  ok("idle is paid time minus production", /idle \+= Math\.max\(0, p - r\);/.test(S), true);
+  ok("working is paid time minus breaks, clamped per day",
+    /working \+= Math\.max\(0, p - b\);/.test(S), true);
+  ok("idle is paid time minus breaks minus production, clamped per day",
+    /idle \+= Math\.max\(0, p - b - r\);/.test(S), true);
   ok("totalsForDays returns it", /return \{ pay, prod, brk, working, idle \};/.test(S), true);
-  ok("the superseded rule is recorded rather than deleted",
-    /IT USED TO BE `working = pay − break`/.test(S), true);
+  ok("the 2026-10-12 rule is recorded as superseded rather than deleted",
+    /FROM 2026-10-12 TO 2026-10-13 IT WAS `working = pay`/.test(S), true);
   const T = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
   ok("the Employees card no longer asserts the old rationale as current",
     /mandatory paid downtime a worker cannot convert into/.test(T), false);
