@@ -639,30 +639,41 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
 /// so it was retired rather than left as a switch that gated nothing. An older
 /// payload carrying the key simply decodes without it.
 struct AdminPerms: Codable, Equatable {
-    var editJobs: Bool
-    var moveJobs: Bool
-    var reassign: Bool
-    var manageTeam: Bool
-    var manageClients: Bool
-    var undoHistory: Bool
-    var orgSettings: Bool
-    var approveCompletions: Bool
-    var approveTimeOff: Bool
+    /// Every key exactly as stored — modelled or not, present or ABSENT. #522: this
+    /// was nine fixed Bools, so an iOS admin roster save (people.js stores the
+    /// record it is sent) dropped the two #295 timeclock keys, revoking them, and
+    /// wrote an explicit `true` for any absent `approveCompletions` /
+    /// `approveTimeOff`, granting them. Kept raw, read only: nothing on iOS or the
+    /// Mac edits permissions.
+    private(set) var values: [String: JSONValue]
 
     init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        editJobs      = (try? c.decode(Bool.self, forKey: .editJobs)) ?? false
-        moveJobs      = (try? c.decode(Bool.self, forKey: .moveJobs)) ?? false
-        reassign      = (try? c.decode(Bool.self, forKey: .reassign)) ?? false
-        manageTeam    = (try? c.decode(Bool.self, forKey: .manageTeam)) ?? false
-        manageClients = (try? c.decode(Bool.self, forKey: .manageClients)) ?? false
-        undoHistory   = (try? c.decode(Bool.self, forKey: .undoHistory)) ?? false
-        orgSettings   = (try? c.decode(Bool.self, forKey: .orgSettings)) ?? false
-        // Added after granular perms shipped and previously ungated, so a record
-        // without the key must still be GRANTED — default true, not false.
-        approveCompletions = (try? c.decode(Bool.self, forKey: .approveCompletions)) ?? true
-        approveTimeOff     = (try? c.decode(Bool.self, forKey: .approveTimeOff)) ?? true
+        values = (try? decoder.singleValueContainer().decode([String: JSONValue].self)) ?? [:]
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(values)
+    }
+
+    /// The server's rule, `can()` in _utils/can.js: with a permissions object
+    /// present, a key is granted only when it is literally `true`; ABSENT is not
+    /// granted (GRANTED_WHEN_ABSENT is empty since #295). This read used to default
+    /// the two approval keys to granted, so iOS offered buttons the server refused.
+    private func granted(_ key: String) -> Bool {
+        if case .bool(true)? = values[key] { return true }
+        return false
+    }
+
+    var editJobs: Bool { granted("editJobs") }
+    var moveJobs: Bool { granted("moveJobs") }
+    var reassign: Bool { granted("reassign") }
+    var manageTeam: Bool { granted("manageTeam") }
+    var manageClients: Bool { granted("manageClients") }
+    var undoHistory: Bool { granted("undoHistory") }
+    var orgSettings: Bool { granted("orgSettings") }
+    var approveCompletions: Bool { granted("approveCompletions") }
+    var approveTimeOff: Bool { granted("approveTimeOff") }
 
     /// Key-path lookup so `can(.editJobs)` reads the same as the web's
     /// `can("editJobs")` rather than needing a switch at every call site.
@@ -697,6 +708,14 @@ struct TimeOffEntry: Codable, Identifiable {
     init(start: String, end: String, type: String, reason: String? = nil) {
         self.start = start; self.end = end; self.type = type; self.reason = reason
     }
+    /// #522 — keys iOS doesn't model (`status`, `reqId`, `note`…), written back as
+    /// they came. An entry without a `reqId` is stored as the roster sends it, so
+    /// before this an iOS roster save stripped its approval status.
+    var extras = JSONExtras()
+
+    enum CodingKeys: String, CodingKey, CaseIterable { case start, end, type, reason }
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
     // Defensive decode so one malformed entry can't drop a person's whole timeOff
     // array (decoded via try? [TimeOffEntry] on Person).
     init(from decoder: Decoder) throws {
@@ -705,6 +724,17 @@ struct TimeOffEntry: Codable, Identifiable {
         end    = (try? c.decode(String.self, forKey: .end)) ?? ""
         type   = (try? c.decode(String.self, forKey: .type)) ?? "PTO"
         reason = try? c.decodeIfPresent(String.self, forKey: .reason)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+    }
+
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(type, forKey: .type)
+        try c.encodeIfPresent(reason, forKey: .reason)
     }
 }
 
@@ -996,6 +1026,26 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     // mirroring desktop's canSeeApprovalQueue = admin || canSignOff.
     var canSignOff: Bool?
 
+    /// #522 — keys iOS doesn't model, `department` among them, written back as
+    /// they came. people.js stores the record a roster POST sends (bar the fields
+    /// it pins), so without this every iOS roster save dropped them for everyone.
+    var extras = JSONExtras()
+    /// `role` exactly as stored, and `role` as iOS reads it (department-first). The
+    /// web keeps the two apart — the employee editor writes `department`, the
+    /// org-chart drag writes `role` — and iOS folds them into one, so encode writes
+    /// the stored pair back untouched unless iOS itself changed the department.
+    private var storedRole: String?
+    private var decodedRole: String?
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, name, role, secondaryDepartment, email, cap, color, userRole, adminPerms
+        case isEngineer, autoSchedule, noAutoSchedule, teamNumber, timeOff, pushToken
+        case activeClockIn, activeJobClock, activeBreak, hasPin, payType, phone, image
+        case canClockInOut, canSignOff
+    }
+    /// Deliberately WITHOUT `department`, so it lands in `extras` as stored.
+    private static let knownKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
     var isAdmin: Bool { userRole == "admin" }
 
     /// Granular permission check — the SAME rule the web applies:
@@ -1036,6 +1086,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         let dept = (try? decoder.container(keyedBy: PersonRawKey.self))
             .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("department")) } ?? ""
         role     = dept.isEmpty ? legacyRole : dept
+        storedRole = legacyRole
+        decodedRole = role
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
         // Same raw-key read as `department` above, and for the same reason: it
         // is not in the legacy shape, so it has no synthesized key to decode
         // from on an older record.
@@ -1064,6 +1117,41 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
+    /// `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        // An iOS department edit (or a person iOS created) writes the new value to
+        // both, as the web's employee editor intends; otherwise the stored pair.
+        let edited = decodedRole == nil || role != decodedRole
+        var x = extras
+        if edited { x.set("department", .string(role)) }
+        try x.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(edited ? role : (storedRole ?? role), forKey: .role)
+        try c.encode(secondaryDepartment, forKey: .secondaryDepartment)
+        try c.encode(email, forKey: .email)
+        try c.encode(cap, forKey: .cap)
+        try c.encode(color, forKey: .color)
+        try c.encode(userRole, forKey: .userRole)
+        try c.encodeIfPresent(adminPerms, forKey: .adminPerms)
+        try c.encodeIfPresent(isEngineer, forKey: .isEngineer)
+        try c.encodeIfPresent(autoSchedule, forKey: .autoSchedule)
+        try c.encodeIfPresent(noAutoSchedule, forKey: .noAutoSchedule)
+        try c.encodeIfPresent(teamNumber, forKey: .teamNumber)
+        try c.encode(timeOff, forKey: .timeOff)
+        try c.encodeIfPresent(pushToken, forKey: .pushToken)
+        try c.encodeIfPresent(activeClockIn, forKey: .activeClockIn)
+        try c.encodeIfPresent(activeJobClock, forKey: .activeJobClock)
+        try c.encodeIfPresent(activeBreak, forKey: .activeBreak)
+        try c.encodeIfPresent(hasPin, forKey: .hasPin)
+        try c.encodeIfPresent(payType, forKey: .payType)
+        try c.encodeIfPresent(phone, forKey: .phone)
+        try c.encodeIfPresent(image, forKey: .image)
+        try c.encodeIfPresent(canClockInOut, forKey: .canClockInOut)
+        try c.encodeIfPresent(canSignOff, forKey: .canSignOff)
+    }
+
     init(id: String, name: String, role: String, secondaryDepartment: String = "",
          email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
