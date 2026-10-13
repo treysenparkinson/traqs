@@ -90,6 +90,16 @@ class AppState {
     /// compared for equality, so wrapping is harmless.
     private(set) var dataRevision: Int = 0
     var messages: [Message] = [] { didSet { recomputeUnread() } }
+    /// Messages I've sent whose POST hasn't come back yet. Every path that REPLACES
+    /// `messages` wholesale (the 3s thread poll, a cache rehydrate after a live
+    /// change) loads a list the server or cache hasn't got my message in yet; it
+    /// used to drop the bubble mid-send and the send's completion put it back —
+    /// the "snaps away, then snaps into place". They now merge these back in.
+    private var outgoingMessages: [Message] = []
+
+    private func keepingOutgoing(_ incoming: [Message]) -> [Message] {
+        MessageMerge.keepingOutgoing(incoming, outgoing: outgoingMessages)
+    }
     var groups: [ChatGroup] = []
     /// Server-side read receipts: `[threadKey: [personId: ISO "read up to"]]`.
     /// Drives the Sent/Read status under my own message bubbles. Refreshed
@@ -438,7 +448,8 @@ class AppState {
             if !j.isEmpty || jobs.isEmpty { jobs = j }
             if !p.isEmpty || people.isEmpty { people = OptimisticClocks.apply(clockSnap, to: p) }
             if !c.isEmpty || clients.isEmpty { clients = c }
-            if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
+            let mk = keepingOutgoing(m)
+            if mk != messages, !mk.isEmpty || messages.isEmpty { messages = mk }
             if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
             if let s, s != orgSettings { orgSettings = s }
             if !ph.isEmpty || productionHours.isEmpty { applyProductionHours(ph) }
@@ -1733,10 +1744,18 @@ class AppState {
     func sendMessageThrowing(_ message: Message) async throws -> String {
         messages.append(message)   // optimistic: bubble appears instantly
         guard let api else { return message.id }
+        outgoingMessages.append(message)
+        defer { outgoingMessages.removeAll { $0.id == message.id } }
         do {
             let serverMsg = try await api.sendMessage(message)
             // Swap the optimistic local message for the canonical server message.
-            if let i = messages.firstIndex(where: { $0.id == message.id }) {
+            // The server keeps the id we sent (it accepts a UUID), so this is
+            // normally an in-place update. If it assigned its own and a refresh
+            // already brought that copy in, drop the local one rather than
+            // making a second entry with the server's id.
+            if serverMsg.id != message.id, messages.contains(where: { $0.id == serverMsg.id }) {
+                messages.removeAll { $0.id == message.id }
+            } else if let i = messages.firstIndex(where: { $0.id == message.id }) {
                 messages[i] = serverMsg
             } else if !messages.contains(where: { $0.id == serverMsg.id }) {
                 // A concurrent refresh (applyServerMessages does `messages = r`)
@@ -1774,7 +1793,7 @@ class AppState {
     private func applyServerMessages(_ data: Data) {
         let r = (try? JSONDecoder().decode([Message].self, from: data)) ?? []
         guard !r.isEmpty || messages.isEmpty else { return }
-        withoutAnimation { messages = r }
+        withoutAnimation { messages = keepingOutgoing(r) }
         syncService?.mergeFullMessages(data)
     }
 
