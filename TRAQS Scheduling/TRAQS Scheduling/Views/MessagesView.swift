@@ -361,9 +361,16 @@ struct MessagesView: View {
         .onChange(of: navigationPath.count, initial: true) { _, count in
             if count == 0 { appState.activeMessageThread = nil }
             appNav.hideTabBar = count > 0
+            // A thread pushed or popped means no members page is open (that page
+            // isn't on this path). Without this the flag could be left set — it
+            // hides the app header (logo + buttons), and did, on the inbox too.
+            appState.threadMembersOpen = false
         }
         // Leaving the Messages tab entirely → always restore the bar.
-        .onDisappear { appNav.hideTabBar = false }
+        .onDisappear {
+            appNav.hideTabBar = false
+            appState.threadMembersOpen = false
+        }
         .onChange(of: showSearch) { _, open in if open { searchFocused = true } }
     }
 
@@ -1296,8 +1303,12 @@ struct ThreadDetailView: View {
         .onDisappear {
             // Covered by its own members page isn't leaving: keep the header's
             // context, so the overlay window stays drawn (just transparent) and
-            // can come straight back when the page collapses.
-            if !appState.threadMembersOpen { appState.activeMessageThread = nil }
+            // can come straight back when the page collapses. Anything else IS
+            // leaving, and takes the members flag with it.
+            if !showMembers {
+                appState.activeMessageThread = nil
+                appState.threadMembersOpen = false
+            }
         }
         .task(id: threadKey) {
             // Poll every 3s while this conversation is open. The global
