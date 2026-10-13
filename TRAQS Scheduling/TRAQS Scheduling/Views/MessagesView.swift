@@ -674,6 +674,10 @@ struct ThreadDetailView: View {
     /// The members page, pushed when the header's name pill is tapped.
     @State private var showMembers = false
     @Namespace private var membersZoom
+    /// This thread's own copy of the header is drawn. Set BEFORE the overlay
+    /// header goes transparent and cleared AFTER it is back, so the two overlap
+    /// (identically) at both hand-overs and there is never a frame with neither.
+    @State private var showHeaderCopy = false
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
@@ -711,8 +715,11 @@ struct ThreadDetailView: View {
                 // same spot), then push on the next pass, once the copy — the zoom's
                 // source — is on screen.
                 composerFocused = false
-                appState.threadMembersOpen = true
-                DispatchQueue.main.async { showMembers = true }
+                showHeaderCopy = true
+                DispatchQueue.main.async {
+                    appState.threadMembersOpen = true
+                    DispatchQueue.main.async { showMembers = true }
+                }
             }
         )
     }
@@ -734,6 +741,11 @@ struct ThreadDetailView: View {
     /// moment a thread opens), we ALWAYS pin to the newest message regardless of
     /// `isAtBottom` or who sent it, so the thread never opens mid-history.
     @State private var didInitialScroll = false
+    /// The opening pin-to-newest runs once per visit to the thread. `.onAppear`
+    /// also fires when the members page is popped back off it, and re-running the
+    /// pin there yanked the transcript to the bottom five times as the page
+    /// collapsed — the snap at the end of that animation.
+    @State private var didOpen = false
     private static let bottomAnchor = "chat_bottom_anchor"
 
     // #3 read receipts. `pendingIds` = my messages still in flight (show
@@ -1069,6 +1081,8 @@ struct ThreadDetailView: View {
                     }
                 }
                 .onAppear {
+                    guard !didOpen else { return }
+                    didOpen = true
                     captureBaselineIfNeeded()
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
@@ -1251,7 +1265,11 @@ struct ThreadDetailView: View {
         .onChange(of: showMembers) { _, open in
             guard !open else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if !showMembers { appState.threadMembersOpen = false }
+                guard !showMembers else { return }
+                appState.threadMembersOpen = false          // overlay header back…
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    if !showMembers { showHeaderCopy = false }   // …then the copy goes
+                }
             }
         }
         // This thread's own copy of the header, shown only while the members page
@@ -1259,7 +1277,7 @@ struct ThreadDetailView: View {
         // the swap can't be seen; it exists because the zoom's source has to be in
         // this window, and the pill it grows from and collapses into is this one.
         .overlay(alignment: .top) {
-            if appState.threadMembersOpen {
+            if showHeaderCopy {
                 GeometryReader { geo in
                     ThreadTopBar(context: headerContext, topInset: geo.safeAreaInsets.top,
                                  zoomSource: membersZoom)
@@ -1276,7 +1294,10 @@ struct ThreadDetailView: View {
         .onChange(of: displayTitle) { publishThreadContext() }
         .onChange(of: threadParticipants.map(\.id)) { publishThreadContext() }
         .onDisappear {
-            appState.activeMessageThread = nil
+            // Covered by its own members page isn't leaving: keep the header's
+            // context, so the overlay window stays drawn (just transparent) and
+            // can come straight back when the page collapses.
+            if !appState.threadMembersOpen { appState.activeMessageThread = nil }
         }
         .task(id: threadKey) {
             // Poll every 3s while this conversation is open. The global

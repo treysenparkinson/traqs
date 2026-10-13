@@ -128,13 +128,17 @@ final class OverlayWindowController {
             w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
             w.alpha = 1
             w.isHidden = false
-        } else if appState.threadMembersOpen {
+        } else if appState.threadMembersOpen, let ctx = appState.activeMessageThread {
             // The thread is drawing an identical copy of this header in the same
-            // spot (the members page zooms out of it), so hand over instantly —
-            // no slide-away, which would show as the header leaving.
+            // spot (the members page zooms out of it). Go TRANSPARENT, not hidden:
+            // the content stays laid out and its glass stays rendered, so coming
+            // back is a plain alpha flip — no re-layout, no glass appear animation,
+            // no slide. Touches pass through an alpha-0 window.
             hiding = false
             w.layer.removeAllAnimations()
-            w.isHidden = true
+            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
+            w.alpha = 0
+            w.isHidden = false
         } else if !w.isHidden && !hiding {
             // Hide by fading + sliding right, in sync with the nav pop, keeping
             // the last header on screen through the animation (don't clear the
