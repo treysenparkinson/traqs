@@ -236,6 +236,14 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    /// Remove someone else from the org (#525) — needs manageTeam on the server. The
+    /// only way to delete a person: a roster save keeps anyone it leaves out.
+    func deletePerson(id: String) async throws {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id
+        let req = try await request("people?id=\(encoded)", method: "DELETE")
+        _ = try await perform(req)
+    }
+
     // MARK: - Clients
 
     func fetchClients() async throws -> [Client] {

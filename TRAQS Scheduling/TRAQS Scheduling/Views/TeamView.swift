@@ -196,11 +196,9 @@ struct TeamView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let p = personToDelete {
-                    var list = appState.people
-                    list.removeAll { $0.id == p.id }
-                    appState.updatePeople(list)
-                }
+                // An explicit delete (#525) — a roster save without them no longer
+                // removes anyone.
+                if let p = personToDelete { appState.deletePerson(p) }
                 personToDelete = nil
             }
             Button("Cancel", role: .cancel) { personToDelete = nil }

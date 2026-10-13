@@ -2365,14 +2365,39 @@ class AppState {
         do {
             try await api.patchPerson(personId: personId, fields: ["pushToken": token])
             confirmedPushToken = token
-        } catch APIError.httpError(405), APIError.httpError(404) {
+        } catch where Self.pushTokenFallsBackToRoster(error) {
             if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
         } catch {
-            // Any other error: also fall back, since we'd rather have
-            // push working with the legacy race than not working at all.
-            // `confirmedPushToken` stays put on failure, so the next
-            // foreground/observer retry tries again instead of skipping.
-            if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
+            // Any other error: NO roster save (#525). This used to fall back on every
+            // error too — so a network blip at launch posted the CACHED roster as a
+            // whole-roster write, from a phone nobody touched. `confirmedPushToken`
+            // stays unset, so the next foreground / observer retry tries again.
+        }
+    }
+
+    /// Whether a failed push-token PATCH should fall back to the whole-roster POST.
+    /// Only for a server too old to have the PATCH (404 / 405), the case the
+    /// fallback was written for — never for a timeout, a lost connection or a server
+    /// error (#525).
+    nonisolated static func pushTokenFallsBackToRoster(_ error: Error) -> Bool {
+        if case APIError.httpError(let code)? = error as? APIError { return code == 404 || code == 405 }
+        return false
+    }
+
+    /// Remove a team member (#525): the explicit DELETE /people?id=, never a roster save
+    /// without them — the server no longer deletes anyone a roster save omits.
+    /// Optimistic; a refusal (no manageTeam, offline) puts the person back.
+    func deletePerson(_ person: Person) {
+        guard let api else { return }
+        let previous = people
+        people.removeAll { $0.id == person.id }
+        Task {
+            do {
+                try await api.deletePerson(id: person.id)
+            } catch {
+                people = previous
+                errorMessage = "Couldn't remove \(person.name) — try again."
+            }
         }
     }
 
