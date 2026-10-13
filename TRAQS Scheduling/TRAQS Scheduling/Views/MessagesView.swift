@@ -680,7 +680,10 @@ struct ThreadDetailView: View {
     @State private var showAddPeople = false            // add/edit-members popup?
     /// The members page, pushed when the header's name pill is tapped.
     @State private var showMembers = false
-    @Namespace private var membersZoom
+    /// 0 = the pill, 1 = the full page. Animated by open/closeMembers.
+    @State private var membersProgress: CGFloat = 0
+    /// The header pill's frame (global), reported by this thread's header copy.
+    @State private var pillFrame: CGRect = .zero
     /// This thread's own copy of the header is drawn. Set BEFORE the overlay
     /// header goes transparent and cleared AFTER it is back, so the two overlap
     /// (identically) at both hand-overs and there is never a frame with neither.
@@ -717,18 +720,70 @@ struct ThreadDetailView: View {
             // The header is then cleared when the path empties (.onChange below),
             // tying the header's exit to the actual pop.
             onBack: { appState.messagesPopRequested = true },
-            onTapIdentity: {
-                // Swap the windowed header for this view's identical copy (instant,
-                // same spot), then push on the next pass, once the copy — the zoom's
-                // source — is on screen.
-                composerFocused = false
-                showHeaderCopy = true
-                DispatchQueue.main.async {
-                    appState.threadMembersOpen = true
-                    DispatchQueue.main.async { showMembers = true }
-                }
+            onTapIdentity: { openMembers() }
+        )
+    }
+
+    private func membersPage(topInset: CGFloat) -> some View {
+        ThreadMembersPage(
+            topInset: topInset,
+            onClose: { closeMembers() },
+            title: displayTitle,
+            participants: threadParticipants,
+            canRename: editableGroup.map { appState.canAdministerGroup($0) } ?? false,
+            onRename: { name in
+                guard let group = editableGroup else { return }
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                Task { await appState.updateGroup(id: group.id, name: trimmed, memberIds: group.memberIds) }
+            },
+            canAdd: canAddPeople,
+            onAddWillOpen: { appNav.modalBlur = true },
+            addCover: { addPeopleCover },
+            canLeave: editableGroup.map { g in
+                appState.currentPersonId.map { g.memberIds.contains($0) } ?? false
+            } ?? false,
+            onLeave: {
+                guard let group = editableGroup, let me = appState.currentPersonId else { return }
+                Task { await appState.removeGroupMember(groupId: group.id, personId: me) }
+                // Out of the group: pop the thread (and this page with it) back
+                // to the inbox.
+                appState.messagesPopRequested = true
             }
         )
+    }
+
+    /// Grow the pill into the members page. Each step waits a pass for the one
+    /// before it to be on screen: the header copy (so the overlay header can go
+    /// transparent behind an identical stand-in), then the hero mounted AT the
+    /// pill, then the growth.
+    private func openMembers() {
+        composerFocused = false
+        showHeaderCopy = true
+        DispatchQueue.main.async {
+            appState.threadMembersOpen = true
+            DispatchQueue.main.async {
+                membersProgress = 0
+                showMembers = true
+                DispatchQueue.main.async {
+                    withAnimation(.spring(duration: 0.45, bounce: 0.1)) { membersProgress = 1 }
+                }
+            }
+        }
+    }
+
+    /// Shrink the page back into the pill, then hand the header back. No bounce on
+    /// the way in: an overshoot would undershoot the pill and snap back out.
+    private func closeMembers() {
+        withAnimation(.spring(duration: 0.4, bounce: 0)) {
+            membersProgress = 0
+        } completion: {
+            showMembers = false
+            appState.threadMembersOpen = false                  // overlay header back…
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                if !showMembers { showHeaderCopy = false }      // …then the copy goes
+            }
+        }
     }
 
     // #1 auto-follow + #4 entrance animations. `baselineIds` is the set of
@@ -1248,58 +1303,34 @@ struct ThreadDetailView: View {
         // background so it can draw its own scrim and glass card rather than
         // inherit a system sheet's.
         .fullScreenCover(isPresented: $showAddPeople) { addPeopleCover }
-        // The members page — a real pushed page that zooms out of the header pill.
-        .navigationDestination(isPresented: $showMembers) {
-            ThreadMembersPage(
-                title: displayTitle,
-                participants: threadParticipants,
-                canRename: editableGroup.map { appState.canAdministerGroup($0) } ?? false,
-                onRename: { name in
-                    guard let group = editableGroup else { return }
-                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    Task { await appState.updateGroup(id: group.id, name: trimmed, memberIds: group.memberIds) }
-                },
-                canAdd: canAddPeople,
-                onAddWillOpen: { appNav.modalBlur = true },
-                addCover: { addPeopleCover },
-                canLeave: editableGroup.map { g in
-                    appState.currentPersonId.map { g.memberIds.contains($0) } ?? false
-                } ?? false,
-                onLeave: {
-                    guard let group = editableGroup, let me = appState.currentPersonId else { return }
-                    Task { await appState.removeGroupMember(groupId: group.id, personId: me) }
-                    // Out of the group: pop the thread (and this page with it) back
-                    // to the inbox.
-                    appState.messagesPopRequested = true
-                }
-            )
-            .navigationTransition(.zoom(sourceID: "members", in: membersZoom))
-        }
-        // Once the page has been popped and has collapsed back into the pill, hand
-        // the header back to the overlay window. The binding flips as the pop
-        // begins, so wait out the collapse first.
-        .onChange(of: showMembers) { _, open in
-            guard !open else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                guard !showMembers else { return }
-                appState.threadMembersOpen = false          // overlay header back…
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    if !showMembers { showHeaderCopy = false }   // …then the copy goes
-                }
-            }
-        }
-        // This thread's own copy of the header, shown only while the members page
-        // is open. It is identical to the overlay window's and in the same spot, so
-        // the swap can't be seen; it exists because the zoom's source has to be in
-        // this window, and the pill it grows from and collapses into is this one.
-        .overlay(alignment: .top) {
+        // The header copy, and — while it's open — the members page growing out of
+        // its pill. The conversation underneath is never touched.
+        //
+        // The copy is identical to the overlay window's header and in the same spot,
+        // so the swap can't be seen. It exists because the page has to grow out of a
+        // pill in THIS window, over this view.
+        .overlay {
             if showHeaderCopy {
                 GeometryReader { geo in
-                    ThreadTopBar(context: headerContext, topInset: geo.safeAreaInsets.top,
-                                 zoomSource: membersZoom)
-                        .ignoresSafeArea()
+                    let origin = geo.frame(in: .global).origin
+                    let full = CGRect(origin: .zero, size: geo.size)
+                    let from = pillFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                    ZStack(alignment: .topLeading) {
+                        if showMembers {
+                            MembersHero(progress: membersProgress, from: from, full: full,
+                                        title: displayTitle,
+                                        page: membersPage(topInset: geo.safeAreaInsets.top))
+                        }
+                        // On top at the start, so the hero's first frame is exactly
+                        // the header as it was; fades as the page grows over it.
+                        ThreadTopBar(context: headerContext, topInset: geo.safeAreaInsets.top,
+                                     onPillFrame: { if $0 != pillFrame { pillFrame = $0 } },
+                                     hidePill: showMembers)
+                            .opacity(Double(max(0, 1 - membersProgress * 3)))
+                            .allowsHitTesting(!showMembers)
+                    }
                 }
+                .ignoresSafeArea()
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -2371,10 +2402,13 @@ struct CompletionRequestBubble: View {
 struct ThreadTopBar: View {
     let context: ThreadContext
     let topInset: CGFloat
-    /// Set only on the thread's own copy of this header (main window): the pill
-    /// becomes the members page's zoom source, so the page grows out of it and
-    /// collapses back into it. The overlay window's copy can't be a source.
-    var zoomSource: Namespace.ID? = nil
+    /// Set only on the thread's own copy of this header (main window): reports
+    /// where the pill is, which is where the members page grows from and
+    /// collapses back into.
+    var onPillFrame: ((CGRect) -> Void)? = nil
+    /// The copy hides its pill while the members page is out — the page's own
+    /// shell IS the pill at that point, drawn in exactly the same place.
+    var hidePill: Bool = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -2397,7 +2431,8 @@ struct ThreadTopBar: View {
                 // the finger and springs back, and this pill has to hold its size
                 // and place no matter what.
                 .glassEffect(.regular, in: Capsule())
-                .modifier(MembersZoomSource(namespace: zoomSource))
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { onPillFrame?($0) }
+                .opacity(hidePill ? 0 : 1)
                 .accessibilityLabel("\(context.title). Show people")
             }
             // Clear of the back button on either side, so a long name truncates
@@ -2449,31 +2484,95 @@ struct ThreadTopBar: View {
     }
 }
 
-/// `matchedTransitionSource` when there's a namespace, nothing otherwise — so the
-/// one header view serves both windows. Clipped to the pill's shape so the zoom
-/// starts and ends as the pill.
-private struct MembersZoomSource: ViewModifier {
-    let namespace: Namespace.ID?
-    func body(content: Content) -> some View {
-        if let namespace {
-            // Only RoundedRectangle is accepted here. The pill measures 46pt tall,
-            // so a 23pt radius IS its capsule.
-            content.matchedTransitionSource(id: "members", in: namespace) {
-                $0.clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+// MARK: - Members hero (the pill growing into the page)
+
+/// The name pill's glass growing into the full members page, and shrinking back.
+/// One animatable `progress`, 0 = exactly the pill, 1 = the whole screen:
+///   • the shell's frame and corner run from the pill's to the screen's;
+///   • its glass gives way to the page's solid background;
+///   • the pill's own title fades out as the page's content fades in;
+///   • the page is laid out at FULL size the whole time and only revealed through
+///     the shell, so nothing inside it re-flows mid-animation.
+/// Nothing outside the shell moves: the conversation under it stays exactly as it
+/// is — unlike the system zoom transition, which shrinks the page behind.
+struct MembersHero<Page: View>: View, Animatable {
+    var progress: CGFloat
+    /// The pill and the screen, in this view's own coordinates.
+    let from: CGRect
+    let full: CGRect
+    let title: String
+    let page: Page
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let p = min(max(progress, 0), 1)
+        let rect = CGRect(x: mix(from.minX, full.minX), y: mix(from.minY, full.minY),
+                          width: mix(from.width, full.width), height: mix(from.height, full.height))
+        // From the pill's capsule (half its height) to a corner the screen's own
+        // rounded corners hide.
+        let shape = RoundedRectangle(cornerRadius: mix(from.height / 2, 44), style: .continuous)
+        let contentIn = max(0, (p - 0.3) / 0.7)
+
+        ZStack(alignment: .topLeading) {
+            // The shell: the pill's glass, filling in with the page background.
+            // The glass goes on a container that ALWAYS holds something visible —
+            // the title at the start, the fill after. Measured: with the glass on
+            // the fill alone, a fill at opacity 0 (progress 0, the very frame that
+            // must BE the pill) is dropped by SwiftUI, glass and all.
+            ZStack {
+                shape.fill(Color(hex: T.bg).opacity(Double(min(1, p * 1.6))))
+                // The pill's own title, laid out exactly as the header pill's, so
+                // the first and last frames ARE the pill.
+                Text(title)
+                    .font(TTypo.smBold(15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 18)
+                    .padding(.bottom, 9)
+                    .dynamicTypeSize(.large)
+                    .frame(width: from.width, height: from.height)
+                    .opacity(Double(max(0, 1 - p * 4)))
             }
-        } else {
-            content
+            .frame(width: rect.width, height: rect.height)
+            .glassEffect(.regular, in: shape)
+                .offset(x: rect.minX, y: rect.minY)
+
+            page
+                .frame(width: full.width, height: full.height)
+                .mask {
+                    shape
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX - full.minX, y: rect.minY - full.minY)
+                        .frame(width: full.width, height: full.height, alignment: .topLeading)
+                }
+                .opacity(Double(contentIn))
+                .offset(x: full.minX, y: full.minY)
+                .allowsHitTesting(p > 0.99)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// `a` → `b` at the current progress.
+    private func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+        a + (b - a) * min(max(progress, 0), 1)
     }
 }
 
 // MARK: - Thread members page
 
-/// The page the header's name pill opens: a real pushed page — solid background,
-/// the system back button and swipe-back — zooming out of the pill's spot.
+/// The page the header's name pill opens: a solid, full-screen page that the pill's
+/// glass grows into (see MembersHero) while the conversation under it stays still.
 /// The thread's name with a pencil to rename it, then everyone in the thread three
 /// across, with an Add tile.
 struct ThreadMembersPage<AddCover: View>: View {
+    let topInset: CGFloat
+    let onClose: () -> Void
     let title: String
     let participants: [Person]
     /// Only a group's creator or an admin — AppState.updateGroup refuses anyone else.
@@ -2573,18 +2672,31 @@ struct ThreadMembersPage<AddCover: View>: View {
                     .padding(.top, 8)
                 }
             }
-            .padding(.top, 12)
+            .padding(.top, topInset + 64)   // under the back button
             .padding(.bottom, 32)
         }
-        .background(Color(hex: T.bg).ignoresSafeArea())
+        .scrollBounceBehavior(.basedOnSize)
+        // The back button sits exactly where the thread's does, so one hands over
+        // to the other in place as the page grows.
+        .overlay(alignment: .topLeading) {
+            Button(action: onClose) {
+                HeaderGlassCircle {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.ink))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .padding(.leading, 16)
+            .padding(.top, topInset + 18)
+        }
         .confirmationDialog("Leave this group?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
             Button("Leave", role: .destructive) { onLeave() }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("You'll stop receiving messages from this group.")
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
         .alert("Rename Group", isPresented: $renaming) {
             TextField("Group name", text: $draftName)
             Button("Cancel", role: .cancel) {}
