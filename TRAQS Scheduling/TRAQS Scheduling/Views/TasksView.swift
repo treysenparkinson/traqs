@@ -106,9 +106,10 @@ struct TasksView: View {
                 if appState.isBusinessTier, filter != .done,
                    !workingTasks.isEmpty || !inProgressTasks.isEmpty || !inProgressJobs.isEmpty {
                   VStack(spacing: 0) {
-                    sectionHeader("In Progress",
-                                  count: workingTasks.count + inProgressTasks.count + inProgressJobs.count,
-                                  top: (myTodayTasks.isEmpty || !showsMyWork) ? 0 : Rv.sectionTop)
+                    // No "In Progress" title (removed 2026-10-13) — the cards
+                    // speak for themselves. Its top gap is kept, so nothing below
+                    // moves.
+                    Color.clear.frame(height: (myTodayTasks.isEmpty || !showsMyWork) ? 0 : Rv.sectionTop)
                     // Each stack is guarded: an empty VStack still renders, and
                     // its `.padding(.top, 12)` would leave a dead gap under the
                     // header whenever that particular list happened to be empty.
@@ -269,10 +270,8 @@ struct TasksView: View {
         let df = ShopTime.current.formatter("EEE · MMM d")
         return VStack(spacing: 0) {
             rangeContent(activeRange, label: df.string(from: Date()))
-
-            EndOfDayPlaceholder()
-                .padding(.horizontal, Rv.side).padding(.top, 12).padding(.bottom, 24)
         }
+        .padding(.bottom, 24)
     }
 
     // ── Week: 7-day strip + every TASK across the week, placed under start day ─
@@ -441,7 +440,10 @@ struct TasksView: View {
         return VStack(spacing: 0) {
             if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
                 VStack(spacing: 6) {
-                    NoJobsPlaceholder(text: filter == .mine ? "Nothing assigned to you" : "No jobs scheduled")
+                    // Today with nothing on it says so plainly; other ranges keep
+                    // their specific wording.
+                    NoJobsPlaceholder(text: segment == .today ? "It's quiet here..."
+                                      : filter == .mine ? "Nothing assigned to you" : "No jobs scheduled")
                     diagnosticLine
                 }
                 .padding(.horizontal, Rv.side).padding(.top, 8)
@@ -455,16 +457,9 @@ struct TasksView: View {
                 sectionHeader(windowLabel, count: today.count + jobToday.count, top: todayTop)
                 sectionBody(today, jobToday)
             }
-            // The IN PROGRESS header stays while a job is being worked, even
-            // though that job's card has moved up to the hero slot and its
-            // bucket here is empty. The work IS in progress — the card moving
-            // doesn't change that.
-            //
-            // It also fixes the clock-in jump. Letting the section vanish
-            // collapsed the whole page by a header's height at the same moment
-            // the card was being pinned above, and those two together are what
-            // read as the card sliding up: it wasn't only moving, everything
-            // under it was moving too.
+            // (The page-level In Progress group above has no title any more; its
+            // top gap stays put while a job is being worked, so clocking in
+            // doesn't collapse the page under the card.)
             if hasUpcoming {
                 sectionHeader("Upcoming", count: upcoming.count + jobUpcoming.count, top: upcomingTop)
                 sectionBody(upcoming, jobUpcoming)
@@ -1790,8 +1785,8 @@ struct TaskCardV1: View {
 
     // MARK: Block face (Jobs list)
 
-    /// The job being worked stands out in sky; everything else is lavender.
-    private var blockTint: Rv.Tint { isActive ? .sky : .lavender }
+    /// The job being worked stands out in sky; everything else is mint.
+    private var blockTint: Rv.Tint { isActive ? .sky : .mint }
 
     /// True when `dept` named a real department rather than falling back to
     /// the task's own title — the fallback would just repeat the block title.
@@ -2244,7 +2239,7 @@ private struct BasicJobCard: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Rv.Tint.lavender.fill))
+                    .fill(Rv.Tint.mint.fill))
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else {
             SBox(size: .lg, radius: T.cornerHero, frosted: true) {
@@ -2285,21 +2280,6 @@ struct BasicCardLabelStyle: LabelStyle {
             configuration.title
                 .tnum()
         }
-    }
-}
-
-// MARK: - End-of-day placeholder (dashed)
-
-private struct EndOfDayPlaceholder: View {
-    var body: some View {
-        HStack(spacing: 8) {
-            TIconView(icon: .check, size: 14, color: Color(hex: T.muted))
-            Text("End of today · 0 unassigned")
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.muted))
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity)
     }
 }
 
