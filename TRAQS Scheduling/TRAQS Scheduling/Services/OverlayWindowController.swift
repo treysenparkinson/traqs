@@ -16,7 +16,9 @@ import UIKit
 //
 // The window is only as tall as the header (top safe area + bar), so every
 // touch below it falls through to the main window automatically — no hitTest
-// override needed. It's hidden unless a thread is open.
+// override needed. It's hidden unless a thread is open. The one exception: while
+// the header's members panel is expanded the window is full screen, because the
+// panel is the header's own glass morphed to fill it (see ThreadTopBar).
 
 /// The header content hosted inside the overlay window. Driven by an explicit
 /// `context` the controller pushes on every change (we don't rely on @Observable
@@ -35,47 +37,18 @@ struct OverlayHeaderContent: View {
     /// runtime — so opening any thread crashed.
     let theme: ThemeSettings
 
-    private let barHeight: CGFloat = 108
-    private let fade: CGFloat = 36   // bottom edge that dissolves into the page
+    /// Grow (true) / shrink (false) the window for the members panel.
+    var onExpandedChange: (Bool) -> Void = { _ in }
 
     var body: some View {
         if let ctx = context {
-            let total = topInset + barHeight
-            let solid = total > 0 ? max(0, (total - fade) / total) : 1
-            ZStack(alignment: .top) {
-                // Frosted glass: the messages scrolling underneath show through,
-                // blurred. The bottom edge fades to clear so the header dissolves
-                // into the page instead of ending on a hard line.
-                // Always a real blur, NEVER flattened by the frosted-glass
-                // toggle — the one exception among the bars.
-                //
-                // This plate is masked to fade out along its bottom edge, so
-                // "flat" means an opaque slab dissolving into nothing, which
-                // reads as a rendering fault rather than as a design. The blur
-                // is also doing a job here that no flat fill can: the messages
-                // scrolling UNDER it have to stay legible-but-receded, and a
-                // solid surface colour would simply swallow them.
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .mask(
-                        LinearGradient(stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: solid),
-                            .init(color: .clear, location: 1)
-                        ], startPoint: .top, endPoint: .bottom)
-                    )
-                ThreadTopBar(title: ctx.title,
-                             isDM: ctx.isDM,
-                             participants: ctx.participants,
-                             onBack: ctx.onBack,
-                             onTapIdentity: ctx.onTapIdentity)
-                    .padding(.top, topInset)   // drop below the status bar
-            }
-            .ignoresSafeArea()
-            // Everything above — the plate and the bar's glass back button —
-            // reads this. It has to be injected here because nothing upstream
-            // of this window can do it.
-            .environment(theme)
+            // No backing plate: the back button and the name pill are glass of
+            // their own, floating over the messages.
+            ThreadTopBar(context: ctx, topInset: topInset, onExpandedChange: onExpandedChange)
+                .ignoresSafeArea()
+                // The glass back button reads this. It has to be injected here
+                // because nothing upstream of this window can do it.
+                .environment(theme)
         } else {
             Color.clear
         }
@@ -91,9 +64,11 @@ final class OverlayWindowController {
     private var host: UIHostingController<OverlayHeaderContent>?
     private weak var scene: UIWindowScene?
 
-    // Header window height (status bar + this). Taller than the bar's intrinsic
-    // content so there's room below it for a long fade into the page.
+    // Header window height (status bar + this).
     private let barHeight: CGFloat = 108
+    /// True while the members panel is open: the window is full screen and key
+    /// (so the rename alert's text field gets the keyboard).
+    private var expanded = false
 
     init(appState: AppState, theme: ThemeSettings) {
         self.appState = appState
@@ -155,12 +130,14 @@ final class OverlayWindowController {
             // Show / update. Reset any in-flight exit animation.
             hiding = false
             w.layer.removeAllAnimations()
-            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
-            // Only as tall as the header, so touches below pass through.
-            w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
+            h.rootView = content(ctx)
+            // Only as tall as the header, so touches below pass through — unless
+            // the members panel is open, which fills the screen.
+            w.frame = frame(in: scene)
             w.alpha = 1
             w.isHidden = false
         } else if !w.isHidden && !hiding {
+            if expanded { setExpanded(false) }
             // Hide by fading + sliding right, in sync with the nav pop, keeping
             // the last header on screen through the animation (don't clear the
             // rootView until it finishes, or it would vanish instantly).
@@ -175,6 +152,28 @@ final class OverlayWindowController {
                 w.alpha = 1
                 w.frame.origin.x = 0   // reset (the next show re-sets the frame anyway)
             }
+        }
+    }
+
+    private func content(_ ctx: ThreadContext?) -> OverlayHeaderContent {
+        var c = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
+        c.onExpandedChange = { [weak self] open in self?.setExpanded(open) }
+        return c
+    }
+
+    private func frame(in scene: UIWindowScene) -> CGRect {
+        let b = scene.screen.bounds
+        return CGRect(x: 0, y: 0, width: b.width, height: expanded ? b.height : topInset + barHeight)
+    }
+
+    private func setExpanded(_ open: Bool) {
+        guard let w = window, let scene, expanded != open else { return }
+        expanded = open
+        w.frame = frame(in: scene)
+        if open {
+            w.makeKey()
+        } else {
+            scene.windows.first(where: { $0 !== w && !$0.isHidden && $0.windowLevel == .normal })?.makeKey()
         }
     }
 

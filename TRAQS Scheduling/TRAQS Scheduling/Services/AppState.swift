@@ -23,8 +23,15 @@ struct ThreadContext: Equatable {
     let isDM: Bool
     let participants: [Person]   // for the avatar (1 = DM, N = group stack)
     let onBack: () -> Void
-    /// Tapping the header identity (avatar/title/▾) toggles the members popover.
-    let onTapIdentity: () -> Void
+    /// The expanded members panel's pencil: shown only when this thread is a group
+    /// the current person may rename (its creator or an admin — AppState.updateGroup
+    /// refuses anyone else).
+    let canRename: Bool
+    let onRename: (String) -> Void
+    /// The panel's Add tile: group threads (Edit Group) and DMs (spin up a group).
+    /// Job/panel/op membership comes from the job team, so they get none.
+    let canAdd: Bool
+    let onAdd: () -> Void
     // Compared by id only (closures/derived data aren't Equatable). Re-publishing
     // with the same id still fires @Observable, so the overlay refreshes.
     static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }
@@ -54,10 +61,6 @@ class AppState {
     /// which is why the add-people picker inherited exactly the same bug the flag
     /// existed to fix. Every modal presented from inside a thread must set it.
     var threadModalPresented = false
-    /// Members popover open/close. Shared here (not @State) because the toggle
-    /// comes from the header in the overlay WINDOW, while the popover renders in
-    /// ThreadDetailView's own (main-window) view tree.
-    var showThreadMembers = false
     /// Set by the overlay header's back button; MessagesView observes it and pops
     /// its own NavigationStack in-context (a captured dismiss/DismissAction called
     /// from a separate window degrades and stops working).
