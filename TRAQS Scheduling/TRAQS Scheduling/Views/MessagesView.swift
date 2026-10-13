@@ -2463,10 +2463,19 @@ struct ThreadTopBar: View {
     /// shell IS the pill at that point, drawn in exactly the same place.
     var hidePill: Bool = false
 
+    /// The name pill's geometry, shared with MembersHero, whose first and last
+    /// frames have to BE this pill. Even padding above and below the name — it was
+    /// 18 over 9, reaching up under the avatar, which read as top-heavy.
+    static let avatarSize: CGFloat = 44
+    /// How far the avatar sits down over the pill's top edge.
+    static let avatarOverlap: CGFloat = 8
+    static let pillPadH: CGFloat = 18
+    static let pillPadV: CGFloat = 10
+
     var body: some View {
         ZStack(alignment: .topLeading) {
-            VStack(spacing: -14) {
-                avatars(size: 40)
+            VStack(spacing: -Self.avatarOverlap) {
+                avatars(size: Self.avatarSize)
                     .zIndex(1)   // over the pill
                     .onTapGesture { context.onTapIdentity() }
                 Button { context.onTapIdentity() } label: {
@@ -2475,9 +2484,8 @@ struct ThreadTopBar: View {
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .padding(.horizontal, 18)
-                        .padding(.top, 18)      // room for the avatars' overlap
-                        .padding(.bottom, 9)
+                        .padding(.horizontal, Self.pillPadH)
+                        .padding(.vertical, Self.pillPadV)
                 }
                 .buttonStyle(.plain)
                 // Plain, NOT `.interactive()`: interactive glass stretches toward
@@ -2585,9 +2593,8 @@ struct MembersHero<Page: View>: View, Animatable {
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 18)
-                    .padding(.bottom, 9)
+                    .padding(.horizontal, ThreadTopBar.pillPadH)
+                    .padding(.vertical, ThreadTopBar.pillPadV)
                     .dynamicTypeSize(.large)
                     .frame(width: from.width, height: from.height)
                     .opacity(Double(max(0, 1 - p * 4)))
