@@ -25,10 +25,6 @@ struct ThreadContext: Equatable {
     let onBack: () -> Void
     /// Tapping the name pill (or the avatars) opens the members page.
     let onTapIdentity: () -> Void
-    /// Where the name pill is, in screen coordinates. The members page zooms out of
-    /// this rect — the pill is in the overlay window, so the thread (main window)
-    /// marks the same spot as the zoom's source.
-    let onPillFrame: (CGRect) -> Void
     // Compared by id only (closures/derived data aren't Equatable). Re-publishing
     // with the same id still fires @Observable, so the overlay refreshes.
     static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }
@@ -58,6 +54,11 @@ class AppState {
     /// which is why the add-people picker inherited exactly the same bug the flag
     /// existed to fix. Every modal presented from inside a thread must set it.
     var threadModalPresented = false
+    /// True from tapping a thread's name pill until its members page has been popped
+    /// AND has finished collapsing back into the pill. The overlay header and the
+    /// app's own header both stay down for the whole time: the thread draws its own
+    /// copy of the header meanwhile, because the zoom needs a source in its window.
+    var threadMembersOpen = false
     /// Set by the overlay header's back button; MessagesView observes it and pops
     /// its own NavigationStack in-context (a captured dismiss/DismissAction called
     /// from a separate window degrades and stops working).

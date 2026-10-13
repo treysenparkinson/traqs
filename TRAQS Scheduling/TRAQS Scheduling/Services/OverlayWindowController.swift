@@ -92,6 +92,7 @@ final class OverlayWindowController {
         withObservationTracking {
             _ = appState.activeMessageThread
             _ = appState.threadModalPresented
+            _ = appState.threadMembersOpen
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.apply()
@@ -105,7 +106,7 @@ final class OverlayWindowController {
     /// normal presentation, so a modal that doesn't set that flag gets the header
     /// stranded on top of it.
     private var headerContext: ThreadContext? {
-        appState.threadModalPresented ? nil : appState.activeMessageThread
+        appState.threadModalPresented || appState.threadMembersOpen ? nil : appState.activeMessageThread
     }
 
     /// Top safe-area inset from the MAIN (key) window — stable, not the overlay's.
@@ -127,6 +128,13 @@ final class OverlayWindowController {
             w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
             w.alpha = 1
             w.isHidden = false
+        } else if appState.threadMembersOpen {
+            // The thread is drawing an identical copy of this header in the same
+            // spot (the members page zooms out of it), so hand over instantly —
+            // no slide-away, which would show as the header leaving.
+            hiding = false
+            w.layer.removeAllAnimations()
+            w.isHidden = true
         } else if !w.isHidden && !hiding {
             // Hide by fading + sliding right, in sync with the nav pop, keeping
             // the last header on screen through the animation (don't clear the

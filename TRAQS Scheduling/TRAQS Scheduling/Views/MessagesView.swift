@@ -673,9 +673,6 @@ struct ThreadDetailView: View {
     @State private var showAddPeople = false            // add/edit-members popup?
     /// The members page, pushed when the header's name pill is tapped.
     @State private var showMembers = false
-    /// The pill's frame on screen, reported by the overlay header. The members page
-    /// zooms out of a clear stand-in placed at exactly this rect.
-    @State private var pillFrame: CGRect = .zero
     @Namespace private var membersZoom
 
     // Composer focus — used to re-pin the scroll to the bottom when the
@@ -693,7 +690,13 @@ struct ThreadDetailView: View {
     /// appear and whenever the derived header data (title / participants) changes,
     /// since those load in asynchronously after the view first appears.
     private func publishThreadContext() {
-        appState.activeMessageThread = ThreadContext(
+        appState.activeMessageThread = headerContext
+    }
+
+    /// The header's data. Published to the overlay window, and also drawn here
+    /// directly while the members page is open (see `threadMembersOpen`).
+    private var headerContext: ThreadContext {
+        ThreadContext(
             id: threadKey,
             title: displayTitle,
             isDM: threadKey.hasPrefix("dm:"),
@@ -704,12 +707,13 @@ struct ThreadDetailView: View {
             // tying the header's exit to the actual pop.
             onBack: { appState.messagesPopRequested = true },
             onTapIdentity: {
-                // Stand the windowed header down first: it outranks the page that's
-                // about to zoom in over it.
-                appState.threadModalPresented = true
-                showMembers = true
-            },
-            onPillFrame: { frame in if frame != pillFrame { pillFrame = frame } }
+                // Swap the windowed header for this view's identical copy (instant,
+                // same spot), then push on the next pass, once the copy — the zoom's
+                // source — is on screen.
+                composerFocused = false
+                appState.threadMembersOpen = true
+                DispatchQueue.main.async { showMembers = true }
+            }
         )
     }
 
@@ -1106,74 +1110,82 @@ struct ThreadDetailView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
 
-                        // ONE glass pill: attach (+) on the left, the text in the
-                        // middle, send (↑) on the right — the iMessage shape. The
-                        // two buttons sit INSIDE the field's glass rather than
-                        // beside it, and stay pinned to the bottom edge while the
-                        // text wraps (up to 5 lines), as Messages does.
-                        HStack(alignment: .bottom, spacing: 6) {
-                            // Attachment — slides up a native sheet of sources
-                            // (camera / photos / files).
-                            Button { showAttachSheet = true } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .sheet(isPresented: $showAttachSheet, onDismiss: openPendingSource) {
-                                AttachSourceSheet { source in
-                                    pendingSource = source
-                                    showAttachSheet = false
+                        // The iOS 26 Messages bar, built from Apple's own glass:
+                        // + in its own glass circle on the left, the field in a
+                        // glass capsule beside it, and send — tinted (prominent)
+                        // glass — inside the field's right end, shown only once
+                        // there is something to send. One GlassEffectContainer
+                        // holds both, so their glass blends and reacts as one
+                        // system the way the native bar's does. Everything rests
+                        // on the bottom edge while the text wraps (up to 5 lines).
+                        let canSend = !(newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment)
+                        GlassEffectContainer(spacing: 8) {
+                            HStack(alignment: .bottom, spacing: 8) {
+                                // Attachment — slides up a native sheet of sources
+                                // (camera / photos / files).
+                                Button { showAttachSheet = true } label: {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 19, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Circle())
                                 }
-                            }
-                            .accessibilityLabel("Add attachment")
-                            .disabled(isSending)
-
-                            TextField("Message…", text: $newText, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .focused($composerFocused)
-                                .font(TTypo.sm(14))
-                                .foregroundColor(Color(hex: T.ink))
-                                .lineLimit(1...5)
-                                // One line of text fits inside the 32pt the buttons
-                                // set, so a one-line row is exactly 32 + 2×6 = 44 —
-                                // and the 22pt radius below is exactly half of it.
-                                .frame(minHeight: 32)
-
-                            // Send is allowed with text OR an attachment (or both).
-                            let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
-                            Button {
-                                Task { await sendMessage() }
-                            } label: {
-                                Group {
-                                    if isSending {
-                                        ProgressView().progressViewStyle(.circular).tint(T.onAccent).scaleEffect(0.7)
-                                    } else {
-                                        Image(systemName: "arrow.up")
-                                            .font(.system(size: 15, weight: .bold))
-                                            .foregroundStyle(T.onAccent)
+                                .buttonStyle(.plain)
+                                .glassEffect(.regular.interactive(), in: Circle())
+                                .sheet(isPresented: $showAttachSheet, onDismiss: openPendingSource) {
+                                    AttachSourceSheet { source in
+                                        pendingSource = source
+                                        showAttachSheet = false
                                     }
                                 }
-                                .frame(width: 32, height: 32)
-                                .background(Circle().fill(Color(hex: T.accent)))   // solid accent, no gradient
-                                .opacity(sendDisabled ? 0.4 : 1)
+                                .accessibilityLabel("Add attachment")
+                                .disabled(isSending)
+
+                                HStack(alignment: .bottom, spacing: 6) {
+                                    TextField("Message", text: $newText, axis: .vertical)
+                                        .textFieldStyle(.plain)
+                                        .focused($composerFocused)
+                                        .font(TTypo.sm(16))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1...5)
+                                        // 32 + 2×6 = 44 on one line, matching the +
+                                        // circle; the 22pt radius below is half of it.
+                                        .frame(minHeight: 32)
+                                        .padding(.leading, 10)
+                                        .padding(.trailing, canSend || isSending ? 0 : 10)
+
+                                    if canSend || isSending {
+                                        Button {
+                                            Task { await sendMessage() }
+                                        } label: {
+                                            Group {
+                                                if isSending {
+                                                    ProgressView().tint(T.onAccent).scaleEffect(0.7)
+                                                } else {
+                                                    Image(systemName: "arrow.up")
+                                                        .font(.system(size: 15, weight: .bold))
+                                                        .foregroundStyle(T.onAccent)
+                                                }
+                                            }
+                                            .frame(width: 32, height: 32)
+                                            .contentShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        // Tinted glass is the native "prominent" send —
+                                        // a solid accent with the glass's own light.
+                                        .glassEffect(.regular.tint(Color(hex: T.accent)).interactive(), in: Circle())
+                                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                                        .accessibilityLabel("Send")
+                                        .disabled(isSending)
+                                    }
+                                }
+                                .padding(6)
+                                // A capsule on one line (radius = half of 44); a
+                                // rounded rectangle as it wraps, as Messages' field.
+                                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Send")
-                            .disabled(sendDisabled)
                         }
-                        .padding(6)
-                        // Apple's own Liquid Glass (`.glassEffect`), not a painted
-                        // imitation. A full capsule on one line: the radius is half
-                        // the one-line height (44). As the text wraps it becomes a
-                        // rounded rectangle, as Messages' field does — a true
-                        // Capsule's height/2 radius would pinch the sides and clip
-                        // the text. `.interactive()` is Apple's press response — the
-                        // glass glows under the finger and gives a little toward
-                        // where it's pressed — which is what makes it feel native.
-                        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .animation(.bouncy(duration: 0.3), value: canSend || isSending)
                         .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
 
                         if let err = sendError {
@@ -1228,31 +1240,32 @@ struct ThreadDetailView: View {
                     Task { await appState.updateGroup(id: group.id, name: trimmed, memberIds: group.memberIds) }
                 },
                 canAdd: canAddPeople,
-                onAddWillOpen: {
-                    appState.threadModalPresented = true
-                    appNav.modalBlur = true
-                },
+                onAddWillOpen: { appNav.modalBlur = true },
                 addCover: { addPeopleCover }
             )
             .navigationTransition(.zoom(sourceID: "members", in: membersZoom))
         }
-        // The header (back on the thread) comes back when the page is popped.
+        // Once the page has been popped and has collapsed back into the pill, hand
+        // the header back to the overlay window. The binding flips as the pop
+        // begins, so wait out the collapse first.
         .onChange(of: showMembers) { _, open in
-            if !open { appState.threadModalPresented = false }
-        }
-        // The zoom's source: a clear stand-in at exactly where the overlay header
-        // draws the pill. The pill itself is in another window, which a navigation
-        // transition can't reach.
-        .overlay {
-            GeometryReader { geo in
-                let origin = geo.frame(in: .global).origin
-                Color.clear
-                    .frame(width: pillFrame.width, height: pillFrame.height)
-                    .matchedTransitionSource(id: "members", in: membersZoom)
-                    .position(x: pillFrame.midX - origin.x, y: pillFrame.midY - origin.y)
-                    .allowsHitTesting(false)
+            guard !open else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if !showMembers { appState.threadMembersOpen = false }
             }
-            .ignoresSafeArea()
+        }
+        // This thread's own copy of the header, shown only while the members page
+        // is open. It is identical to the overlay window's and in the same spot, so
+        // the swap can't be seen; it exists because the zoom's source has to be in
+        // this window, and the pill it grows from and collapses into is this one.
+        .overlay(alignment: .top) {
+            if appState.threadMembersOpen {
+                GeometryReader { geo in
+                    ThreadTopBar(context: headerContext, topInset: geo.safeAreaInsets.top,
+                                 zoomSource: membersZoom)
+                        .ignoresSafeArea()
+                }
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         // Hand the current thread to the overlay header window; clear it on exit
@@ -1314,9 +1327,7 @@ struct ThreadDetailView: View {
             // is what keeps it from being left hidden by a path we forgot about.
             .onDisappear {
                 appNav.modalBlur = false
-                // Opened from the members page, the header stays down until that
-                // page is popped too.
-                appState.threadModalPresented = showMembers
+                appState.threadModalPresented = false
             }
     }
 
@@ -2318,6 +2329,10 @@ struct CompletionRequestBubble: View {
 struct ThreadTopBar: View {
     let context: ThreadContext
     let topInset: CGFloat
+    /// Set only on the thread's own copy of this header (main window): the pill
+    /// becomes the members page's zoom source, so the page grows out of it and
+    /// collapses back into it. The overlay window's copy can't be a source.
+    var zoomSource: Namespace.ID? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -2337,7 +2352,7 @@ struct ThreadTopBar: View {
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: Capsule())
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { context.onPillFrame($0) }
+                .modifier(MembersZoomSource(namespace: zoomSource))
                 .accessibilityLabel("\(context.title). Show people")
             }
             // Clear of the back button on either side, so a long name truncates
@@ -2373,6 +2388,24 @@ struct ThreadTopBar: View {
                 .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
         } else {
             ParticipantStack(people: context.participants, avatarSize: size, maxShown: 3)
+        }
+    }
+}
+
+/// `matchedTransitionSource` when there's a namespace, nothing otherwise — so the
+/// one header view serves both windows. Clipped to the pill's shape so the zoom
+/// starts and ends as the pill.
+private struct MembersZoomSource: ViewModifier {
+    let namespace: Namespace.ID?
+    func body(content: Content) -> some View {
+        if let namespace {
+            // Only RoundedRectangle is accepted here. The pill measures 46pt tall,
+            // so a 23pt radius IS its capsule.
+            content.matchedTransitionSource(id: "members", in: namespace) {
+                $0.clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+            }
+        } else {
+            content
         }
     }
 }

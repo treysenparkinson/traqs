@@ -288,7 +288,7 @@ private struct HeaderHost: View {
             // The WORDMARK goes too — clearing the pills alone left the lockup
             // ghosting through the thread bar's translucency, since the lockup
             // isn't a pill and so isn't governed by the pill list.
-            guard appState.activeMessageThread == nil else {
+            guard appState.activeMessageThread == nil, !appState.threadMembersOpen else {
                 return HeaderConfig(showsLogo: false)
             }
             if appNav.chatSelectMode {
