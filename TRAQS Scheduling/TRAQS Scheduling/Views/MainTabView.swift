@@ -394,25 +394,40 @@ private struct TabHost: View {
         )) {
             // In bar order: Jobs · Time Clock · Home · Messages · Stats.
             JobsHubView()                           // reserves bar space inside its own NavigationStack
+                .tint(Self.pageTint)
                 .tabItem { item(.jobs) }.tag(TTab.jobs)
                 .toolbar(barVisibility, for: .tabBar)
             reserveBar(TimeClockView())
+                .tint(Self.pageTint)
                 .tabItem { item(.hours) }.tag(TTab.hours)
                 .toolbar(barVisibility, for: .tabBar)
             reserveBar(HomeView())
+                .tint(Self.pageTint)
                 .tabItem { item(.home) }.tag(TTab.home)
                 .toolbar(barVisibility, for: .tabBar)
             MessagesView()                          // reserves bar space inside its own NavigationStack
+                .tint(Self.pageTint)
                 .tabItem { item(.chat) }.tag(TTab.chat)
                 .badge(appState.totalUnreadMessages)
                 .toolbar(barVisibility, for: .tabBar)
             Group {
                 if appState.isBusinessTier { reserveBar(MoreView()) } else { reserveBar(EmployeesView()) }
             }
+            .tint(Self.pageTint)
             .tabItem { item(.stats) }.tag(TTab.stats)
             .toolbar(barVisibility, for: .tabBar)
         }
+        // The selected tab's icon: black in light mode, white in dark. The tab bar
+        // takes its colour from the TabView's tint — a UITabBar appearance tint is
+        // overwritten by it (measured). `.tint(nil)` on the pages does NOT undo it
+        // either, so each page sets its tint back explicitly (`pageTint`).
+        .tint(.primary)
     }
+
+    /// The tint every page had before the tab bar's became `.primary`: system
+    /// blue (the asset catalog's AccentColor is unset). Measured equal to the old
+    /// default in light (0, 0.533, 1) and dark (0, 0.569, 1).
+    private static let pageTint = Color.blue
 }
 
 /// The traced nav glyphs (Icons.swift) rendered once to template images, because

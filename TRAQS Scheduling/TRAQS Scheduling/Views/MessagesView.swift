@@ -840,6 +840,8 @@ struct ThreadDetailView: View {
     /// opened from the sheet's onDismiss — presenting it while the sheet is still
     /// leaving would race the two presentations.
     @State private var showAttachSheet = false
+    /// A full-screen attachment picker is up (camera / photos / files).
+    private var attachPickerOpen: Bool { showCamera || showLibrary || showFiles }
     @State private var pendingSource: AttachSource?
 
     private var hasAttachment: Bool { pickedImage != nil || pickedFile != nil }
@@ -1250,11 +1252,14 @@ struct ThreadDetailView: View {
                                                     ProgressView().tint(T.onAccent).scaleEffect(0.7)
                                                 } else {
                                                     Image(systemName: "arrow.up")
-                                                        .font(.system(size: 15, weight: .bold))
+                                                        .font(.system(size: 13, weight: .bold))
                                                         .foregroundStyle(T.onAccent)
                                                 }
                                             }
-                                            .frame(width: 32, height: 32)
+                                            .frame(width: 28, height: 28)
+                                            // 28 in the field's 32pt line: 2pt clear above
+                                            // and below, so it sits inside, not edge to edge.
+                                            .padding(.vertical, 2)
                                             .contentShape(Circle())
                                         }
                                         .buttonStyle(.plain)
@@ -1300,6 +1305,20 @@ struct ThreadDetailView: View {
                             .ignoresSafeArea()
                     }
                     .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+                    // The header lives in its own window, which outranks every
+                    // presentation — so it stands down while a picker covers the
+                    // thread, as it does for the add-people cover. Coming back is
+                    // delayed a beat: the + sheet closing and the picker opening
+                    // are two steps, and the header mustn't flash up between them.
+                    .onChange(of: attachPickerOpen) { _, open in
+                        if open {
+                            appState.threadModalPresented = true
+                        } else {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                if !attachPickerOpen { appState.threadModalPresented = false }
+                            }
+                        }
+                    }
                     .fileImporter(isPresented: $showFiles,
                                   allowedContentTypes: [.image, .pdf],
                                   allowsMultipleSelection: false) { handleFileImport($0) }
