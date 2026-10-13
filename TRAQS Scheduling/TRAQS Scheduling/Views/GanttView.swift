@@ -97,6 +97,7 @@ struct GanttView: View {
                     workEnd: appState.orgSettings.workEndHour,
                     lunchStart: appState.orgSettings.lunchStartHour,
                     lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
+                    leave: leave(on: day),
                     onSelect: { selectedBlock = $0 })
             .transition(.opacity)
     }
@@ -115,6 +116,7 @@ struct GanttView: View {
                  workEnd: appState.orgSettings.workEndHour,
                  blocksByDate: byDate,
                  spansByDate: isShowing ? spansByDate(weekDates) : [:],
+                 leaveByDate: Dictionary(uniqueKeysWithValues: weekDates.compactMap { d in leave(on: d).map { (d, $0) } }),
                  onSelect: { selectedBlock = $0 })
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
@@ -195,6 +197,81 @@ struct GanttView: View {
     // does: `startHour`. A sixth scheduler that the web didn't have is what this replaced.
 
 
+    /// My day off on `day`, if it is one — the web's `leaveOn` (#252).
+    private func leave(on day: Date) -> TimeOffEntry? {
+        guard let me = appState.currentPerson else { return nil }
+        return LeaveRule.leave(on: ShopTime.current.ymd(day), in: me.timeOff)
+    }
+
+    /// Every stretch I've clocked, closed and open, keyed by the unit it was on (#365).
+    private func myWorked(_ me: String, org: OrgSettings) -> [GanttLayout.Worked] {
+        var out: [GanttLayout.Worked] = []
+        for s in appState.productionHours where s.personId == me {
+            guard let node = s.opId ?? s.panelId,
+                  let a = s.clockIn.flatMap(Date.fromFlexibleISO8601),
+                  let b = s.clockOut.flatMap(Date.fromFlexibleISO8601), b > a else { continue }
+            out.append(.init(nodeId: node, start: a, end: b))
+        }
+        // The session running now, to where its window stops (a hold, a pause, or the end of
+        // the working day), as the live hours are measured.
+        if let jc = appState.people.first(where: { $0.id == me })?.activeJobClock,
+           let node = jc.opId ?? jc.panelId,
+           let a = Date.fromFlexibleISO8601(jc.clockIn) {
+            let end = SessionHours.openEnd(
+                clockIn: a, pausedAt: jc.pausedAt.flatMap(Date.fromFlexibleISO8601),
+                frozenAt: jc.frozenAtMs.map { Date(timeIntervalSince1970: $0 / 1000) }, now: now,
+                day: WorkDayClock.day(from: org), calendar: WorkCalendar(org: org), shop: ShopTime.current).end
+            if end > a { out.append(.init(nodeId: node, start: a, end: end)) }
+        }
+        return out
+    }
+
+    /// Where a unit lives in the tree, by the op's or the panel's id.
+    private func locate(_ nodeId: String) -> (job: Job, panel: Panel, op: Operation?)? {
+        for job in appState.jobs {
+            for panel in job.subs {
+                if panel.id == nodeId { return (job, panel, nil) }
+                if let op = panel.subs.first(where: { $0.id == nodeId }) { return (job, panel, op) }
+            }
+        }
+        return nil
+    }
+
+    /// Record bars for work I did on someone else's unit that day (#365), as blocks.
+    private func crossRowBlocks(_ me: String, worked: [GanttLayout.Worked], on day: Date) -> [ScheduleBlock] {
+        var found: [String: (job: Job, panel: Panel, op: Operation?)] = [:]
+        for id in Set(worked.map(\.nodeId)) { if let f = locate(id) { found[id] = f } }
+        let bars = GanttLayout.crossRow(worked, onTeam: { id in
+            // A unit that can't be found isn't drawn (the web skips it too); "on team" is
+            // the unit's own team.
+            guard let f = found[id] else { return true }
+            return (f.op?.team ?? f.panel.team).contains(me)
+        }, day: ShopTime.current.ymd(day), shop: ShopTime.current)
+        return bars.compactMap { bar in
+            guard let f = found[bar.nodeId] else { return nil }
+            let own = f.panel.extras.text("color").trimmingCharacters(in: .whitespaces)
+            let hex = BarPaint.legible(own.hasPrefix("#") ? own.lowercased() : BarPaint.fallback)
+            let clientName = f.job.clientId
+                .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
+                .flatMap { $0.isEmpty ? nil : $0 }
+            return ScheduleBlock(
+                id: "xrow/\(Int(day.timeIntervalSince1970))/\(bar.nodeId)",
+                job: f.job, jobId: f.job.id, jobNumber: f.job.jobNumber ?? "",
+                panelId: f.panel.id, opId: f.op?.id,
+                title: clientName ?? f.job.title,
+                taskTitle: f.panel.title, subtaskTitle: f.op?.title,
+                color: Color(hex: hex),
+                typeLabel: (f.op?.title.isEmpty == false ? f.op!.title : f.panel.title).uppercased(),
+                isFinished: (f.op?.status ?? f.panel.status) == .finished,
+                start: bar.start, end: bar.end,
+                taskStart: (f.op?.start ?? f.panel.start).asDate,
+                taskEnd: (f.op?.end ?? f.panel.end).asDate,
+                totalHours: bar.end - bar.start,
+                workedFraction: 1,
+                isRecord: true)
+        }
+    }
+
     /// Blocks for every requested day, from one pass over the jobs.
     private func packedBlocks(for days: [Date]) -> [Date: [ScheduleBlock]] {
         // No resolved identity → NOTHING, not everything. A launch that hadn't matched the
@@ -206,15 +283,20 @@ struct GanttView: View {
         let live = Set(appState.people.compactMap { $0.activeJobClock?.opId })
         let entries = GanttLayout.units(for: me, in: appState.jobs, live: live,
                                         today: ShopTime.current.ymd(now))
-        guard !entries.isEmpty else { return [:] }
         let units = entries.map(\.unit)
+        // Not an early return on no units: a worker covering someone else's op may have no
+        // units of their own and still a full day of work to show (#365).
+        let worked = myWorked(me, org: org)
+        guard !entries.isEmpty || !worked.isEmpty else { return [:] }
 
         var out: [Date: [ScheduleBlock]] = [:]
         for d in days {
             let key = cal.startOfDay(for: d)
-            out[key] = GanttLayout.dayBlocks(units, on: ShopTime.current.ymd(key), context: context,
-                                             business: appState.isBusinessTier)
-                .map { makeBlock(entries[$0.index], $0, on: key, context: context) }
+            let planned = entries.isEmpty ? [] :
+                GanttLayout.dayBlocks(units, on: ShopTime.current.ymd(key), context: context,
+                                      business: appState.isBusinessTier)
+                    .map { makeBlock(entries[$0.index], $0, on: key, context: context) }
+            out[key] = planned + crossRowBlocks(me, worked: worked, on: key)
         }
         return out
     }
@@ -310,8 +392,58 @@ struct ScheduleBlock: Identifiable, Equatable {
     let taskEnd: Date?        // op.end (or panel.end when no op) — the task's calendar end
     let totalHours: Double    // my share of the task's hpd (hpd ÷ team size)
     let workedFraction: Double // 0...1 of the op's estimate logged so far (0 for panel-level blocks)
+    /// Cross-row (#365): work I clocked on a unit I'm not on the team of, drawn where it
+    /// happened. A record, not a plan — fully filled, as on the web.
+    var isRecord: Bool = false
 
     static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }
+}
+
+// MARK: - Day off (#252)
+
+/// The web day view's day-off tint: the person's whole row hatched, green for PTO, amber
+/// for UTO, with the work still drawn over it (#14 — an empty row on a day off is a lie;
+/// an overlap is readable).
+private struct LeaveTint: View {
+    let leave: TimeOffEntry
+    var showLabel = true
+
+    private var isUTO: Bool { leave.type.uppercased() == "UTO" }
+    private var color: Color { Color(hex: isUTO ? "#f59e0b" : "#10b981") }
+    private var label: String {
+        let kind = isUTO ? "UTO" : "PTO"
+        let why = (leave.reason ?? "").trimmingCharacters(in: .whitespaces)
+        return why.isEmpty ? kind : "\(kind) · \(why)"
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Rectangle().fill(color.opacity(0.07))
+            Canvas { ctx, size in
+                // 135° stripes, 4pt on / 4pt off, as the web's repeating-linear-gradient.
+                var path = Path()
+                var x: CGFloat = -size.height
+                while x < size.width {
+                    path.move(to: CGPoint(x: x, y: size.height))
+                    path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                    x += 8
+                }
+                ctx.stroke(path, with: .color(color.opacity(0.10)), lineWidth: 4)
+            }
+            if showLabel {
+                Text(label)
+                    .font(.traqs(.bold, size: 10))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(color.opacity(0.14)))
+                    .padding(6)
+            }
+        }
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityLabel(label)
+    }
 }
 
 
@@ -408,6 +540,8 @@ private struct DayTimeline: View {
     let workEnd: Double
     let lunchStart: Double
     let lunchDurationH: Double
+    /// Set when this day is a day off for me (#252).
+    var leave: TimeOffEntry? = nil
     let onSelect: (ScheduleBlock) -> Void
     private let pxPerHour: CGFloat = 56
     private var cal: Calendar { ShopTime.current.calendar }
@@ -456,6 +590,11 @@ private struct DayTimeline: View {
                     }
                 }
                 .frame(height: height, alignment: .top)
+
+                // A day off, under everything else on the lane (#252).
+                if let leave {
+                    LeaveTint(leave: leave).frame(height: height)
+                }
 
                 // Lunch ghost block (dashed, muted) — driven by orgSettings.lunch
                 let lunchTop = CGFloat(lunchStart - startHour) * pxPerHour + 2
@@ -868,6 +1007,8 @@ private struct WeekGrid: View {
     /// Break / lunch actually punched, per visible day. Same precompute-once
     /// discipline as `blocksByDate` — a column must not resolve its own.
     let spansByDate: [Date: [ClockOverlays.Span]]
+    /// Days off this week, by day (#252).
+    var leaveByDate: [Date: TimeOffEntry] = [:]
     let onSelect: (ScheduleBlock) -> Void
 
     /// Whole hours, as the day view (#257) — see DayTimeline.
@@ -913,6 +1054,7 @@ private struct WeekGrid: View {
                     now: now,
                     blocks: blocksByDate[d] ?? [],
                     spans: spansByDate[d] ?? [],
+                    leave: leaveByDate[d],
                     onSelect: onSelect)
                 .frame(maxWidth: .infinity)
             }
@@ -974,6 +1116,7 @@ private struct WeekDayColumn: View {
     let now: Date
     let blocks: [ScheduleBlock]
     let spans: [ClockOverlays.Span]
+    var leave: TimeOffEntry? = nil
     let onSelect: (ScheduleBlock) -> Void
     private var cal: Calendar { ShopTime.current.calendar }
 
@@ -982,6 +1125,11 @@ private struct WeekDayColumn: View {
             // Day column background: faint sky tint on today
             Rectangle()
                 .fill(isToday ? Color(hex: T.sky).opacity(0.07) : .clear)
+
+            // A day off (#252) — tinted, unlabelled at this width; the work stays on top.
+            if let leave {
+                LeaveTint(leave: leave, showLabel: false)
+            }
 
             // Hour rules (every 2 hours visible to keep the column readable at this scale)
             VStack(spacing: 0) {

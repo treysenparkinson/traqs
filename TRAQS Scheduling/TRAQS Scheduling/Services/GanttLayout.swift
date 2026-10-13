@@ -147,3 +147,54 @@ enum GanttLayout {
         return (start, min(24, max(start + 1, Int(workEnd.rounded(.up)))))
     }
 }
+
+// MARK: - Cross-row work (#365)
+
+extension GanttLayout {
+    /// A stretch of time a person actually clocked on a unit (an op, or a panel that is
+    /// its own unit).
+    struct Worked: Equatable {
+        let nodeId: String
+        let start: Date
+        let end: Date
+    }
+
+    /// A record bar on one day: hours on that shop day, from the first moment worked to
+    /// the last.
+    struct CrossRow: Equatable {
+        let nodeId: String
+        let start: Double
+        let end: Double
+    }
+
+    /// The web's cross-row bars (`getPersonBars`, TRAQS.jsx): work a person clocked on a
+    /// unit whose team they are NOT on. A unit they ARE on already has its own bar at its
+    /// planned window, which is the right bar; only off-team work is added, so a worker
+    /// covering someone else's op doesn't see an empty day.
+    ///
+    /// Drawn where it happened, not packed: a record of work, not a plan. Several sessions
+    /// on one unit that day are one bar from the first start to the last end, as the web
+    /// spans them. Clipped to the shop day, so a session over midnight shows on both days.
+    static func crossRow(_ worked: [Worked], onTeam: (String) -> Bool,
+                         day: String, shop: ShopTime) -> [CrossRow] {
+        let dayStart = shop.instant(day, hour: 0)
+        let dayEnd = shop.instant(day, hour: 24)
+        var byNode: [String: (Date, Date)] = [:]
+        for w in worked where !onTeam(w.nodeId) {
+            let a = max(w.start, dayStart), b = min(w.end, dayEnd)
+            guard b > a else { continue }
+            if let (s, e) = byNode[w.nodeId] {
+                byNode[w.nodeId] = (min(s, a), max(e, b))
+            } else {
+                byNode[w.nodeId] = (a, b)
+            }
+        }
+        // WALL-clock hours in the shop's zone, as the timeline places everything (so a DST
+        // day doesn't shift the bar by an hour) — except a span running to the day's end,
+        // which reads 24 rather than the next day's 0.
+        func hours(_ d: Date) -> Double { d >= dayEnd ? 24 : shop.hour(d) }
+        return byNode
+            .map { CrossRow(nodeId: $0.key, start: hours($0.value.0), end: hours($0.value.1)) }
+            .sorted { ($0.start, $0.nodeId) < ($1.start, $1.nodeId) }
+    }
+}
