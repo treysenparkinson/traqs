@@ -2414,6 +2414,13 @@ struct ThreadTopBar: View {
         }
         .padding(.top, topInset + 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // ONE fixed type size, in both windows. The app sets a Dynamic Type floor
+        // (xLarge / xxLarge, ContentView) that the overlay window — a separate
+        // host — never inherits. So the thread's copy of this header (main window,
+        // the members page collapses into it) drew a bigger pill than the overlay's,
+        // and the hand-over snapped it down. Pinned here, both are identical. .large
+        // is the size the overlay header has always rendered at.
+        .dynamicTypeSize(.large)
     }
 
     /// One avatar for a DM, an overlapping stack for everything else.
