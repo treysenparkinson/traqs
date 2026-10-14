@@ -1301,7 +1301,7 @@ struct JobsHeaderBar: View {
     var body: some View {
         let _ = theme.bgPresetId
         Text("Jobs")
-            .font(.traqs(.bold, size: Rv.titleSize))
+            .font(.traqsTitle(.bold, size: Rv.titleSize))
             .tracking(-Rv.titleSize * 0.044)
             .foregroundStyle(Color(hex: T.ink))
             .lineLimit(1)

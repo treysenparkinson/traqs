@@ -65,6 +65,11 @@ extension TFontName {
     }
 }
 
+/// One dial for iOS body text size. 1.0 is the nominal size every call site names.
+enum TextScale {
+    static let body: CGFloat = 0.93
+}
+
 extension Font {
     /// Every face in the app goes through here.
     ///
@@ -77,7 +82,21 @@ extension Font {
     /// heavy, and still grows under xxLarge (293 → 338pt for one test line).
     ///
     /// macOS: the face itself (DM Sans), unchanged.
+    ///
+    /// iOS text is set a touch smaller than its nominal size (`TextScale.body`,
+    /// 2026-10-14, "a little smaller for everything except the page titles") —
+    /// applied here, once, so every `.traqs` and `TTypo` call follows. Page titles
+    /// go through `traqsTitle`, which is unscaled.
     static func traqs(_ face: TFontName, size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+        #if os(iOS)
+        return .custom(".AppleSystemUIFont", size: size * TextScale.body, relativeTo: style).weight(face.systemWeight)
+        #else
+        return .custom(face.rawValue, size: size, relativeTo: style)
+        #endif
+    }
+
+    /// A page title — `traqs` at its nominal size, never scaled down.
+    static func traqsTitle(_ face: TFontName, size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
         #if os(iOS)
         return .custom(".AppleSystemUIFont", size: size, relativeTo: style).weight(face.systemWeight)
         #else
