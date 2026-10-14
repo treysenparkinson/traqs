@@ -817,6 +817,7 @@ struct JobsPage: View {
         JobsCellContext(indices: appState.jobsCellIndices(),
                         statusStyles: columnStore.statusStyles,
                         priorityStyles: columnStore.priorityStyles,
+                        statusChoices: appState.orgSettings.statusChoices,
                         isAdmin: appState.isAdmin,
                         // A closure rather than `filter(appState.can)` — the
                         // same main-actor complaint `cycleDependencyMode`'s

@@ -26,7 +26,9 @@ enum JobsEdit {
     enum Field: Equatable {
         case title(String)
         case jobNumber(String)
-        case status(JobStatus)
+        /// The status AS STORED — any name on the org's list (#544), not one of
+        /// the five `JobStatus` cases.
+        case status(String)
         case start(String)
         case end(String)
         /// nil clears it. Only a job has one.
@@ -103,7 +105,7 @@ enum JobsEdit {
         case .jobNumber(let v):
             let t = v.trimmingCharacters(in: .whitespaces)
             job.jobNumber = t.isEmpty ? nil : t
-        case .status(let v):    job.status = v
+        case .status(let v):    job.statusRaw = v
         case .start(let v):     job.start = v
         case .end(let v):       job.end = v
         case .dueDate(let v):
@@ -115,7 +117,7 @@ enum JobsEdit {
     private static func applyToPanel(_ field: Field, _ panel: inout Panel) {
         switch field {
         case .title(let v):    panel.title = v
-        case .status(let v):   panel.status = v
+        case .status(let v):   panel.statusRaw = v
         case .start(let v):    panel.start = v
         case .end(let v):      panel.end = v
         // A panel has no number and no due date. Ignored rather than stored on
@@ -127,7 +129,7 @@ enum JobsEdit {
     private static func applyToOperation(_ field: Field, _ op: inout Operation) {
         switch field {
         case .title(let v):    op.title = v
-        case .status(let v):   op.status = v
+        case .status(let v):   op.statusRaw = v
         case .start(let v):    op.start = v
         case .end(let v):      op.end = v
         case .jobNumber, .dueDate: break
@@ -177,8 +179,9 @@ enum JobsEdit {
     /// meant an admin could not close a job from the grid at all: the Mac sent a
     /// completion request to the admins — that is, to themselves — and left the
     /// status untouched.
-    static func needsCompletionRequest(_ status: JobStatus, isAdmin: Bool) -> Bool {
-        status == .finished && !isAdmin
+    static func needsCompletionRequest(_ status: String, isAdmin: Bool) -> Bool {
+        // What the pick MEANS on the org's list (#504), not its spelling.
+        StatusMeaning.current.isFinished(status) && !isAdmin
     }
 
     // MARK: Removing

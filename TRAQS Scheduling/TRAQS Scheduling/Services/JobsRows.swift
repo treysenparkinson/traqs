@@ -70,6 +70,16 @@ enum JobGridRow: Identifiable, Equatable {
         }
     }
 
+    /// The status exactly as stored — what a picker marks as current and what an
+    /// edit compares against. `status` collapses an unmodelled one to Not Started.
+    var statusRaw: String {
+        switch self {
+        case .job(let j):             return j.statusRaw
+        case .panel(let p, _, _):     return p.statusRaw
+        case .operation(let o, _, _, _): return o.statusRaw
+        }
+    }
+
     var priority: Priority {
         switch self {
         case .job(let j):             return j.pri

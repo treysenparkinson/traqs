@@ -165,3 +165,29 @@ extension OrgSettings {
         return []
     }
 }
+
+// MARK: - The list a person picks from
+
+/// One row of the org's status list, as a picker shows it.
+struct StatusChoice: Equatable, Sendable {
+    let name: String
+    /// The org's colour and glyph for it, when the entry carries them.
+    let color: String?
+    let icon: String?
+}
+
+extension OrgSettings {
+    /// The web's `statusOpts` memo (TRAQS.jsx:6040): the org's list in its order, or
+    /// `DEFAULT_STATUSES` when it is unset or empty. What a status picker offers — all
+    /// seventeen at Matrix, not the five `JobStatus` names (#544).
+    var statusChoices: [StatusChoice] {
+        let rows: [StatusChoice] = statusOpts.compactMap {
+            guard case .object(let o) = $0, let name = o["name"]?.text else { return nil }
+            func text(_ k: String) -> String? { o[k].map(\.text).flatMap { $0.isEmpty ? nil : $0 } }
+            return StatusChoice(name: name, color: text("color"), icon: text("icon"))
+        }
+        return rows.isEmpty
+            ? JobStatus.allCases.map { StatusChoice(name: $0.rawValue, color: nil, icon: nil) }
+            : rows
+    }
+}

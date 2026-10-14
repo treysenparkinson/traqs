@@ -93,25 +93,25 @@ struct JobsDisplayStatusTests {
 
     @Test func pickingAStatusOnAWorkedOperationShows() {
         #expect(shown(tree, "o1") == "Paused")
-        let picked = JobsEdit.apply(.status(.onHold),
+        let picked = JobsEdit.apply(.status("On Hold"),
                                     at: .operation(panel: "p1", op: "o1"), in: tree)
         #expect(shown(picked, "o1") == "On Hold")   // the web still says "Paused"
     }
 
     @Test func pickingAStatusOnAPanelShows() {
         #expect(shown(tree, "p1") == "Paused")
-        let picked = JobsEdit.apply(.status(.inProgress), at: .panel("p1"), in: tree)
+        let picked = JobsEdit.apply(.status("In Progress"), at: .panel("p1"), in: tree)
         #expect(shown(picked, "p1") == "In Progress")  // the web still rolls up
     }
 
     @Test func aJobAlwaysShowsWhatItStores() {
-        let picked = JobsEdit.apply(.status(.onHold), at: .job, in: tree)
+        let picked = JobsEdit.apply(.status("On Hold"), at: .job, in: tree)
         #expect(shown(picked, "j1") == "On Hold")
     }
 
     /// A clock is fact about right now and outranks an intention.
     @Test func aLiveClockStillBeatsAPickedStatus() {
-        let picked = JobsEdit.apply(.status(.onHold),
+        let picked = JobsEdit.apply(.status("On Hold"),
                                     at: .operation(panel: "p1", op: "o1"), in: tree)
         #expect(shown(picked, "o1", clocked: ["o1"]) == "In Progress")
     }

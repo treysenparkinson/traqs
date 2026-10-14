@@ -227,22 +227,27 @@ struct JobsOptionList: View {
 // MARK: The status list
 
 extension JobsOptionList {
-    /// Every status, in the web's order.
+    /// The ORG's status list, in its order (`OrgSettings.statusChoices`) — all
+    /// seventeen at Matrix (#544). This offered the five `JobStatus` names, so
+    /// `MTX FAT` was not on it and a job could only be moved to one of the five;
+    /// a picker missing a status reads as the app being broken, not limited.
     ///
     /// Finished is offered like any other and what happens when it is chosen is
-    /// the caller's business — it raises a completion request rather than writing
-    /// the status (`JobsEdit.needsCompletionRequest`).
-    /// `styles` is this user's `statusOpts` — colour and glyph overrides keyed by
-    /// name. The LIST itself is `JobStatus.allCases`, not the override list:
-    /// names are not editable, because a job stores its status as a string that
-    /// has to decode back into the enum. See `JobsOptionsEditor.namesLocked`.
+    /// the caller's business — a status that MEANS finished raises a completion
+    /// request for a non-admin (`JobsEdit.needsCompletionRequest`).
+    ///
+    /// Colour and glyph: this user's override (`styles`, keyed by name), then the
+    /// org entry's own, then the five defaults' palette, then neutral.
     @MainActor static func statusOptions(
+        _ choices: [StatusChoice],
         styles: [String: JobsSelectOption] = [:]) -> [JobsOptionRow] {
-        JobStatus.allCases.map { status in
-            let style = styles[status.rawValue]
-            return JobsOptionRow(value: status.rawValue, label: status.rawValue,
-                                 icon: style?.icon ?? status.emblem,
-                                 color: Color.hex(style?.color ?? status.hex))
+        choices.map { choice in
+            let style = styles[choice.name]
+            let known = JobStatus(rawValue: choice.name)
+            return JobsOptionRow(value: choice.name, label: choice.name,
+                                 icon: style?.icon ?? choice.icon ?? known?.emblem ?? "\u{25CB}",
+                                 color: Color.hex(style?.color ?? choice.color
+                                                  ?? known?.hex ?? "#94a3b8"))
         }
     }
 

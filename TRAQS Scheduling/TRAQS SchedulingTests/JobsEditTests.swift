@@ -42,7 +42,7 @@ struct JobsEditTests {
     }
 
     @Test func anOperationEditTouchesOnlyThatOperation() {
-        let out = JobsEdit.apply(.status(.inProgress),
+        let out = JobsEdit.apply(.status("In Progress"),
                                  at: .operation(panel: "p1", op: "o2"), in: tree)
         #expect(out.subs[0].subs[1].status == .inProgress)
         #expect(out.subs[0].subs[0].status == .notStarted)
@@ -92,7 +92,7 @@ struct JobsEditTests {
     }
 
     @Test func titleStatusAndDatesAreEditableAtEveryLevel() {
-        for field in [JobsEdit.Field.title("x"), .status(.onHold),
+        for field in [JobsEdit.Field.title("x"), .status("On Hold"),
                       .start("2026-01-01"), .end("2026-01-02")] {
             for level in 0...2 { #expect(JobsEdit.isEditable(field, atLevel: level)) }
         }
@@ -105,13 +105,13 @@ struct JobsEditTests {
     // them to use the row menu's Request Finish Approval instead. An admin closes
     // the job from the popover like any other status change.
     @Test func onlyANonAdminChoosingFinishedNeedsACompletionRequest() {
-        #expect(JobsEdit.needsCompletionRequest(.finished, isAdmin: false))
+        #expect(JobsEdit.needsCompletionRequest("Finished", isAdmin: false))
         // The bug this guards: an admin's pick used to raise a request too, which
         // notified the admins — themselves — and left the status unchanged, so
         // Finished could not be set from the grid at all.
-        #expect(!JobsEdit.needsCompletionRequest(.finished, isAdmin: true))
+        #expect(!JobsEdit.needsCompletionRequest("Finished", isAdmin: true))
 
-        for status in JobStatus.allCases where status != .finished {
+        for status in JobStatus.allCases.map(\.rawValue) where status != "Finished" {
             #expect(!JobsEdit.needsCompletionRequest(status, isAdmin: false))
             #expect(!JobsEdit.needsCompletionRequest(status, isAdmin: true))
         }
@@ -154,7 +154,7 @@ struct JobsEditDiffTests {
 
     @Test func recommittingTheSameValueIsNotAChange() {
         let before = job("A", status: .onHold)
-        let after = JobsEdit.apply(.status(.onHold), at: .job, in: before)
+        let after = JobsEdit.apply(.status("On Hold"), at: .job, in: before)
         #expect(!JobsEdit.differs(before, after))
     }
 
@@ -176,7 +176,7 @@ struct JobsEditDiffTests {
         #expect(JobsEdit.permission(for: .end("2026-03-01")) == .moveJobs)
         #expect(JobsEdit.permission(for: .title("T")) == .editJobs)
         #expect(JobsEdit.permission(for: .jobNumber("1")) == .editJobs)
-        #expect(JobsEdit.permission(for: .status(.onHold)) == .editJobs)
+        #expect(JobsEdit.permission(for: .status("On Hold")) == .editJobs)
         #expect(JobsEdit.permission(for: .dueDate(nil)) == .editJobs)
     }
 

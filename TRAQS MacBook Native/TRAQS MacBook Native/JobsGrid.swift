@@ -76,6 +76,8 @@ struct JobsCellContext: Equatable {
     /// `statusOpts` / `priOpts` — this user's palette, keyed by NAME.
     var statusStyles: [String: JobsSelectOption] = [:]
     var priorityStyles: [String: JobsSelectOption] = [:]
+    /// The org's status list, in its order — what the status popover offers (#544).
+    var statusChoices: [StatusChoice] = []
     /// `isAdmin`. The status popover offers Finished to everyone and the web only
     /// lets an admin take it.
     var isAdmin = false
@@ -99,6 +101,7 @@ struct JobsCellContext: Equatable {
             && a.actor == b.actor
             && a.statusStyles == b.statusStyles
             && a.priorityStyles == b.priorityStyles
+            && a.statusChoices == b.statusChoices
     }
 
     // Passthroughs, so a cell reads `context.percent` exactly as it always has
@@ -927,7 +930,7 @@ private struct JobsGridCell: View {
         // plain text and the click falls through to the row. Asking for a
         // completion stays on the row menu, which is not an edit.
         case .status:
-            guard mayEdit(.status(row.status)) else { return nil }
+            guard mayEdit(.status(row.statusRaw)) else { return nil }
             return { statusOpen = true }
         case .pri:
             // No priority edit (#542, ruled 2026-10-14). The click cycled Low ->
@@ -1165,11 +1168,12 @@ private struct JobsGridCell: View {
             // by which cell is open — not putting the `if` back.
             .popover(isPresented: $statusOpen, arrowEdge: .bottom) {
                         JobsOptionList(options: JobsOptionList.statusOptions(
+                                            context.statusChoices,
                                             styles: context.statusStyles),
-                                       current: row.status.rawValue) { picked in
+                                       current: row.statusRaw) { picked in
                             statusOpen = false
-                            guard let status = JobStatus(rawValue: picked),
-                                  status != row.status else { return }
+                            // Written as picked — any name on the org's list (#544).
+                            guard picked != row.statusRaw else { return }
                             // An admin closes the job from here; anyone else
                             // raises a completion request instead.
                             //
@@ -1180,11 +1184,11 @@ private struct JobsGridCell: View {
                             // that for them is the same outcome in one click
                             // rather than a dead one — and a dead click in a
                             // dropdown is indistinguishable from a bug.
-                            if JobsEdit.needsCompletionRequest(status,
+                            if JobsEdit.needsCompletionRequest(picked,
                                                                isAdmin: context.isAdmin) {
                                 actions.requestCompletion(row)
                             } else {
-                                actions.commit(row, .status(status))
+                                actions.commit(row, .status(picked))
                             }
                         }
             }
