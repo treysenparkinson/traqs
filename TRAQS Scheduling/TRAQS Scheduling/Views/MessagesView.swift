@@ -702,6 +702,12 @@ struct ThreadDetailView: View {
     /// and this lifts just the composer, on the keyboard's own curve. The
     /// composer is a `safeAreaBar`, so the transcript's bottom inset rises with it.
     @State private var keyboardLift: CGFloat = 0
+    /// How many of the newest messages the transcript builds. They're built
+    /// EAGERLY (a VStack, not a LazyVStack), so the whole visible conversation is
+    /// measured in the first layout pass and the thread opens exactly at the
+    /// bottom — lazily, rows measured over several frames as it slid in, which
+    /// was the slide-and-snap (2026-10-14). Older ones load in pages on request.
+    @State private var shownCount = MessagePage.size
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
@@ -883,7 +889,7 @@ struct ThreadDetailView: View {
     private var messageSections: [MessageSection] {
         let sectionGap: TimeInterval = 60 * 60   // 1 hour
         var sections: [MessageSection] = []
-        for m in liveMessages {
+        for m in liveMessages.suffix(shownCount) {
             if let last = sections.last, let lastMsg = last.messages.last,
                let lastDate = Date.fromFlexibleISO8601(lastMsg.timestamp),
                let thisDate = Date.fromFlexibleISO8601(m.timestamp),
@@ -1084,7 +1090,19 @@ struct ThreadDetailView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    VStack(spacing: 12) {
+                        if liveMessages.count > shownCount {
+                            Button {
+                                shownCount += MessagePage.size
+                            } label: {
+                                Text("Show earlier messages")
+                                    .font(TTypo.smBold(13))
+                                    .foregroundStyle(Color(hex: T.accent))
+                                    .padding(.vertical, 6)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 4)
+                        }
                         if liveMessages.isEmpty {
                             Text("No messages yet. Say hello!")
                                 .font(.subheadline)
@@ -3847,4 +3865,9 @@ enum ThumbnailCache {
         c.countLimit = 200
         return c
     }()
+}
+
+/// The transcript's page size — see `shownCount`.
+enum MessagePage {
+    static let size = 150
 }
