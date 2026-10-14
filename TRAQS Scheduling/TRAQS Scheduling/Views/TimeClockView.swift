@@ -73,11 +73,11 @@ struct TimeClockView: View {
                       ScrollView {
                         VStack(spacing: 0) {
 
-                            RvTitle(title: "Time Clock", meta: todayMeta)
+                            RvTitle(title: "Time Clock", meta: todayMeta, side: 16)
 
                             // ── Timer: hours clocked today, with the status pill ──
                             ClockTimerBlock(time: shiftTimer, status: clockStatus)
-                                .padding(.horizontal, Rv.side)
+                                .padding(.horizontal, 16)
                                 .padding(.top, 4)
                                 .padding(.bottom, 22)
 
@@ -96,7 +96,7 @@ struct TimeClockView: View {
                                         if ok { showBanner(.breakEnded) }
                                     }
                                 }
-                                .padding(.horizontal, Rv.side)
+                                .padding(.horizontal, 16)
                                 .padding(.bottom, 14)
                             }
 
@@ -147,7 +147,7 @@ struct TimeClockView: View {
                                                          if ok { showBanner(starting ? .breakStarted : .breakEnded) }
                                                      }
                                                  })
-                                    .padding(.horizontal, Rv.side)
+                                    .padding(.horizontal, 16)
                             }
 
                             // ── PAY PERIOD tile, then RECENT ENTRIES ──
@@ -156,21 +156,29 @@ struct TimeClockView: View {
                                               target: periodTarget) { showTimesheet = true }
                                     .padding(.top, 26)
 
-                                RvSection("Recent entries", action: "Last 8 days")
+                                // In-card heading over one card of rows — the old
+                                // design language (spec 2026-10-14).
                                 let recent = DayTotal.group(recentEntries)
-                                if recent.isEmpty {
-                                    Text("No shifts in the last 8 days")
-                                        .font(.traqs(.regular, size: 13))
-                                        .foregroundStyle(Color(hex: T.muted))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 14)
-                                } else {
-                                    ForEach(recent.indices, id: \.self) { i in
-                                        DayLine(day: recent[i], divider: i < recent.count - 1)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    CardHeading(title: "Recent entries", trailing: "Last 8 days")
+                                    if recent.isEmpty {
+                                        Text("No shifts in the last 8 days")
+                                            .font(.traqs(.regular, size: 13))
+                                            .foregroundStyle(Color(hex: T.muted))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.vertical, 14)
+                                    } else {
+                                        ForEach(recent.indices, id: \.self) { i in
+                                            DayLine(day: recent[i], divider: i < recent.count - 1)
+                                        }
                                     }
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .frostedCard(radius: T.cornerMd, rim: false)
+                                .padding(.top, 14)
                             }
-                            .padding(.horizontal, Rv.side)
+                            .padding(.horizontal, 16)
                             .padding(.top, 10)
                         }
                         .padding(.bottom, 24)
@@ -427,11 +435,19 @@ private struct ClockTimerBlock: View {
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            RvTag(text: status,
-                  foreground: Color(hex: T.muted),
-                  background: Color(hex: T.surface))
+            TagPill(label: status, kind: kind, dot: status != "OFFLINE")
         }
         .frame(maxWidth: .infinity)
+        .padding(T.insetHero)
+        .frostedCard()
+    }
+
+    private var kind: TagKind {
+        switch status {
+        case "CLOCKED IN":             return .green
+        case "ON LUNCH", "ON BREAK":   return .amber
+        default:                       return .neutral
+        }
     }
 }
 
@@ -453,7 +469,10 @@ private struct PayPeriodTile: View {
         let _ = theme.bgPresetId; let _ = theme.accent
         VStack(alignment: .leading, spacing: 10 * k) {
             HStack(alignment: .firstTextBaseline) {
-                RvEyebrow("Pay period", color: Color(hex: T.ink).opacity(0.55))
+                Text("PAY PERIOD")
+                    .font(TTypo.xsBold(11))
+                    .tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
                 Spacer(minLength: 8)
                 Text(range)
                     .font(.traqs(.medium, size: 12))
@@ -479,11 +498,12 @@ private struct PayPeriodTile: View {
                 .buttonStyle(.plain)
             }
             .lineLimit(1)
-            RvTrack(fraction: target > 0 ? hours / target : 0)
+            Bar(pct: target > 0 ? min(100, hours / target * 100) : 0, height: 6,
+                gradient: T.brandGradient())
         }
-        .padding(16 * k)
+        .padding(T.insetHero)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 20 * k, style: .continuous).fill(Rv.Tint.sky.fill))
+        .frostedCard()
     }
 }
 
@@ -546,12 +566,26 @@ private struct DayLine: View {
     }
 
     var body: some View {
-        RvRow(divider: divider) {
-            RvRowText(title: title, subtitle: subtitle)
-            Text(String(format: "%.2f h", day.hours))
-                .font(.traqs(.semibold, size: 14))
-                .foregroundStyle(Color(hex: T.ink))
-                .monospacedDigit()
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(TTypo.smBold(14))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Text(String(format: "%.2f h", day.hours))
+                    .font(.traqs(.semibold, size: 14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .monospacedDigit()
+            }
+            .padding(.vertical, 11)
+            if divider { Rectangle().fill(Color(hex: T.hair)).frame(height: 1) }
         }
     }
 }
@@ -574,14 +608,9 @@ private struct TimesheetSheet: View {
                 PageBackground()
                 ScrollView {
                     VStack(spacing: 0) {
-                        RvTitle(title: "Timesheet", meta: range)
-                        VStack(spacing: 0) {
-                            RvSection(title: "Days", top: 0) {
-                                Text(String(format: "%.1f / %.0f h", total, target))
-                                    .font(.traqs(.semibold, size: 12))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                    .monospacedDigit()
-                            }
+                        RvTitle(title: "Timesheet", meta: range, side: 16)
+                        VStack(alignment: .leading, spacing: 0) {
+                            CardHeading(title: "Days", trailing: String(format: "%.1f / %.0f h", total, target))
                             if entries.isEmpty {
                                 Text("No completed shifts this pay period")
                                     .font(.traqs(.regular, size: 13))
@@ -595,7 +624,10 @@ private struct TimesheetSheet: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, Rv.side)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .frostedCard(radius: T.cornerMd, rim: false)
+                        .padding(.horizontal, 16)
                     }
                     .padding(.bottom, 24)
                 }
@@ -663,7 +695,7 @@ private struct OpenBreakCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Rv.Tint.butter.fill))
+        .frostedCard(radius: T.cornerMd)
     }
 
     private func headline(now: Date) -> String {
@@ -1096,3 +1128,28 @@ private enum PadPhase { case entry, working, done }
 /// The curve the pad resizes on as the keypad gives way to the progress mark.
 /// A spring, so the panel settles into its new height rather than stepping.
 private let padPhaseAnimation: Animation = .spring(response: 0.36, dampingFraction: 0.82)
+
+// MARK: - In-card heading
+
+/// The Liquid Glass card heading (spec 2026-10-14): bold 17 title, muted
+/// trailing note, sitting inside the card it names.
+private struct CardHeading: View {
+    let title: String
+    var trailing: String? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.traqs(.bold, size: 17))
+                .foregroundStyle(Color(hex: T.ink))
+            Spacer(minLength: 8)
+            if let trailing {
+                Text(trailing)
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .monospacedDigit()
+            }
+        }
+        .padding(.bottom, 6)
+    }
+}
