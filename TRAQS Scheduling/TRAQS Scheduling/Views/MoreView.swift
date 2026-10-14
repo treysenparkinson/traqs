@@ -29,7 +29,6 @@ struct MoreView: View {
     /// the header's calendar menu READS it to decide whether to list weeks or
     /// pay periods — and that menu is drawn outside the page.
     private var range: StatsRange { appNav.statsRange }
-    @State private var overHoursExpanded = false
     /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
     @State private var isStopping = false
     /// Admin-only: pick a worker to view THEIR personal stats. nil = the org
@@ -90,22 +89,8 @@ struct MoreView: View {
                                                       info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
                                 }
                                 .padding(.horizontal, 16)
+                                .padding(.bottom, 8)
                             }
-
-                            // Over-hours section header; tapping it drops its
-                            // list down beneath it.
-                            VStack(spacing: 12) {
-                                OverHoursTab(value: "\(overHoursItems.count)", expanded: overHoursExpanded) {
-                                    withAnimation(.easeInOut(duration: 0.22)) { overHoursExpanded.toggle() }
-                                }
-                                if overHoursExpanded {
-                                    OverHoursList(jobs: overHoursItems)
-                                        .transition(.opacity.combined(with: .move(edge: .top)))
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 24)
                         } else if let pid = statsPersonId {
                             // Personal stats — your own (non-admin) or a worker an
                             // admin picked from the person button.
@@ -163,8 +148,6 @@ struct MoreView: View {
                         let groups = jobSessionGroups
                         // Lazy: only on-screen day-group cards build.
                         LazyVStack(spacing: 12) {
-                            JobHoursSummaryRow(periodHours: jobPeriodHours,
-                                               sessions: sessions.count)
                             ForEach(groups) { group in
                                 EntryGroupCard(group: group)
                             }
@@ -433,48 +416,6 @@ struct MoreView: View {
         }
     }
 
-    // MARK: Over-hours (jobs whose logged actual > estimated)
-
-    /// Jobs currently over estimate: est = Σ of the job's op/panel `hpd`,
-    /// actual = Σ of its ops' `loggedHours` (cumulative all-time — so this is a
-    /// current-state metric, NOT week-scoped). Admins see every over job; a
-    /// non-admin sees only jobs they're on / logged time to.
-    private var overHoursItems: [OverHoursJob] {
-        let mineOnly = !appState.isAdmin
-        let myId = appState.currentPersonId
-        var items: [OverHoursJob] = []
-        for job in appState.jobs {
-            var est = 0.0, actual = 0.0
-            for panel in job.subs {
-                if panel.subs.isEmpty {
-                    est += max(0, panel.hpd)
-                } else {
-                    // An unestimated op has nothing to be over, so its hours
-                    // don't count against the ops that do have an estimate.
-                    for op in panel.subs where op.hpd > 0 {
-                        est += op.hpd
-                        actual += op.loggedHours ?? 0
-                    }
-                }
-            }
-            guard est > 0, actual > est else { continue }
-            if mineOnly && !personOnJob(job, myId) { continue }
-            items.append(OverHoursJob(title: job.title, est: est, actual: actual))
-        }
-        return items.sorted { $0.over > $1.over }
-    }
-
-    /// Whether the person is assigned anywhere in the job or logged time on it.
-    private func personOnJob(_ job: Job, _ personId: String?) -> Bool {
-        guard let pid = personId else { return false }
-        if job.team.contains(pid) { return true }
-        for panel in job.subs {
-            if panel.team.contains(pid) { return true }
-            for op in panel.subs where op.team.contains(pid) { return true }
-        }
-        return appState.jobSessions.contains { $0.jobId == job.id && $0.personId == pid }
-    }
-
 }
 
 // MARK: - Efficiency (job hours ÷ pay hours) · MoreView
@@ -707,10 +648,6 @@ private extension MoreView {
             .sorted { ($0.clockIn ?? "") > ($1.clockIn ?? "") }
     }
 
-    var jobPeriodHours: Double {
-        jobSessionsInPeriod.reduce(0.0) { $0 + ($1.hours ?? 0) } + liveJobHours
-    }
-
     /// Job hours for one person over an ARBITRARY window — the Hours stat box,
     /// which follows the page's Week / Pay Period toggle.
     ///
@@ -841,116 +778,6 @@ private struct InfoButton: View {
                 .frame(width: 264)
                 .presentationCompactAdaptation(.popover)
         }
-    }
-}
-
-// MARK: - Over-hours tab (full-width bar → drops its list down beneath it)
-
-private struct OverHoursTab: View {
-    let value: String
-    let expanded: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Text("OVER-HOURS")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
-                Text(value)
-                    .font(TTypo.smBold(15))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .rotationEffect(.degrees(expanded ? 180 : 0))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
-            .frame(maxWidth: .infinity)
-            .frostedCard(radius: T.cornerMd)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Over-hours dropdown (est vs actual per job)
-
-struct OverHoursJob: Identifiable {
-    let id = UUID()
-    let title: String
-    let est: Double      // admin-set estimate (Σ op hpd)
-    let actual: Double   // hours actually logged (Σ op loggedHours)
-    var over: Double { max(0, actual - est) }
-}
-
-/// Compact hours label: "26h" / "5.5h".
-private func fmtHours(_ v: Double) -> String {
-    v == v.rounded() ? String(format: "%.0fh", v) : String(format: "%.1fh", v)
-}
-
-private struct OverHoursList: View {
-    let jobs: [OverHoursJob]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text("JOB").tLabel(tracking: 1.0)
-                Spacer()
-                Text("EST").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
-                Text("ACT").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
-                Text("OVER").tLabel(tracking: 1.0).frame(width: 52, alignment: .trailing)
-            }
-            .font(TTypo.xsBold(10))
-            .foregroundStyle(Color(hex: T.muted))
-            .padding(.horizontal, 14).padding(.vertical, 10)
-
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
-
-            if jobs.isEmpty {
-                Text("No jobs over their estimate.")
-                    .font(TTypo.xs(12))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-            } else {
-                ForEach(jobs) { OverHoursRow(job: $0) }
-            }
-        }
-        .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
-    }
-}
-
-private struct OverHoursRow: View {
-    let job: OverHoursJob
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(job.title)
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-            Spacer()
-            Text(fmtHours(job.est))
-                .font(TTypo.sm(13))
-                .foregroundStyle(Color(hex: T.muted))
-                .tnum()
-                .frame(width: 46, alignment: .trailing)
-            Text(fmtHours(job.actual))
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.ink))
-                .tnum()
-                .frame(width: 46, alignment: .trailing)
-            Text("+" + fmtHours(job.over))
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.amber))
-                .tnum()
-                .frame(width: 52, alignment: .trailing)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 11)
     }
 }
 
@@ -1150,34 +977,6 @@ private struct NonAdminEmpty: View {
 // MARK: - Past Jobs subviews (moved from the Hours page's Job Hours section)
 
 // MARK: - Job-hours period summary
-
-private struct JobHoursSummaryRow: View {
-    let periodHours: Double
-    let sessions: Int
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("THIS PAY PERIOD")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
-                Text(String(format: "%.2f h on jobs", periodHours))
-                    .font(.traqs(.bold, size: 17))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-            }
-            Spacer()
-            Text("\(sessions) session\(sessions == 1 ? "" : "s")")
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-        }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
-    }
-}
-
-// MARK: - Running entry card (frosted, gradient STOP)
 
 private struct RunningEntryCard: View {
     let jobClock: ActiveJobClock
