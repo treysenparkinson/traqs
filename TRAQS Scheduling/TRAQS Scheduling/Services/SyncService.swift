@@ -155,10 +155,9 @@ final class SyncService {
             rerun = false
             do {
                 if let cursor = cache.cursor() {
-                    let delta = try await fetchDelta(since: cursor)
-                    totalWrites += LaunchTrace.measure("applyDelta (SwiftData writes)") { applyDelta(delta) }
+                    totalWrites += applyDelta(try await fetchDelta(since: cursor))
                 } else {
-                    totalWrites += try await LaunchTrace.measure("fullResync") { try await fullResync() }
+                    totalWrites += try await fullResync()
                 }
                 lastSuccessfulSyncAt = Date()   // fetch succeeded → we're fresh
             } catch {

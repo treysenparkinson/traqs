@@ -352,7 +352,6 @@ class AppState {
         // subscriptions + doubled downstream work. Re-configuring for a DIFFERENT
         // org still proceeds (org switch).
         if configuredOrgCode == orgCode, api != nil { return }
-        LaunchTrace.startStallWatch()   // TEMPORARY — see LaunchTrace
         configuredOrgCode = orgCode
         self.orgCode = orgCode
         billingTier = UserDefaults.standard.string(forKey: Self.billingTierKey(orgCode)) ?? "basic"
@@ -371,11 +370,11 @@ class AppState {
         self.localCache = cache
         let sync = SyncService(api: apiInstance, cache: cache)
         self.syncService = sync
-        if cache.hasCachedData() { LaunchTrace.measure("rehydrate (launch)") { rehydrateFromCache() } }   // instant paint from cache
+        if cache.hasCachedData() { rehydrateFromCache() }   // instant paint from cache
         startNetworkMonitoring()              // Phase 6: reachability for the sync indicator
         Task {
-            _ = await LaunchTrace.measure("deltaSync") { await self.runDeltaSync() }     // seed/refresh cache + cursor (flips isSyncing)
-            LaunchTrace.measure("rehydrate (after sync)") { self.rehydrateFromCache() }         // apply anything that changed
+            _ = await self.runDeltaSync()     // seed/refresh cache + cursor (flips isSyncing)
+            self.rehydrateFromCache()         // apply anything that changed
             await self.realtime.connect(orgCode: orgCode, api: apiInstance,
                                    onChange: { [weak self] in self?.onRealtimeChange() },
                                    onReconnect: { [weak self] in self?.onRealtimeChange() },
@@ -384,7 +383,7 @@ class AppState {
                                    onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })        }
 
         updateDegradedPoll()   // starts the fallback poll until Ably connects
-        Task { await LaunchTrace.measure("loadAll") { await loadAll() } }
+        Task { await loadAll() }
         // Resolve the org's display name (cached server-side) so the sidebar
         // can render it above the current user. Failure is non-fatal — we
         // fall back to whatever was previously persisted.
@@ -405,11 +404,10 @@ class AppState {
     private func rehydrateFromCache() {
         guard let cache = localCache else { return }
         let dec = JSONDecoder()
-        let j = LaunchTrace.measure("  rehydrate jobs") { cache.readAll(SyncedJob.self).compactMap { try? dec.decode(Job.self, from: $0.payload) } }
-        let p = LaunchTrace.measure("  rehydrate people") { cache.readAll(SyncedPerson.self).compactMap { try? dec.decode(Person.self, from: $0.payload) } }
+        let j = cache.readAll(SyncedJob.self).compactMap { try? dec.decode(Job.self, from: $0.payload) }
+        let p = cache.readAll(SyncedPerson.self).compactMap { try? dec.decode(Person.self, from: $0.payload) }
         let c = cache.readAll(SyncedClient.self).compactMap { try? dec.decode(Client.self, from: $0.payload) }
-        let m = LaunchTrace.measure("  rehydrate messages") { cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) } }
-        LaunchTrace.log("  rehydrate counts: jobs \(j.count) people \(p.count) messages \(m.count)")
+        let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
         let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
         let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
         // SyncService has been writing this slice to the cache since productionhours
@@ -781,13 +779,13 @@ class AppState {
         let (j, p, c, m, g, s) = await (jobsR, peopleR, clientsR, messagesR, groupsR, settingsR)
 
         if let r = j, !r.isEmpty || jobs.isEmpty {
-            LaunchTrace.measure("assign jobs (\(r.count))") { withoutAnimation { jobs = r } }
+            withoutAnimation { jobs = r }
         }
         var roster: [Person]?
         switch p {
         case .success(let data):
             do {
-                roster = try LaunchTrace.measure("decode people (loadAll) \(data.count / 1024)KB") { try JSONDecoder().decode([Person].self, from: data) }
+                roster = try JSONDecoder().decode([Person].self, from: data)
                 // The cache holds what loadAll fetched. Without this the next rehydrate
                 // replaced it with the cached roster seconds later. Skipped when a delta
                 // moved the cursor mid-fetch: then the cache is fresher, and the race guard
@@ -1809,7 +1807,7 @@ class AppState {
     /// rehydrate stays correct. Empty-guarded so a transient empty GET (e.g. a
     /// momentary auth blip resolving no viewer) can't blank a populated list.
     private func applyServerMessages(_ data: Data) {
-        let r = LaunchTrace.measure("decode messages \(data.count / 1024)KB") { (try? JSONDecoder().decode([Message].self, from: data)) ?? [] }
+        let r = (try? JSONDecoder().decode([Message].self, from: data)) ?? []
         guard !r.isEmpty || messages.isEmpty else { return }
         withoutAnimation { messages = keepingOutgoing(r) }
         syncService?.mergeFullMessages(data)
@@ -1870,7 +1868,7 @@ class AppState {
     func refreshTimeclock(personId: String? = nil) async {
         guard let api else { return }
         if let entries = try? await api.fetchTimeclock(personId: personId) {
-            LaunchTrace.measure("assign timeclock (\(entries.count))") { withoutAnimation { timeclockEntries = entries } }
+            withoutAnimation { timeclockEntries = entries }
         }
     }
 
@@ -1885,11 +1883,10 @@ class AppState {
     func refreshJobSessions(personId: String? = nil, seedProgress: Bool = false) async {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
-            LaunchTrace.log("assign jobSessions (\(sessions.count))")
             withoutAnimation {
                 jobSessions = sessions
                 if seedProgress, !sessions.isEmpty || productionHours.isEmpty {
-                    LaunchTrace.measure("applyProductionHours (\(sessions.count) sessions)") { applyProductionHours(sessions) }
+                    applyProductionHours(sessions)
                 }
             }
         }

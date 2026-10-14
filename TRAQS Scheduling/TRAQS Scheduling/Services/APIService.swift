@@ -116,7 +116,7 @@ struct APIService {
     func fetchJobs() async throws -> [Job] {
         let req = try await request("tasks")
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode jobs \(data.count / 1024)KB") { try decoder.decode([Job].self, from: data) }
+        return try decoder.decode([Job].self, from: data)
     }
 
     // MARK: - AI (proxied to keep the Anthropic key server-side)
@@ -208,7 +208,7 @@ struct APIService {
     func fetchPeople() async throws -> [Person] {
         let req = try await request("people")
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode people \(data.count / 1024)KB") { try decoder.decode([Person].self, from: data) }
+        return try decoder.decode([Person].self, from: data)
     }
 
     func savePeople(_ people: [Person]) async throws {
@@ -254,7 +254,7 @@ struct APIService {
     func fetchClients() async throws -> [Client] {
         let req = try await request("clients")
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode clients \(data.count / 1024)KB") { try decoder.decode([Client].self, from: data) }
+        return try decoder.decode([Client].self, from: data)
     }
 
     func saveClients(_ clients: [Client]) async throws {
@@ -268,7 +268,7 @@ struct APIService {
     func fetchMessages() async throws -> [Message] {
         let req = try await request("messages")
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode messages \(data.count / 1024)KB") { try decoder.decode([Message].self, from: data) }
+        return try decoder.decode([Message].self, from: data)
     }
 
     /// Raw JSON of the viewer's full (ACL-filtered, non-time-filtered) message
@@ -616,7 +616,7 @@ struct APIService {
         let path = personId.map { "timeclock?personId=\($0)" } ?? "timeclock"
         let req = try await request(path)
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode timeclock \(data.count / 1024)KB") { try decoder.decode([TimeclockEntry].self, from: data) }
+        return try decoder.decode([TimeclockEntry].self, from: data)
     }
 
     /// Timestamped per-session job-clock log (jobsessions.json) for pay-period
@@ -626,7 +626,7 @@ struct APIService {
         if let personId { path += "&personId=\(personId)" }
         let req = try await request(path)
         let data = try await perform(req)
-        return try LaunchTrace.measure("decode jobsessions \(data.count / 1024)KB") { try decoder.decode([JobSession].self, from: data) }
+        return try decoder.decode([JobSession].self, from: data)
     }
 
     // MARK: - Job Clock (Bearer-only, no PIN)
