@@ -1433,9 +1433,20 @@ struct ThreadDetailView: View {
                     let origin = geo.frame(in: .global).origin
                     let full = CGRect(origin: .zero, size: geo.size)
                     let from = pillFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-                    MembersHero(progress: membersProgress, from: from, full: full,
-                                title: displayTitle,
-                                page: membersPage(topInset: windowTopInset))
+                    ZStack(alignment: .topLeading) {
+                        MembersHero(progress: membersProgress, from: from, full: full,
+                                    title: displayTitle,
+                                    page: membersPage(topInset: windowTopInset))
+                        // The avatars and back button stay ABOVE the growing page,
+                        // exactly where the header's are, fading as it grows. The
+                        // hero is drawn over the whole page, so without this the
+                        // collapsing pill ended on top of the avatars and then
+                        // snapped behind them when the real pill took over.
+                        ThreadTopBar(context: headerContext, topInset: windowTopInset,
+                                     hidePill: true)
+                            .opacity(Double(max(0, 1 - membersProgress * 3)))
+                            .allowsHitTesting(false)
+                    }
                 }
                 .ignoresSafeArea()
             }
