@@ -21,14 +21,11 @@ struct TimeOffView: View {
             VStack(spacing: 0) {
                 // Sticky header — chevron.left back button (matches AdminView).
                 HStack(spacing: 12) {
-                    Button { dismiss() } label: {
-                        HeaderGlassCircle {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.ink))
-                        }
+                    GlassKey(size: HeaderControl.diameter, action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color(hex: T.ink))
                     }
-                    .buttonStyle(.plain)
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -292,28 +289,24 @@ private struct TimeOffApprovalCard: View {
                     HStack(spacing: 8) {
                         Button { denying = false; reason = "" } label: {
                             Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                                .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                .glassControl(in: Capsule())
-                        }.buttonStyle(.plain).disabled(busy)
+                                .frame(maxWidth: .infinity).padding(.vertical, 4) // 11 - 7 native inset
+                        }.nativeGlass(.capsule).disabled(busy)
                         Button { decide("deny") } label: {
                             Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 13)
-                                .glassCTA(tint: Color(hex: "#ef4444"))
-                        }.buttonStyle(.plain).disabled(busy)
+                                .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }.nativeGlass(.capsule, prominent: true, tint: Color(hex: "#ef4444")).disabled(busy)
                     }
                 }
             } else {
                 HStack(spacing: 10) {
                     Button { denying = true } label: {
                         Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .glassCTA(tint: Color(hex: "#ef4444"))
-                    }.buttonStyle(.plain).disabled(busy)
+                            .frame(maxWidth: .infinity).padding(.vertical, 7)
+                    }.nativeGlass(.capsule, prominent: true, tint: Color(hex: "#ef4444")).disabled(busy)
                     Button { decide("approve") } label: {
                         Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .glassCTA(tint: Color(hex: "#10b981"))
-                    }.buttonStyle(.plain).disabled(busy)
+                            .frame(maxWidth: .infinity).padding(.vertical, 7)
+                    }.nativeGlass(.capsule, prominent: true, tint: Color(hex: "#10b981")).disabled(busy)
                 }
             }
         }
@@ -487,10 +480,9 @@ private struct RequestTimeOffOverlay: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 36, height: 36)
-                    .glassControl(in: Circle())
+                    .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.circle)
             .padding(18)
         }
         .padding(.horizontal, 24)

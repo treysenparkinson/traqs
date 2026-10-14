@@ -46,14 +46,11 @@ struct AdminView: View {
             VStack(spacing: 0) {
                 // Sticky header
                 HStack(spacing: 12) {
-                    Button { dismiss() } label: {
-                        HeaderGlassCircle {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.ink))
-                        }
+                    GlassKey(size: HeaderControl.diameter, action: { dismiss() }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color(hex: T.ink))
                     }
-                    .buttonStyle(.plain)
                     Spacer()
                 }
                 .padding(.horizontal, 16)

@@ -261,13 +261,13 @@ struct AvailabilityCheckButton: View {
                 Label("Check for availability", systemImage: "clock.arrow.circlepath")
             }
         } label: {
-            HeaderGlassCircle {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.accent))
-            }
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color(hex: T.accent))
+                .frame(width: HeaderControl.diameter - 14,   // - 2×7 native inset
+                       height: HeaderControl.diameter - 14)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.circle)
     }
 }
 
@@ -422,10 +422,9 @@ struct AvailabilityCheckPopup: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 36, height: 36)
-                    .glassControl(in: Circle())
+                    .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.circle)
             .padding(18)
         }
         .padding(.horizontal, 20)
@@ -575,26 +574,17 @@ struct AvailabilityCheckPopup: View {
                 runCheck()
             } label: {
                 let enabled = hours > 0
-                let label = Text("Find soonest")
+                Text("Find soonest")
                     .font(TTypo.bodyBold(16))
                     .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-
-                Group {
-                    if enabled {
-                        // The shared tinted-glass CTA — the one action this
-                        // popup exists to run.
-                        label.glassCTA()
-                    } else {
-                        // Muted grey while there are no hours to check, so
-                        // "nothing to do yet" reads as unavailable rather than
-                        // as merely faint glass.
-                        label.background(Capsule().fill(Color(hex: T.muted).opacity(0.4)))
-                    }
-                }
+                    .padding(.vertical, 8)
             }
-            .buttonStyle(.plain)
+            // The shared tinted-glass CTA — the one action this popup exists to
+            // run. Muted grey while there are no hours to check, so "nothing to
+            // do yet" reads as unavailable rather than as merely faint glass.
+            .nativeGlass(.capsule, prominent: true,
+                         tint: hours > 0 ? nil : Color(hex: T.muted).opacity(0.4))
             .disabled(!(hours > 0))
             .padding(.top, 4)
         }

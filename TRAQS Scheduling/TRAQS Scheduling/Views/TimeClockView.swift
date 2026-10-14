@@ -739,7 +739,7 @@ private struct PayClockControls: View {
                              text: onLunch ? "End Lunch" : "Lunch",
                              tint: nil)
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlass(.capsule)
                     .disabled(inFlight)
                     .opacity(inFlight ? 0.6 : 1)
 
@@ -749,7 +749,7 @@ private struct PayClockControls: View {
                              tint: nil,
                              busy: breakInFlight)
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlass(.capsule)
                     .disabled(breakInFlight)
                     .opacity(breakInFlight ? 0.6 : 1)
                 }
@@ -757,7 +757,7 @@ private struct PayClockControls: View {
                 Button(action: onClockOut) {
                     pill(icon: "stop.circle.fill", text: "Clock Out", tint: Color(hex: T.accent))
                 }
-                .buttonStyle(.plain)
+                .nativeGlass(.capsule, prominent: true, tint: Color(hex: T.accent))
                 .disabled(inFlight || clockOutBlocked)
                 .opacity(inFlight ? 0.6 : (clockOutBlocked ? 0.5 : 1))
 
@@ -798,9 +798,9 @@ private struct PayClockControls: View {
     /// `tint: nil` is PLAIN glass and ink — Lunch and Break take it. They are
     /// mid-shift adjustments, not decisions, and colouring them (accent, or the
     /// old indigo/amber/green state pairs) put three competing verdicts on a row
-    /// where nothing needs deciding. It routes through `glassControl` rather
-    /// than `glassCTA` because `glassCTA(tint: nil)` means "use the accent", not
-    /// "use no tint".
+    /// where nothing needs deciding. Their Buttons take plain `.nativeGlass`,
+    /// not `prominent`, because prominent with no tint means "use the accent",
+    /// not "use no tint". `tint` here only picks the label colour.
     ///
     /// Clock Out passes the ACCENT. It was red, which read as a warning about an
     /// action every shift ends with; the PIN gate on the caller is what actually
@@ -821,8 +821,7 @@ private struct PayClockControls: View {
         }
         .foregroundStyle(label)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .glassControl(in: Capsule(), tint: tint)
+        .padding(.vertical, 7) // 14 - 7 native inset; the glass is on the Button
     }
 }
 
@@ -944,10 +943,9 @@ private struct ClockPinOverlay: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.ink))
-                            .frame(width: 40, height: 40)
-                            .glassControl(in: Circle())
+                            .frame(width: 26, height: 26) // 40 - 2×7 native inset
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlass(.circle)
                     // Nudged in from 14: the corner radius above is big enough now
                     // that a 40pt circle at 14 would ride the curve.
                     .padding(18)

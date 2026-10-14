@@ -197,10 +197,9 @@ struct JobDetailPopup: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 36, height: 36)
-                    .glassControl(in: Circle())
+                    .frame(width: 22, height: 22) // 36 - 2×7 native inset
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.circle)
             .padding(18)
         }
         .padding(.horizontal, 20)

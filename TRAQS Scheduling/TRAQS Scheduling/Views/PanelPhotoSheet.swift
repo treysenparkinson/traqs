@@ -169,10 +169,9 @@ struct EndJobPhotoOverlay: View {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
-                .frame(width: 36, height: 36)
-                .glassControl(in: Circle())
+                .frame(width: 22, height: 22) // 36 - 2×7 native inset
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.circle)
         .disabled(isWorking)
         // 12 put the button hard against the glass edge once the panel radius
         // went to 46 — the corner arc curls in behind it. 18 matches the clock
@@ -240,21 +239,24 @@ struct EndJobPhotoOverlay: View {
     /// an action sheet), so an already-attached photo can be replaced; the glass
     /// "+" is only drawn when there's nothing attached yet.
     private var openMenuButton: some View {
-        Button { setMenu(true) } label: {
-            ZStack {
-                if !hasPhoto {
+        ZStack {
+            // The whole square, glassless — so a tap anywhere opens the menu.
+            Button { setMenu(true) } label: {
+                Color.clear
+                    .frame(width: 176, height: 176)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // The "+" is Apple's own glass button (2026-10-14), on top.
+            if !hasPhoto {
+                GlassKey(size: 78, action: { setMenu(true) }) {
                     Image(systemName: "plus")
                         .font(.system(size: 34, weight: .light))
                         .foregroundStyle(Color(hex: T.accent))
-                        .frame(width: 78, height: 78)
-                        .glassControl(in: Circle())
-                        .glassEffectID("source.anchor", in: glassNS)
                 }
+                .glassEffectID("source.anchor", in: glassNS)
             }
-            .frame(width: 176, height: 176)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .disabled(isWorking)
     }
 
@@ -291,11 +293,10 @@ struct EndJobPhotoOverlay: View {
             }
             .foregroundStyle(Color(hex: T.ink))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 11)
-            .glassControl(in: Capsule())
-            .glassEffectID(id, in: glassNS)
+            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule)
+        .glassEffectID(id, in: glassNS)
         .disabled(isWorking)
     }
 

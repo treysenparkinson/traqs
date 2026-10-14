@@ -1632,14 +1632,13 @@ struct TaskCardV1: View {
             // once because it cost one offscreen glass pass per task row
             // down the list, and it's back by request. If All Jobs
             // scrolling degrades, this is the first thing to re-flatten.
-            HeaderGlassCircle {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            .contentShape(Circle())
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(hex: T.muted))
+                .frame(width: HeaderControl.diameter - 14,   // - 2×7 native inset
+                       height: HeaderControl.diameter - 14)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.circle)
     }
 
     private var glassCard: some View {
@@ -1837,8 +1836,8 @@ struct TaskCardV1: View {
                     // action when only one of them ends the job. Untinted, the
                     // row has one primary and one secondary.
                     //
-                    // `glassControl`, not `glassCTA`: `glassCTA(tint: nil)`
-                    // means "use the accent", not "use no tint".
+                    // Plain `.nativeGlass`, not `prominent`: prominent with no
+                    // tint means "use the accent", not "use no tint".
                     let breakLabel = Color(hex: T.ink)
                     HStack(spacing: 6) {
                         if breakBusy {
@@ -1853,10 +1852,9 @@ struct TaskCardV1: View {
                     }
                     .foregroundStyle(breakLabel)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .glassControl(in: Capsule())
+                    .padding(.vertical, 5)
                 }
-                .buttonStyle(.plain)
+                .nativeGlass(.capsule)
                 .disabled(breakBusy)
                 .opacity(breakBusy ? 0.6 : 1)
 
@@ -2285,10 +2283,9 @@ private struct StartJobOverlay: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 36, height: 36)
-                    .glassControl(in: Circle())
+                    .frame(width: 22, height: 22) // 36 - 2×7 native inset
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.circle)
             .padding(18)
         }
         .padding(.horizontal, 32)

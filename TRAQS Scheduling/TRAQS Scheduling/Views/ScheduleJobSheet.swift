@@ -77,14 +77,11 @@ struct ScheduleJobSheet: View {
                 }
             }
             Spacer()
-            Button { dismiss() } label: {
-                HeaderGlassCircle {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
+            GlassKey(size: HeaderControl.diameter, action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.muted))
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)

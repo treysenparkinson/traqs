@@ -87,8 +87,8 @@ struct DecisionActions: View {
         }
     }
 
-    /// Order matters: the label is sized and coloured first, then the glass takes
-    /// it, then the id names the shape.
+    /// Order matters: the label is sized and coloured first, then the native
+    /// glass style takes the Button, then the id names the shape.
     private func capsule(_ action: Action, id: String) -> some View {
         Button(action: action.run) {
             HStack(spacing: 8) {
@@ -100,22 +100,11 @@ struct DecisionActions: View {
             }
             .foregroundStyle(action.tint.map(glassCTALabel) ?? Color(hex: T.ink))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
-            .contentShape(Capsule())   // the whole glass takes the tap — see GlassControl
-            .glassEffect(glass(action.tint), in: Capsule())
-            .glassEffectID(id, in: glassNS)
+            .padding(.vertical, 6) // 13 - 7 native inset
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule, prominent: action.tint != nil, tint: action.tint)
+        .glassEffectID(id, in: glassNS)
         .disabled(busy)
         .opacity(busy ? 0.55 : 1)
-    }
-
-    /// Tinted when the action carries a colour, plain glass when it doesn't.
-    /// One `Glass` value rather than a branch around the modifier, so both paths
-    /// stay the same concrete view.
-    private func glass(_ tint: Color?) -> Glass {
-        var g = Glass.regular.interactive()
-        if let tint { g = g.tint(tint) }
-        return g
     }
 }
