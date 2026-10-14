@@ -214,16 +214,18 @@ struct RvTabs<Value: Hashable>: View {
         let _ = theme.accent
         ZStack(alignment: .bottom) {
             Rv.line.frame(height: 1)
-            HStack(spacing: 24) {
+            // A little bigger on request (2026-10-14): 14 -> 16pt labels, 10 -> 12
+            // under them, 24 -> 26 between them. Jobs, Messages and Analytics.
+            HStack(spacing: 26) {
                 ForEach(options, id: \.value) { option in
                     let on = option.value == selection
                     Button {
                         withAnimation(.easeInOut(duration: 0.22)) { selection = option.value }
                     } label: {
                         Text(option.label)
-                            .font(.traqs(.semibold, size: 14))
+                            .font(.traqs(.semibold, size: 16))
                             .foregroundStyle(Color(hex: on ? T.ink : T.muted))
-                            .padding(.bottom, 10)
+                            .padding(.bottom, 12)
                             .overlay(alignment: .bottom) {
                                 if on {
                                     Capsule()
@@ -239,10 +241,10 @@ struct RvTabs<Value: Hashable>: View {
                 Spacer(minLength: 0)
                 if let trailing {
                     Text(trailing)
-                        .font(.traqs(.medium, size: 13))
+                        .font(.traqs(.medium, size: 14))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 12)
                         .contentTransition(.numericText())
                 }
             }
