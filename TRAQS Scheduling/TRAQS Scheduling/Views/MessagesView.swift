@@ -698,6 +698,9 @@ struct ThreadDetailView: View {
     /// header goes transparent and cleared AFTER it is back, so the two overlap
     /// (identically) at both hand-overs and there is never a frame with neither.
     @State private var showHeaderCopy = false
+    /// Gates open/close so a tap mid-transition can't interleave them — the
+    /// cause of the page vanishing (see MembersTransition).
+    @State private var membersTransition = MembersTransition()
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
@@ -779,6 +782,7 @@ struct ThreadDetailView: View {
     /// transparent behind an identical stand-in), then the hero mounted AT the
     /// pill, then the growth.
     private func openMembers() {
+        guard membersTransition.requestOpen() else { return }
         composerFocused = false
         showHeaderCopy = true
         DispatchQueue.main.async {
@@ -787,7 +791,11 @@ struct ThreadDetailView: View {
                 membersProgress = 0
                 showMembers = true
                 DispatchQueue.main.async {
-                    withAnimation(.spring(duration: 0.45, bounce: 0.1)) { membersProgress = 1 }
+                    withAnimation(.spring(duration: 0.45, bounce: 0.1)) {
+                        membersProgress = 1
+                    } completion: {
+                        membersTransition.didOpen()
+                    }
                 }
             }
         }
@@ -796,13 +804,15 @@ struct ThreadDetailView: View {
     /// Shrink the page back into the pill, then hand the header back. No bounce on
     /// the way in: an overshoot would undershoot the pill and snap back out.
     private func closeMembers() {
+        guard membersTransition.requestClose() else { return }
         withAnimation(.spring(duration: 0.4, bounce: 0)) {
             membersProgress = 0
         } completion: {
             showMembers = false
             appState.threadMembersOpen = false                  // overlay header back…
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                if !showMembers { showHeaderCopy = false }      // …then the copy goes
+                showHeaderCopy = false                          // …then the copy goes
+                membersTransition.didClose()                    // only now may it reopen
             }
         }
     }
