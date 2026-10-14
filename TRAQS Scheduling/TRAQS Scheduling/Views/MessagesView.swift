@@ -1125,12 +1125,22 @@ struct ThreadDetailView: View {
                             .onDisappear { isAtBottom = false }
                     }
                     .padding()
+                    // While the thread opens, its rows measure themselves over
+                    // several frames — inside the push's animated transaction, so
+                    // every height change ANIMATED: the whole transcript slid down
+                    // and then snapped (2026-10-14). Nothing in here animates its
+                    // layout until the opening has settled.
+                    .transaction { if !didInitialScroll { $0.animation = nil } }
                 }
                 // Start pinned to the newest message and stay pinned as
                 // content grows — the reliable iOS-17+ way to open a chat at
                 // the bottom (scrollTo on a lazy trailing anchor at .onAppear
                 // often no-ops because the anchor isn't realized yet).
                 .defaultScrollAnchor(.bottom)
+                // …and keep the BOTTOM fixed while row heights settle, so the
+                // system holds the newest message in place instead of us
+                // chasing it with re-pins (which were the snap).
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 // iOS 26 adds a soft "scroll edge effect" fade at the top where
                 // content meets the safe area — that stacked a second fade under
                 // our header. Hide it; the header owns the top fade.
@@ -1189,17 +1199,16 @@ struct ThreadDetailView: View {
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
                     appState.markThreadRead(threadKey)
-                    // ALWAYS open on the newest message. defaultScrollAnchor(.bottom)
-                    // gets us close, but an uncached thread's backlog and attachment
-                    // heights can settle AFTER appear — so re-pin to the bottom a few
-                    // times over ~0.85s (ignoring isAtBottom) until the layout is
-                    // stable, then hand off to the normal follow behavior.
+                    // ALWAYS open on the newest message: one pin now; the
+                    // `.sizeChanges` bottom anchor holds it there while backlog and
+                    // attachment heights settle. This used to re-pin five times over
+                    // 0.85s, and each re-pin after a drift was a visible snap. The
+                    // opening window still lasts ~0.85s — late backlog in that window
+                    // is followed (onChange), and layout animation stays off.
                     didInitialScroll = false
+                    scrollToBottom(proxy, animated: false)
                     Task { @MainActor in
-                        for delayMs: UInt64 in [0, 80, 200, 450, 850] {
-                            if delayMs > 0 { try? await Task.sleep(nanoseconds: delayMs * 1_000_000) }
-                            scrollToBottom(proxy, animated: false)
-                        }
+                        try? await Task.sleep(nanoseconds: 850_000_000)
                         didInitialScroll = true
                     }
                     // Pull latest request statuses so any timeoff_request
