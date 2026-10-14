@@ -106,11 +106,6 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
-        // Installs the overlay UIWindow that renders the Messages header outside
-        // the main UIHostingController (so the keyboard can't displace it). Zero
-        // size, non-interactive; the window itself only appears while a thread is
-        // open (driven by appState.activeMessageThread).
-        .background(OverlayWindowInstaller(appState: appState, theme: themeSettings))
         // Pin the scene's windows to the theme's interface style so presented
         // sheets/covers inherit it instead of following the device's Dark Mode
         // (which made `.primary` text render white on our light sheet bg). Reads

@@ -694,23 +694,21 @@ struct ThreadDetailView: View {
     @State private var membersProgress: CGFloat = 0
     /// The header pill's frame (global), reported by this thread's header copy.
     @State private var pillFrame: CGRect = .zero
-    /// This thread's own copy of the header is drawn. Set BEFORE the overlay
-    /// header goes transparent and cleared AFTER it is back, so the two overlap
-    /// (identically) at both hand-overs and there is never a frame with neither.
-    @State private var showHeaderCopy = false
     /// Gates open/close so a tap mid-transition can't interleave them — the
     /// cause of the page vanishing (see MembersTransition).
     @State private var membersTransition = MembersTransition()
+    /// How far the composer rises for the keyboard. The page ignores the
+    /// keyboard's safe area — so the header (and everything else) never moves —
+    /// and this lifts just the composer, on the keyboard's own curve. The
+    /// composer is a `safeAreaBar`, so the transcript's bottom inset rises with it.
+    @State private var keyboardLift: CGFloat = 0
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
     @FocusState private var composerFocused: Bool
 
-    /// Space reserved at the top of the message list for the overlay header bar.
-    /// The header is rendered in a separate UIWindow (OverlayWindowController) so
-    /// the keyboard can't move it; here we just leave room so messages start
-    /// beneath it. (Only the bar height — the status bar is already in the safe
-    /// area.) Matches OverlayWindowController.barHeight / ThreadTopBar height.
+    /// The thread header's height (ThreadTopBar, in the page's top inset), not
+    /// counting the status bar, which is already in the safe area.
     private let overlayBarHeight: CGFloat = 108
 
     /// Publishes the current thread to the overlay header window. Called on
@@ -771,6 +769,14 @@ struct ThreadDetailView: View {
     /// the overlay's header and the page clears the status bar. NOT the overlay's
     /// GeometryReader: it ignores the safe area, so it reports 0 — which put the
     /// copy and the page's back button up under the Dynamic Island on a phone.
+    /// The window's bottom safe-area inset (home indicator) — the part of the
+    /// keyboard's height the composer already sits above.
+    private var windowBottomInset: CGFloat {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let key = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
+        return key?.safeAreaInsets.bottom ?? 0
+    }
+
     private var windowTopInset: CGFloat {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         let key = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first
@@ -784,19 +790,15 @@ struct ThreadDetailView: View {
     private func openMembers() {
         guard membersTransition.requestOpen() else { return }
         composerFocused = false
-        showHeaderCopy = true
+        appState.threadMembersOpen = true
+        membersProgress = 0
+        showMembers = true
+        // One pass for the hero to mount AT the pill, then it grows.
         DispatchQueue.main.async {
-            appState.threadMembersOpen = true
-            DispatchQueue.main.async {
-                membersProgress = 0
-                showMembers = true
-                DispatchQueue.main.async {
-                    withAnimation(.spring(duration: 0.45, bounce: 0.1)) {
-                        membersProgress = 1
-                    } completion: {
-                        membersTransition.didOpen()
-                    }
-                }
+            withAnimation(.spring(duration: 0.45, bounce: 0.1)) {
+                membersProgress = 1
+            } completion: {
+                membersTransition.didOpen()
             }
         }
     }
@@ -809,11 +811,8 @@ struct ThreadDetailView: View {
             membersProgress = 0
         } completion: {
             showMembers = false
-            appState.threadMembersOpen = false                  // overlay header back…
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                showHeaderCopy = false                          // …then the copy goes
-                membersTransition.didClose()                    // only now may it reopen
-            }
+            appState.threadMembersOpen = false
+            membersTransition.didClose()                        // only now may it reopen
         }
     }
 
@@ -1231,11 +1230,19 @@ struct ThreadDetailView: View {
                     // bubble shows live state + Approve/Deny (admins get all).
                     Task { await appState.refreshTimeOffRequests() }
                 }
-                // Reserve room at the top for the overlay header window
-                // (rendered in a SEPARATE UIWindow — see OverlayWindowController —
-                // so the keyboard can't displace it). Messages start beneath it.
+                // The header is PART OF THE PAGE (2026-10-14): it slides in and
+                // out with the thread and follows a back-swipe, like the composer.
+                // It used to live in a separate UIWindow so the keyboard couldn't
+                // move it; the page now ignores the keyboard's safe area instead
+                // and lifts the composer itself (see `keyboardLift`), so nothing
+                // up here ever moves. The members page grows out of THIS pill.
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: overlayBarHeight)
+                    ThreadTopBar(context: headerContext, topInset: 0,
+                                 onPillFrame: { if $0 != pillFrame { pillFrame = $0 } },
+                                 hidePill: showMembers)
+                        .frame(height: overlayBarHeight)
+                        .opacity(Double(max(0, 1 - membersProgress * 3)))
+                        .allowsHitTesting(!showMembers)
                 }
                 // Composer sits at the bottom; SwiftUI's default keyboard
                 // avoidance raises it while the (windowed) header stays put.
@@ -1342,7 +1349,10 @@ struct ThreadDetailView: View {
                     // Down on the home-indicator edge when the keyboard is away;
                     // a 10pt gap above the keyboard when it's up, instead of
                     // sitting flush on it.
-                    .padding(.bottom, composerFocused ? 10 : 0)
+                    // On the home-indicator edge when the keyboard is away; 10pt
+                    // above the keyboard when it's up (the lift is measured from
+                    // the bottom safe area, which the keyboard covers).
+                    .padding(.bottom, keyboardLift > 0 ? keyboardLift + 10 : 0)
                     .frame(maxWidth: .infinity)
                     // No backdrop of our own. `safeAreaBar` (iOS 26) gives the
                     // bar the system's scroll-edge effect, so messages soften as
@@ -1393,31 +1403,46 @@ struct ThreadDetailView: View {
         // so the swap can't be seen. It exists because the page has to grow out of a
         // pill in THIS window, over this view.
         .overlay {
-            if showHeaderCopy {
+            // The members page, growing out of the header's pill (in the page
+            // above — no stand-in copy, no hand-over between windows).
+            if showMembers {
                 GeometryReader { geo in
                     let origin = geo.frame(in: .global).origin
                     let full = CGRect(origin: .zero, size: geo.size)
                     let from = pillFrame.offsetBy(dx: -origin.x, dy: -origin.y)
-                    ZStack(alignment: .topLeading) {
-                        if showMembers {
-                            MembersHero(progress: membersProgress, from: from, full: full,
-                                        title: displayTitle,
-                                        page: membersPage(topInset: windowTopInset))
-                        }
-                        // On top at the start, so the hero's first frame is exactly
-                        // the header as it was; fades as the page grows over it.
-                        ThreadTopBar(context: headerContext, topInset: windowTopInset,
-                                     onPillFrame: { if $0 != pillFrame { pillFrame = $0 } },
-                                     hidePill: showMembers)
-                            .opacity(Double(max(0, 1 - membersProgress * 3)))
-                            .allowsHitTesting(!showMembers)
-                    }
+                    MembersHero(progress: membersProgress, from: from, full: full,
+                                title: displayTitle,
+                                page: membersPage(topInset: windowTopInset))
                 }
                 .ignoresSafeArea()
             }
         }
+        // The keyboard moves NOTHING on this page except the composer, which
+        // `keyboardLift` raises. The header stays fixed at all times.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            let info = note.userInfo
+            let end = (info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+            let screenH = UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.screen.bounds.height }.first ?? end.maxY
+            let overlap = max(0, screenH - end.minY)
+            let lift = max(0, overlap - windowBottomInset)
+            let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+            let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
+            withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
+                keyboardLift = lift
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+            let info = note.userInfo
+            let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+            let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
+            withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
+                keyboardLift = 0
+            }
+        }
         .toolbar(.hidden, for: .navigationBar)
-        // Hand the current thread to the overlay header window; clear it on exit
+        // Hand the current thread to the app (push suppression, the app header); clear it on exit
         // (back button or swipe-back) so the window hides. onBack captures this
         // view's dismiss so the windowed back button pops the NavigationStack.
         // Re-publish as title/participants resolve (they load after onAppear).
@@ -2482,8 +2507,8 @@ struct CompletionRequestBubble: View {
 /// fits the thread's name. Tapping the pill or the avatars opens the members page
 /// (ThreadMembersPage), which zooms out of the pill's spot.
 ///
-/// Rendered inside the overlay window (see OverlayWindowController) so the
-/// keyboard can't displace it.
+/// Drawn in the thread page's top inset; the page ignores the keyboard, so the
+/// keyboard never moves it.
 ///
 /// No GlassEffectContainer here on purpose: inside one, glass is drawn above its
 /// siblings whatever their order, which put the avatars UNDER the pill.
