@@ -5765,8 +5765,8 @@ Extraction rules:
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; return withOrgDefaults(merged); }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; return withOrgDefaults(merged); }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } }; }
   });
   // Custom job-list columns are ORG-WIDE: stored in orgSettings (synced to S3), so a column an
   // admin (or anyone) adds shows up for everyone. Per-user prefs (alignment, filters, colors,
@@ -7669,7 +7669,7 @@ Extraction rules:
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } };
+          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } };
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
           if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
@@ -26836,10 +26836,10 @@ ${jobsCtx || "No jobs found."}`;
             brk.durationMinutes,
             e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, durationMinutes: v } : b) })); },
             () => patchDraft(dd => ({ breaks: (dd.breaks || []).filter((_, j) => j !== i) })))}</Fragment>)}
-          {breakRow("Lunch", (d.lunch || { time: "12:00" }).time,
-            e => { const v = e.target.value; patchDraft(dd => ({ lunch: { ...(dd.lunch || { durationMinutes: 30 }), time: v } })); },
-            (d.lunch || { durationMinutes: 30 }).durationMinutes,
-            e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ lunch: { ...(dd.lunch || { time: "12:00" }), durationMinutes: v } })); },
+          {breakRow("Lunch", (d.lunch || DEFAULT_ORG_SETTINGS.lunch).time,
+            e => { const v = e.target.value; patchDraft(dd => ({ lunch: { ...(dd.lunch || DEFAULT_ORG_SETTINGS.lunch), time: v } })); },
+            (d.lunch || DEFAULT_ORG_SETTINGS.lunch).durationMinutes,
+            e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ lunch: { ...(dd.lunch || DEFAULT_ORG_SETTINGS.lunch), durationMinutes: v } })); },
             null)}
           <button type="button" className="rv-pill sm" style={{ marginTop: 8 }} onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))}>+ Add break</button>
         </>)}
@@ -29342,8 +29342,8 @@ ${jobsCtx || "No jobs found."}`;
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Lunch</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="time" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).time} onChange={e => { const v = e.target.value; setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), time: v } })); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
-              <input type="number" min="1" max="120" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), durationMinutes: v } })); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
+              <input type="time" value={(orgSettings.lunch || DEFAULT_ORG_SETTINGS.lunch).time} onChange={e => { const v = e.target.value; setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || DEFAULT_ORG_SETTINGS.lunch), time: v } })); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
+              <input type="number" min="1" max="120" value={(orgSettings.lunch || DEFAULT_ORG_SETTINGS.lunch).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || DEFAULT_ORG_SETTINGS.lunch), durationMinutes: v } })); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               <span style={{ fontSize: 12, color: T.textDim }}>min</span>
             </div>
           </div>
