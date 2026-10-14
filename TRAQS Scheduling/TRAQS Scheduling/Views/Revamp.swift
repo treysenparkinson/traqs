@@ -108,6 +108,9 @@ struct RvTitle: View {
     var meta: String? = nil
     /// Every page's title size; Home's greeting passes its own, larger.
     var size: CGFloat = Rv.titleSize
+    /// Side inset. The pages back on the Liquid Glass arrangement pass 16 so the
+    /// title lines up with their cards (spec 2026-10-14); size is unchanged.
+    var side: CGFloat = Rv.side
 
     var body: some View {
         let _ = theme.bgPresetId
@@ -130,7 +133,7 @@ struct RvTitle: View {
         // gap, so the design's 26pt doubled it up.
         .padding(.top, 8)
         .padding(.bottom, 22)
-        .padding(.horizontal, Rv.side)
+        .padding(.horizontal, side)
     }
 }
 
