@@ -430,7 +430,10 @@ struct TasksView: View {
         let upcomingTop: CGFloat = (lead && !hasOverdue && !hasToday) ? 0 : 16
         let othersTop: CGFloat = (lead && !hasOverdue && !hasToday && !hasUpcoming) ? 0 : 16
         return VStack(spacing: 0) {
-            if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
+            if Self.showsEmptyState(rangeItems: mine.count + jobLevel.count + others.count,
+                                    todayCards: showsMyWork ? myTodayTasks.count : 0,
+                                    inProgressCards: appState.isBusinessTier
+                                        ? workingTasks.count + inProgressTasks.count + inProgressJobs.count : 0) {
                 // Today with nothing on it says so plainly; other ranges keep
                 // their specific wording.
                 NoJobsPlaceholder(text: segment == .today ? "It's quiet here..."
@@ -467,6 +470,14 @@ struct TasksView: View {
                 .padding(.horizontal, 16)
             }
         }
+    }
+
+    /// Whether the page has NOTHING to show, so "It's quiet here..." belongs.
+    /// Counts the whole page: the Today cards and the in-progress group (the job
+    /// you're clocked into among them) are drawn ABOVE rangeContent and left out of
+    /// its lists, so judging by those lists alone said "quiet" under a job card.
+    static func showsEmptyState(rangeItems: Int, todayCards: Int, inProgressCards: Int) -> Bool {
+        rangeItems == 0 && todayCards == 0 && inProgressCards == 0
     }
 
     /// A section's content under its header: the task blocks, then the
