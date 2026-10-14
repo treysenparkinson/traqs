@@ -103,13 +103,15 @@ const COND_FORMAT_COLORS = [
   { label: "Purple", bg: "#8b5cf628", text: "#8b5cf6" },
   { label: "Pink",   bg: "#ec489928", text: "#ec4899" },
 ];
-const evalCondition = (cond, item) => {
+// `health`: the caller's verdict (healthOf), which asks the parent job (#440). Without it a
+// rule keyed on health judged the unit alone and painted an op on a shipped job as late.
+const evalCondition = (cond, item, health = null) => {
   if (!cond.enabled) return false;
   const tf = cond.triggerField;
   let fv;
   if (tf === "status") fv = item.status || "Not Started";
   else if (tf === "pri") fv = item.pri || "Medium";
-  else if (tf === "health") fv = getHealth(item);
+  else if (tf === "health") fv = health ?? getHealth(item);
   else fv = item[tf] ?? "";
   const sv = String(fv);
   const tv = String(cond.triggerValue || "");
@@ -14375,11 +14377,11 @@ ${jobsCtx || "No jobs found."}`;
           // hierarchy is conveyed by indentation, not by per-level background tints.
           const rowBg = selTask === item.id ? T.accent + "12" : "transparent";
           const allConds = orgSettings.conditions || [];
-          const matchingRowConds = allConds.filter(c => c.applyTo === "row" && evalCondition(c, item));
+          const matchingRowConds = allConds.filter(c => c.applyTo === "row" && evalCondition(c, item, healthOf(item)));
           const condBg = matchingRowConds.length ? (matchingRowConds[matchingRowConds.length - 1].formatBgColor || null) : null;
           const condStrike = matchingRowConds.some(c => c.formatStrike);
           const getCellCondStyle = (colKey) => {
-            const conds = allConds.filter(c => c.applyTo === `cell:${colKey}` && evalCondition(c, item));
+            const conds = allConds.filter(c => c.applyTo === `cell:${colKey}` && evalCondition(c, item, healthOf(item)));
             if (!conds.length) return {};
             const last = conds[conds.length - 1];
             return {

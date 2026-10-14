@@ -221,5 +221,18 @@ console.log("\n6. #440 — the KPIs stop counting unstarted work as on time");
   ok("...and on the employee page", /isJudged/.test(emp), true);
 }
 
+// RULED 2026-10-13 (Trey): "follow the job's closed status. An op on a shipped job isn't
+// behind." The dot already did (healthOf → jobStatusOfNode). One reader did not: conditional
+// formatting's `evalCondition` judged health with no job status, so a rule keyed on "critical"
+// still painted an op on a shipped job. It now takes the caller's health — healthOf's.
+{
+  const J = read("../src/TRAQS.jsx");
+  ok("#440: evalCondition takes the caller's health", /const evalCondition = \(cond, item, health = null\) =>/.test(J), true);
+  ok("#440: ...and uses it for a health trigger", /tf === "health"\) fv = health \?\? getHealth\(item\)/.test(J), true);
+  ok("#440: both callers pass healthOf(item)",
+    (J.match(/evalCondition\(c, item, healthOf\(item\)\)/g) || []).length, 2);
+  ok("#440: no caller left judging health without the job", /evalCondition\(c, item\)/.test(J), false);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
