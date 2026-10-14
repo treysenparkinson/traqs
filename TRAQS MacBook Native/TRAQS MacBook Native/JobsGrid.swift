@@ -930,10 +930,11 @@ private struct JobsGridCell: View {
             guard mayEdit(.status(row.status)) else { return nil }
             return { statusOpen = true }
         case .pri:
-            // Level 0 only — `if (level === 0) cyclePri(item)`. Below that the
-            // click belongs to the row.
-            guard mayEdit(.priority(row.priority)) else { return nil }
-            return { actions.commit(row, .priority(JobsEdit.nextPriority(after: row.priority))) }
+            // No priority edit (#542, ruled 2026-10-14). The click cycled Low ->
+            // Medium -> High, so an org value ("On time", "Late") read as Medium and
+            // one click wrote "High" over it. Removed rather than widened, as #447
+            // ruled for status on the phone; the click belongs to the row.
+            return nil
         case .jobNum:
             guard row.level == 0, mayEdit(.jobNumber("")) else { return nil }
             return { beginEditing(.jobNumber(row.job?.jobNumber ?? "")) }
@@ -1240,10 +1241,8 @@ private struct JobsGridCell: View {
         // colour for a value it doesn't model (#518).
         let color = Color.hex(context.priorityStyles[row.priorityRaw]?.color
                               ?? row.priority.hex)
-        // No `editable` test here, and there was a bound one that nothing read.
-        // The level guard lives in `wholeCellTap`, which is where the click is —
-        // a cell that cannot be cycled simply gets no gesture, and the pill looks
-        // the same either way (the web draws it identically at all three levels).
+        // Display only (#542): the pill has no gesture, and the click belongs to
+        // the row — see `wholeCellTap`.
         return Text(row.priorityRaw)
             .font(TFont.body(11, 700))
             .tracking(11 * -0.045)
@@ -1255,9 +1254,6 @@ private struct JobsGridCell: View {
             .frame(maxWidth: contentWidth)
             .background(Capsule().fill(color.opacity(0.10)))                 // "1a"
             .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))
-            // `cyclePri` — a click steps to the next priority and wraps. No
-            // popover on the web; three values do not need a list. The click is
-            // taken by the whole cell — see `wholeCellTap`.
     }
 
     // MARK: Dates

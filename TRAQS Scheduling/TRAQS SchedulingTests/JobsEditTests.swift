@@ -83,8 +83,8 @@ struct JobsEditTests {
 
     // MARK: Which cells are editable
 
-    @Test func numberDueDateAndPriorityAreLevelZeroOnly() {
-        for field in [JobsEdit.Field.jobNumber("1"), .dueDate("2026-01-01"), .priority(.high)] {
+    @Test func numberAndDueDateAreLevelZeroOnly() {
+        for field in [JobsEdit.Field.jobNumber("1"), .dueDate("2026-01-01")] {
             #expect(JobsEdit.isEditable(field, atLevel: 0))
             #expect(!JobsEdit.isEditable(field, atLevel: 1))
             #expect(!JobsEdit.isEditable(field, atLevel: 2))
@@ -98,13 +98,7 @@ struct JobsEditTests {
         }
     }
 
-    // MARK: Cycling and the Finished guard
-
-    @Test func priorityCyclesAndWraps() {
-        #expect(JobsEdit.nextPriority(after: .low) == .medium)
-        #expect(JobsEdit.nextPriority(after: .medium) == .high)
-        #expect(JobsEdit.nextPriority(after: .high) == .low)
-    }
+    // MARK: The Finished guard
 
     // The status popover WRITES the status; the only move it treats specially is
     // Finished, and only for a non-admin — the web ignores that click and tells
@@ -183,7 +177,6 @@ struct JobsEditDiffTests {
         #expect(JobsEdit.permission(for: .title("T")) == .editJobs)
         #expect(JobsEdit.permission(for: .jobNumber("1")) == .editJobs)
         #expect(JobsEdit.permission(for: .status(.onHold)) == .editJobs)
-        #expect(JobsEdit.permission(for: .priority(.high)) == .editJobs)
         #expect(JobsEdit.permission(for: .dueDate(nil)) == .editJobs)
     }
 

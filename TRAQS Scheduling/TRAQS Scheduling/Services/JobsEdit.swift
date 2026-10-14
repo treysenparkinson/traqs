@@ -27,7 +27,6 @@ enum JobsEdit {
         case title(String)
         case jobNumber(String)
         case status(JobStatus)
-        case priority(Priority)
         case start(String)
         case end(String)
         /// nil clears it. Only a job has one.
@@ -41,12 +40,12 @@ enum JobsEdit {
     ///   * title    — every level (`onDoubleClick` has no level guard)
     ///   * jobNumber, dueDate — level 0 only; a panel has neither
     ///   * status   — every level, through the popover
-    ///   * priority — level 0 only (`if (level === 0) cyclePri(item)`)
+    ///   * priority — not editable here at all (#542: the cycle is removed)
     ///   * start/end — every level
     static func isEditable(_ field: Field, atLevel level: Int) -> Bool {
         switch field {
         case .title, .status, .start, .end:  return true
-        case .jobNumber, .dueDate, .priority: return level == 0
+        case .jobNumber, .dueDate: return level == 0
         }
     }
 
@@ -58,7 +57,7 @@ enum JobsEdit {
         switch field {
         case .start, .end:
             return .moveJobs
-        case .title, .jobNumber, .status, .priority, .dueDate:
+        case .title, .jobNumber, .status, .dueDate:
             return .editJobs
         }
     }
@@ -105,7 +104,6 @@ enum JobsEdit {
             let t = v.trimmingCharacters(in: .whitespaces)
             job.jobNumber = t.isEmpty ? nil : t
         case .status(let v):    job.status = v
-        case .priority(let v):  job.pri = v
         case .start(let v):     job.start = v
         case .end(let v):       job.end = v
         case .dueDate(let v):
@@ -118,7 +116,6 @@ enum JobsEdit {
         switch field {
         case .title(let v):    panel.title = v
         case .status(let v):   panel.status = v
-        case .priority(let v): panel.pri = v
         case .start(let v):    panel.start = v
         case .end(let v):      panel.end = v
         // A panel has no number and no due date. Ignored rather than stored on
@@ -131,7 +128,6 @@ enum JobsEdit {
         switch field {
         case .title(let v):    op.title = v
         case .status(let v):   op.status = v
-        case .priority(let v): op.pri = v
         case .start(let v):    op.start = v
         case .end(let v):      op.end = v
         case .jobNumber, .dueDate: break
@@ -162,15 +158,6 @@ enum JobsEdit {
         guard let ea = try? enc.encode(a),
               let eb = try? enc.encode(b) else { return true }
         return ea != eb
-    }
-
-    // MARK: Cycling
-
-    /// `cyclePri` — clicking the cell steps to the next priority and wraps.
-    static func nextPriority(after current: Priority) -> Priority {
-        let all = Priority.allCases
-        let i = all.firstIndex(of: current) ?? 0
-        return all[(i + 1) % all.count]
     }
 
     /// Whether choosing this status has to go through the completion-approval

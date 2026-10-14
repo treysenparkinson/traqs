@@ -141,6 +141,9 @@ enum JobsQuery {
         /// `_jobPct`. Injected because the real one reads logged hours and live
         /// job clocks off AppState, which is not something to reproduce here.
         var percentComplete: (Job) -> Int = { _ in 0 }
+        /// `PRIORITIES` — the org's priority names in its order (#542).
+        /// `OrgSettings.priorityNames`; the web's three defaults when unset.
+        var priorityOrder: [String] = OrgSettings.defaultPriorities
     }
 
     // MARK: The list
@@ -367,7 +370,11 @@ enum JobsQuery {
         case .status:
             return index(of: a.status, in: JobStatus.allCases) - index(of: b.status, in: JobStatus.allCases)
         case .pri:
-            return index(of: a.pri, in: Priority.allCases) - index(of: b.pri, in: Priority.allCases)
+            // `PRI_ORDER.indexOf(t.pri || "Medium")` — the org's order (#542). The
+            // enum read every org value as `.medium`, so they all tied in its slot.
+            let pa = a.priRaw.isEmpty ? "Medium" : a.priRaw
+            let pb = b.priRaw.isEmpty ? "Medium" : b.priRaw
+            return index(of: pa, in: context.priorityOrder) - index(of: pb, in: context.priorityOrder)
         case .start:
             return text(a.start, b.start)
         case .end:
@@ -446,5 +453,22 @@ enum JobsQuery {
         // `indexOf(...)` returning -1 does on the web once it is used in a
         // subtraction. Clamped to 0 so it cannot sort ahead of a real first.
         max(0, list.firstIndex(of: value) ?? 0)
+    }
+}
+
+extension OrgSettings {
+    /// `DEFAULT_PRIORITIES` (TRAQS.jsx:301).
+    static let defaultPriorities = ["Low", "Medium", "High"]
+
+    /// `PRIORITIES` — the names in `orgSettings.priOpts`, in the org's order, or the
+    /// defaults when the list is unset or empty (the web's `priOpts` memo). Kept in
+    /// extras; the web owns the list.
+    var priorityNames: [String] {
+        guard case .array(let a) = extras["priOpts"] else { return Self.defaultPriorities }
+        let names = a.compactMap { v -> String? in
+            guard case .object(let o) = v, let n = o["name"] else { return nil }
+            return n.text
+        }
+        return names.isEmpty ? Self.defaultPriorities : names
     }
 }

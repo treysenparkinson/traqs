@@ -720,7 +720,8 @@ struct JobsPage: View {
                 return cells.clientsByID[id]?.name ?? ""
             },
             personName: { cells.peopleByID[$0]?.name ?? "" },
-            percentComplete: { cells.percent[$0.id] })
+            percentComplete: { cells.percent[$0.id] },
+            priorityOrder: appState.orgSettings.priorityNames)
     }
 
     // MARK: What the cells do
