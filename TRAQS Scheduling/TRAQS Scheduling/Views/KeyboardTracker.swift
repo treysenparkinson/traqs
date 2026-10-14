@@ -79,9 +79,6 @@ struct KeyboardTracker: UIViewRepresentable {
             let h = bounds.height
             guard h != last else { return }
             last = h
-            #if DEBUG
-            print("[kb] probe height \(Int(h)) animating=\(UIView.inheritedAnimationDuration > 0)")
-            #endif
             onHeight?(h)
         }
     }

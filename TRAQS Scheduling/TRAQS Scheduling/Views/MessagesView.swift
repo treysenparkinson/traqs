@@ -701,7 +701,12 @@ struct ThreadDetailView: View {
     /// keyboard's safe area — so the header (and everything else) never moves —
     /// and this lifts just the composer, on the keyboard's own curve. The
     /// composer is a `safeAreaBar`, so the transcript's bottom inset rises with it.
-    @State private var keyboardLift: CGFloat = 0
+    /// Held in its own observable object and read ONLY by the composer's
+    /// padding (`KeyboardLiftPadding`), so a keyboard frame invalidates that one
+    /// small view — not this whole thread. As @State here, every frame of a
+    /// keyboard swipe re-ran the thread's body (150 bubbles and their sections),
+    /// which was the lag on swipe-down and on the keyboard coming up (2026-10-14).
+    @State private var keyboard = KeyboardLift()
     /// How many of the newest messages the transcript builds. They're built
     /// EAGERLY (a VStack, not a LazyVStack), so the whole visible conversation is
     /// measured in the first layout pass and the thread opens exactly at the
@@ -1257,7 +1262,7 @@ struct ThreadDetailView: View {
                 // out with the thread and follows a back-swipe, like the composer.
                 // It used to live in a separate UIWindow so the keyboard couldn't
                 // move it; the page now ignores the keyboard's safe area instead
-                // and lifts the composer itself (see `keyboardLift`), so nothing
+                // and lifts the composer itself (see `keyboard`), so nothing
                 // up here ever moves. The members page grows out of THIS pill.
                 .safeAreaInset(edge: .top, spacing: 0) {
                     ThreadTopBar(context: headerContext, topInset: 0,
@@ -1375,7 +1380,7 @@ struct ThreadDetailView: View {
                     // On the home-indicator edge when the keyboard is away; 10pt
                     // above the keyboard when it's up (the lift is measured from
                     // the bottom safe area, which the keyboard covers).
-                    .padding(.bottom, keyboardLift > 0 ? keyboardLift + 10 : 0)
+                    .modifier(KeyboardLiftPadding(keyboard: keyboard))
                     .frame(maxWidth: .infinity)
                     // No backdrop of our own. `safeAreaBar` (iOS 26) gives the
                     // bar the system's scroll-edge effect, so messages soften as
@@ -1452,7 +1457,7 @@ struct ThreadDetailView: View {
             }
         }
         // The keyboard moves NOTHING on this page except the composer, which
-        // `keyboardLift` raises. The header stays fixed at all times.
+        // `keyboard` raises. The header stays fixed at all times.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // The composer rides the keyboard frame by frame (KeyboardTracker) —
         // on an interactive swipe-down too, where UIKit sends no notifications
@@ -1461,17 +1466,14 @@ struct ThreadDetailView: View {
         // the finger directly.
         .background(KeyboardTracker { height, duration in
             let lift = max(0, height - windowBottomInset)
-            guard lift != keyboardLift else { return }
-            #if DEBUG
-            print("[kb] lift \(Int(lift)) animated=\(duration > 0)")
-            #endif
+            guard lift != keyboard.lift else { return }
             if duration > 0 {
                 withAnimation(.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)) {
-                    keyboardLift = lift
+                    keyboard.lift = lift
                 }
             } else {
                 var t = Transaction(); t.disablesAnimations = true
-                withTransaction(t) { keyboardLift = lift }
+                withTransaction(t) { keyboard.lift = lift }
             }
         })
         .toolbar(.hidden, for: .navigationBar)
@@ -3885,4 +3887,18 @@ enum ThumbnailCache {
 /// The transcript's page size — see `shownCount`.
 enum MessagePage {
     static let size = 150
+}
+
+/// The composer's keyboard lift — see `keyboard` on the thread view.
+@Observable final class KeyboardLift {
+    var lift: CGFloat = 0
+}
+
+/// Reads the lift, so only the composer re-renders as the keyboard moves. On
+/// the home-indicator edge with no keyboard; 10pt above it when it's up.
+struct KeyboardLiftPadding: ViewModifier {
+    let keyboard: KeyboardLift
+    func body(content: Content) -> some View {
+        content.padding(.bottom, keyboard.lift > 0 ? keyboard.lift + 10 : 0)
+    }
 }
