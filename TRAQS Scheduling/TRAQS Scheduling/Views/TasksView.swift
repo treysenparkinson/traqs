@@ -73,7 +73,7 @@ struct TasksView: View {
                 // No title here — "Jobs" is JobsHubView's fixed title row, shared
                 // with the gantt so switching views leaves it exactly where it is.
                 RvTabs(options: filterOptions, selection: $filter, trailing: jobCountLabel)
-                    .padding(.horizontal, Rv.side)
+                    .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 22)
 
@@ -109,7 +109,7 @@ struct TasksView: View {
                     // No "In Progress" title (removed 2026-10-13) — the cards
                     // speak for themselves. Its top gap is kept, so nothing below
                     // moves.
-                    Color.clear.frame(height: (myTodayTasks.isEmpty || !showsMyWork) ? 0 : Rv.sectionTop)
+                    Color.clear.frame(height: (myTodayTasks.isEmpty || !showsMyWork) ? 0 : 16)
                     // Each stack is guarded: an empty VStack still renders, and
                     // its `.padding(.top, 12)` would leave a dead gap under the
                     // header whenever that particular list happened to be empty.
@@ -121,13 +121,13 @@ struct TasksView: View {
                                 // here appended to a path with no destination and
                                 // the tap did nothing at all.
                                 Button { onOpenJob(task.job) } label: {
-                                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) }, style: .block)
+                                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) }, style: .card)
                                 }
                                 .zoomSource(id: task.job.id)
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, Rv.side)
+                        .padding(.horizontal, 16)
                         .padding(.top, 14)
                         // No directional transition. The card lands under a
                         // header that was already there, so there is nothing for
@@ -293,7 +293,7 @@ struct TasksView: View {
                 isWorkDay: isWorkDay
             )
             .padding(.top, 14)
-            .padding(.horizontal, Rv.side).padding(.bottom, 14)
+            .padding(.horizontal, 16).padding(.bottom, 14)
 
             // Show every job scheduled across the WHOLE week — the strip above
             // is for navigation/at-a-glance counts, but the list is bounded to
@@ -321,7 +321,7 @@ struct TasksView: View {
                 countFor: { counts[cal.startOfDay(for: $0)] ?? 0 },
                 onPick: { day in withAnimation(.easeInOut(duration: 0.18)) { selectedDate = day } }
             )
-            .padding(.horizontal, Rv.side).padding(.bottom, 14)
+            .padding(.horizontal, 16).padding(.bottom, 14)
 
             // Show every job scheduled across the WHOLE month.
             rangeContent(activeRange, label: monthLabel)
@@ -343,7 +343,7 @@ struct TasksView: View {
                 year: cal.component(.year, from: Date()),
                 countFor: { counts[cal.startOfDay(for: $0)] ?? 0 }
             )
-            .padding(.horizontal, Rv.side).padding(.bottom, 14)
+            .padding(.horizontal, 16).padding(.bottom, 14)
 
             // Every job scheduled anywhere in the selected year.
             rangeContent(activeRange, label: yearLabel)
@@ -358,25 +358,17 @@ struct TasksView: View {
 
     // ── Shared row pieces ─────────────────────────────────────────────────
 
-    /// A section's eyebrow over a hairline, with a muted count on the right —
-    /// RvSection's measurements, plus the amber Overdue keeps (RvSection's
-    /// eyebrow is always muted).
+    /// The Liquid Glass section label (spec 2026-10-14): centred, tracked, ink
+    /// (amber for Overdue), with its count after a dot. No hairline.
     private func sectionHeader(_ title: String, count: Int, tint: String? = nil,
-                               top: CGFloat = Rv.sectionTop) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center) {
-                RvEyebrow(title, color: tint.map { Color(hex: $0) })
-                Spacer(minLength: 8)
-                Text("\(count)")
-                    .font(.traqs(.semibold, size: 12))
-                    .foregroundStyle(Color(hex: tint ?? T.muted))
-                    .monospacedDigit()
-            }
-            .padding(.bottom, 10)
-            Rv.line.frame(height: 1)
-        }
-        .padding(.top, top)
-        .padding(.horizontal, Rv.side)
+                               top: CGFloat = 16) -> some View {
+        Text("\(title) · \(count)")
+            .font(TTypo.xsBold(12))
+            .foregroundStyle(Color(hex: tint ?? T.ink))
+            .tLabel(tracking: 1.6)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, top)
+            .padding(.horizontal, 16)
     }
 
     /// The body shared by every segment: the user's own scheduled work
@@ -433,10 +425,10 @@ struct TasksView: View {
         let hasOverdue = !overdue.isEmpty || !jobOverdue.isEmpty
         let hasToday = !today.isEmpty || !jobToday.isEmpty
         let hasUpcoming = !upcoming.isEmpty || !jobUpcoming.isEmpty
-        let overdueTop: CGFloat = lead ? 0 : Rv.sectionTop
-        let todayTop: CGFloat = (lead && !hasOverdue) ? 0 : Rv.sectionTop
-        let upcomingTop: CGFloat = (lead && !hasOverdue && !hasToday) ? 0 : Rv.sectionTop
-        let othersTop: CGFloat = (lead && !hasOverdue && !hasToday && !hasUpcoming) ? 0 : Rv.sectionTop
+        let overdueTop: CGFloat = lead ? 0 : 16
+        let todayTop: CGFloat = (lead && !hasOverdue) ? 0 : 16
+        let upcomingTop: CGFloat = (lead && !hasOverdue && !hasToday) ? 0 : 16
+        let othersTop: CGFloat = (lead && !hasOverdue && !hasToday && !hasUpcoming) ? 0 : 16
         return VStack(spacing: 0) {
             if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
                 VStack(spacing: 6) {
@@ -446,7 +438,7 @@ struct TasksView: View {
                                       : filter == .mine ? "Nothing assigned to you" : "No jobs scheduled")
                     diagnosticLine
                 }
-                .padding(.horizontal, Rv.side).padding(.top, 8)
+                .padding(.horizontal, 16).padding(.top, 8)
             }
             if hasOverdue {
                 sectionHeader("Overdue", count: overdue.count + jobOverdue.count,
@@ -465,22 +457,17 @@ struct TasksView: View {
                 sectionBody(upcoming, jobUpcoming)
             }
             if !others.isEmpty {
-                // No "All Jobs" heading — the tab names the view and the count
-                // rides beside the tabs. Under other sections the list takes the
-                // section gap and a hairline; first under the tabs, theirs serves.
-                if othersTop > 0 {
-                    Rv.line.frame(height: 1)
-                        .padding(.horizontal, Rv.side)
-                        .padding(.top, othersTop)
-                }
+                // The old "All Jobs" heading, over the browse list.
+                sectionHeader("All Jobs", count: others.count, top: othersTop)
+                    .padding(.bottom, 14)
                 // Lazy: only on-screen job rows build. "All Jobs" can be the
                 // whole org's job list.
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 12) {
                     ForEach(others) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
-                .padding(.horizontal, Rv.side)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -564,21 +551,17 @@ struct TasksView: View {
         VStack(spacing: 0) {
             if jobs.isEmpty && !hasMine {
                 NoJobsPlaceholder(text: "Nothing in progress")
-                    .padding(.horizontal, Rv.side).padding(.top, 8)
+                    .padding(.horizontal, 16).padding(.top, 8)
             }
             if !jobs.isEmpty {
-                // Untitled, like All's list; a hairline and gap under In Progress.
-                if hasMine {
-                    Rv.line.frame(height: 1)
-                        .padding(.horizontal, Rv.side)
-                        .padding(.top, Rv.sectionTop)
-                }
-                LazyVStack(spacing: 0) {
+                // Untitled, like All's list; a gap under In Progress.
+                if hasMine { Color.clear.frame(height: 16) }
+                LazyVStack(spacing: 12) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
-                .padding(.horizontal, Rv.side)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -597,14 +580,14 @@ struct TasksView: View {
         VStack(spacing: 0) {
             if jobs.isEmpty {
                 NoJobsPlaceholder(text: "No finished jobs")
-                    .padding(.horizontal, Rv.side).padding(.top, 8)
+                    .padding(.horizontal, 16).padding(.top, 8)
             } else {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 12) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
                 }
-                .padding(.horizontal, Rv.side)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -624,13 +607,13 @@ struct TasksView: View {
         LazyVStack(spacing: 10) {
             ForEach(items) { task in
                 Button { onOpenJob(task.job) } label: {
-                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) }, style: .block)
+                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) }, style: .card)
                 }
                 .zoomSource(id: task.job.id)
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, Rv.side)
+        .padding(.horizontal, 16)
     }
 
     /// Surfaces what the iOS app actually has in `appState.jobs` and how it's
@@ -744,7 +727,7 @@ struct TasksView: View {
                     AllJobsCard(job: job, onOpenJob: onOpenJob)
                 }
             }
-            .padding(.horizontal, Rv.side)
+            .padding(.horizontal, 16)
         }
     }
 
@@ -1341,7 +1324,7 @@ struct JobsHeaderBar: View {
             .foregroundStyle(Color(hex: T.ink))
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, Rv.side)
+            .padding(.leading, 16)
     }
 }
 
@@ -1676,7 +1659,8 @@ struct TaskCardV1: View {
     }
 
     private var glassCard: some View {
-        SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true) {
+        // Sky, every job card (95194fb), on the old card shape.
+        SBox(size: .lg, radius: T.cornerHero, fill: Rv.Tint.sky.fill, active: isActive, frosted: true) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: bright type + status pills ···· date · chevron
                 HStack(spacing: 6) {
@@ -1908,8 +1892,9 @@ struct TaskCardV1: View {
         let pct = task.op.map { Double(appState.opPct($0)) }
                   ?? Double(appState.panelPct(task.panel))
         let onBreak = appState.myActiveBreak != nil
-        // Sky text on the block's sky tint would vanish, so the block tracks in accent.
-        let live = style == .block ? T.accent : T.sky
+        // Sky text on a sky card would vanish — both faces are sky now, so both
+        // track in accent.
+        let live = T.accent
         VStack(spacing: 12) {
             // Status label + live timer
             HStack {
@@ -2142,15 +2127,13 @@ private struct AllJobsCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Cardless row: parent dot · number – title over its summary · chevron.
+            // The old thin pill: dot · number – title · summary · chevron. One
+            // line — a fully round corner needs a single-line row to sit in.
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                RvRow(divider: !isExpanded) {
-                    RvDot(color: Color(hex: job.color))
-                    RvRowText(title: rowTitle, subtitle: rowSubtitle)
-                    RvChevron(direction: isExpanded ? .up : .down)
-                }
+                pill(dot: 7, title: rowTitle, trailing: rowSubtitle, open: isExpanded,
+                     font: TTypo.smBold(14), vertical: 12)
             }
             .buttonStyle(.plain)
 
@@ -2170,12 +2153,35 @@ private struct AllJobsCard: View {
                         }
                     }
                 }
-                .padding(.bottom, 14)
-                Rv.line.frame(height: 1)
+                .padding(.top, 12)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
         .animation(.easeInOut(duration: 0.2), value: openJobs)
+    }
+
+    /// `SBox(size: .pill, rim: false)` — the old All Jobs row.
+    private func pill(dot: CGFloat, title: String, trailing: String, open: Bool,
+                      font: Font, vertical: CGFloat) -> some View {
+        SBox(size: .pill, rim: false) {
+            HStack(spacing: 10) {
+                Circle().fill(Color(hex: job.color)).frame(width: dot, height: dot)
+                Text(title)
+                    .font(font)
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Text(trailing)
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+                Image(systemName: open ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, vertical)
+        }
     }
 
     /// A job as a dropdown row: its title and "1 of 3 tasks" (or "No tasks");
@@ -2187,12 +2193,9 @@ private struct AllJobsCard: View {
         return Button {
             if open { openJobs.remove(entry.id) } else { openJobs.insert(entry.id) }
         } label: {
-            RvRow(divider: false) {
-                RvDot(color: Color(hex: job.color), size: 6)
-                RvRowText(title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
-                          subtitle: entry.isLeaf ? "No tasks" : "\(done) of \(count) task\(count == 1 ? "" : "s")")
-                RvChevron(direction: open ? .up : .down)
-            }
+            pill(dot: 6, title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
+                 trailing: entry.isLeaf ? "No tasks" : "\(done) of \(count) task\(count == 1 ? "" : "s")",
+                 open: open, font: TTypo.smBold(13), vertical: 10)
             .padding(.leading, 12)
         }
         .buttonStyle(.plain)
@@ -2201,7 +2204,7 @@ private struct AllJobsCard: View {
     /// A task (or a job with no tasks) as the standard block — Start clocks it.
     private func taskBlock(_ task: TaskAssignment) -> some View {
         Button { onOpenJob(task.job) } label: {
-            TaskCardV1(task: task, style: .block)
+            TaskCardV1(task: task, style: .card)
         }
         .zoomSource(id: task.job.id)
         .buttonStyle(.plain)
@@ -2243,7 +2246,7 @@ private struct BasicJobCard: View {
                     .fill(Rv.Tint.sky.fill))
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         } else {
-            SBox(size: .lg, radius: T.cornerHero, frosted: true) {
+            SBox(size: .lg, radius: T.cornerHero, fill: Rv.Tint.sky.fill, frosted: true) {
                 content(dateText: dateText, timeText: timeText, titleSize: 20)
                     .padding(.horizontal, 22)
                     .padding(.vertical, 20)
