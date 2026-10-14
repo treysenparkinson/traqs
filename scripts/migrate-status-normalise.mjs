@@ -31,6 +31,14 @@
 
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { readFileSync } from "node:fs";
+// THE NORMAL SAVE PATH'S SEMANTICS (Trey, 2026-10-13: "normal save path"). The first version
+// wrote raw objects: no `lastModifiedAt` moved, and delta sync sends only records stamped after
+// a client's cursor — so no open browser or phone would ever have received the fix. The write
+// below stamps exactly what changed (the server's own stampArray / stampObject) and refuses a
+// write that would leave the org with no live job (the server's own wouldEmptyOrg). It does NOT
+// fan out notifications: a spelling correction is not a status change anyone should be told of.
+import { stampArray, stampObject } from "../netlify/functions/_utils/timestamps.js";
+import { wouldEmptyOrg } from "../netlify/functions/_utils/write-guard.js";
 
 const ORG = process.argv.find(a => a.startsWith("--org="))?.slice(6) || "MTX2026TRAQS";
 const WRITE = process.argv.includes("--write");
@@ -136,10 +144,25 @@ for (const d of stillOrphan.slice(0, 8)) console.log(`     ${d}`);
 console.log(`   (an orphan with no list entry of the same spelling is NOT guessed at —`);
 console.log(`    renaming it would be inventing intent, so it is reported instead)`);
 
+// What the write will actually store, stamped as the server stamps it.
+const stampedSettings = stampObject({ ...settings.data, statusOpts: nextOpts }, settings.data);
+const stampedTasks = stampArray(nextTasks, tasks.data);
+const restamped = (stampedTasks || []).filter((j, i) => j && tasks.data[i] && j.lastModifiedAt !== tasks.data[i].lastModifiedAt).length;
+
 console.log("\n6. SUMMARY");
+console.log(`   records that will carry a new lastModifiedAt: ${restamped} (must equal the job count below)`);
 console.log(`   settings.json: ${listPlan.length} list entr${listPlan.length === 1 ? "y" : "ies"}`);
 console.log(`   tasks.json:    ${jobPlan.length} job record${jobPlan.length === 1 ? "" : "s"}`);
 console.log(`   total objects written: ${(listPlan.length ? 1 : 0) + (jobPlan.length ? 1 : 0)}`);
+
+if (restamped !== jobPlan.length) {
+  console.error(`\nREFUSED: ${restamped} records would be restamped for ${jobPlan.length} planned changes — the plan and the write disagree.`);
+  process.exit(2);
+}
+if (wouldEmptyOrg(stampedTasks, tasks.data)) {
+  console.error("\nREFUSED: this write would leave the org with no live job (the 2026-06-03 guard).");
+  process.exit(2);
+}
 
 if (!WRITE) {
   console.log("\nDRY RUN — nothing was written. Re-run with --write to execute.");
@@ -157,8 +180,8 @@ const putIfMatch = async (Key, value, etag) => {
 };
 console.log("\n7. WRITING — settings first, then tasks (see the header for why)");
 try {
-  if (listPlan.length) { await putIfMatch(K_SETTINGS, { ...settings.data, statusOpts: nextOpts }, settings.etag); console.log("   settings.json written"); }
-  if (jobPlan.length) { await putIfMatch(K_TASKS, nextTasks, tasks.etag); console.log("   tasks.json written"); }
+  if (listPlan.length) { await putIfMatch(K_SETTINGS, stampedSettings, settings.etag); console.log("   settings.json written (stamped)"); }
+  if (jobPlan.length) { await putIfMatch(K_TASKS, stampedTasks, tasks.etag); console.log("   tasks.json written (stamped)"); }
 } catch (e) {
   if (String(e.name) === "PreconditionFailed" || e.$metadata?.httpStatusCode === 412) {
     console.error("\n   REFUSED: the object changed since it was read. Nothing further written.");
