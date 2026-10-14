@@ -954,25 +954,6 @@ struct ThreadDetailView: View {
 
     // MARK: - Scroll follow (#1) + entrance animation (#4) helpers
 
-    /// Translate a UIKit keyboard animation (duration + curve from the
-    /// keyboard notification's userInfo) into the closest SwiftUI animation so
-    /// a scroll can ride the same timing as the keyboard. The keyboard's
-    /// private curve (raw 7) has no SwiftUI equivalent — easeOut matches it
-    /// closely enough that the motion reads as one synchronized movement.
-    private static func keyboardAnimation(duration: Double, curveRaw: Int) -> Animation {
-        switch UIView.AnimationCurve(rawValue: curveRaw) {
-        case .linear:    return .linear(duration: duration)
-        case .easeIn:    return .easeIn(duration: duration)
-        case .easeInOut: return .easeInOut(duration: duration)
-        case .easeOut:   return .easeOut(duration: duration)
-        default:
-            // Curve 7 — the keyboard's own. It is a spring, not an ease-out:
-            // easeOut trailed behind the keyboard, so the composer lagged
-            // (2026-10-14). This spring is the keyboard's motion as UIKit runs it.
-            return .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
-        }
-    }
-
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         if animated {
             withAnimation(.easeOut(duration: 0.25)) {
@@ -1175,11 +1156,21 @@ struct ThreadDetailView: View {
                 // not from `isAtBottom`: that flag comes from the 1pt bottom marker
                 // appearing, and a photo growing above it can push the marker off
                 // screen — flipping the flag — before this runs.
+                //
+                // The same rule follows the COMPOSER: the keyboard lift raises it,
+                // which grows the transcript's bottom inset. Pinned in the same
+                // frame, the newest message rides up with the composer as the
+                // keyboard opens — and down with it on a swipe (2026-10-14).
                 .onScrollGeometryChange(for: TranscriptGeometry.self) { g in
-                    TranscriptGeometry(height: g.contentSize.height,
-                                       fromBottom: g.contentSize.height - g.visibleRect.maxY)
+                    TranscriptGeometry(
+                        height: g.contentSize.height,
+                        bottomInset: g.contentInsets.bottom,
+                        // How far the scrollable end sits below the visible end,
+                        // insets included — 0 when resting at the bottom.
+                        fromBottom: (g.contentSize.height + g.contentInsets.bottom)
+                            - (g.contentOffset.y + g.containerSize.height))
                 } action: { old, new in
-                    guard new.height != old.height,
+                    guard new.height != old.height || new.bottomInset != old.bottomInset,
                           !didInitialScroll || old.fromBottom < 48 else { return }
                     var t = Transaction(); t.disablesAnimations = true
                     withTransaction(t) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
@@ -1215,24 +1206,6 @@ struct ThreadDetailView: View {
                     // of my OWN latest message so its bubble doesn't jump.
                     if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
                         scrollToBottom(proxy, animated: didInitialScroll)
-                    }
-                }
-                // Keyboard opening shrinks the viewport — re-pin so the newest
-                // message stays visible above the composer. Drive this off the
-                // keyboard's OWN will-show notification (not a focus change +
-                // delayed nudge) and animate with the exact duration/curve the
-                // system reports, so the messages rise in lockstep with the
-                // keyboard in ONE synchronized animation — no "keyboard first,
-                // then text catches up" lag. keyboardWillShow fires in the same
-                // runloop SwiftUI applies its keyboard inset, so scrolling to the
-                // bottom anchor here targets the final (shrunk) layout and both
-                // animate together.
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
-                    let info = note.userInfo
-                    let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-                    let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
-                    withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
-                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
                 }
                 .onAppear {
@@ -3820,6 +3793,7 @@ extension String {
 /// content height, and how far the visible bottom sits above the content's end.
 struct TranscriptGeometry: Equatable {
     let height: CGFloat
+    let bottomInset: CGFloat
     let fromBottom: CGFloat
 }
 
