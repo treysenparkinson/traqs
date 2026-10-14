@@ -200,6 +200,11 @@ struct APIService {
 
     // MARK: - People
 
+    /// Raw GET /people bytes, so loadAll can write the same roster to the cache it shows.
+    func fetchPeopleData() async throws -> Data {
+        try await perform(try await request("people"))
+    }
+
     func fetchPeople() async throws -> [Person] {
         let req = try await request("people")
         let data = try await perform(req)

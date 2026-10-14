@@ -44,6 +44,14 @@ final class LocalCache {
 
     private var ctx: ModelContext? { container?.mainContext }
 
+    /// Set at logout (`AppState.clearForLogout`), after `clearAll`. A closed cache refuses
+    /// every write. A /sync in flight when the user logged out holds THIS instance, and it
+    /// used to land after the clear — its rows and its cursor — so the next session found a
+    /// cursor, delta-synced instead of resyncing, and kept a one-person roster (Trey,
+    /// 2026-10-13: every DM read "DM"). The next session gets a new LocalCache.
+    private(set) var isClosed = false
+    func close() { isClosed = true }
+
     /// Batches this size or smaller fetch only the rows they name — see
     /// `applyBatch`. A cell edit is a batch of one.
     private static let targetedFetchLimit = 32
@@ -64,7 +72,7 @@ final class LocalCache {
     // desktop: the cache holds only live rows). One fetch per batch → O(n).
     @discardableResult
     func applyBatch<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) -> Int {
-        guard let ctx, !records.isEmpty else { return 0 }
+        guard let ctx, !isClosed, !records.isEmpty else { return 0 }
 
         // One fetch per batch, and for a SMALL batch only the rows it names.
         //
@@ -145,7 +153,7 @@ final class LocalCache {
     // empty GET must not wipe the cache) — mirroring the empty-guards elsewhere.
     @discardableResult
     func reconcile<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) -> Int {
-        guard let ctx, !records.isEmpty else { return 0 }
+        guard let ctx, !isClosed, !records.isEmpty else { return 0 }
         let existing = (try? ctx.fetch(FetchDescriptor<T>())) ?? []
         var byId: [String: T] = [:]
         for e in existing { byId[e.id] = e }
@@ -186,7 +194,7 @@ final class LocalCache {
     }
 
     func setCursor(_ serverTime: String, fullSync: Bool = false) {
-        guard let ctx else { return }
+        guard let ctx, !isClosed else { return }
         if let m = (try? ctx.fetch(FetchDescriptor<Meta>()))?.first {
             m.serverTime = serverTime
             if fullSync { m.lastFullSyncAt = Date() }

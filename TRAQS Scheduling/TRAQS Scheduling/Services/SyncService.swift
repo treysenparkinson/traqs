@@ -95,6 +95,20 @@ final class SyncService {
         return w
     }
 
+    // Reconcile the FULL roster (raw GET /people bytes) into the cache, as messages are
+    // below. loadAll fetched it and only held it in memory, so the next rehydrate replaced a
+    // good roster with whatever the cache had — which made a fine request look like a failed
+    // one. The admin GET carries a decrypted `pin`; /sync never puts one in the cache, so it
+    // is stripped here. Empty or unreadable input is a no-op. Returns true iff the cache changed.
+    @discardableResult
+    func mergeFullPeople(_ data: Data) -> Bool {
+        guard var raw = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return false }
+        raw = raw.map { var r = $0; r.removeValue(forKey: "pin"); return r }
+        let incoming = parseArray(raw)
+        guard !incoming.isEmpty else { return false }
+        return cache.reconcile(SyncedPerson.self, incoming) > 0
+    }
+
     // Reconcile the viewer's FULL message list (raw /messages GET bytes) into the
     // cache. Runs the same canonical parse as a delta (parseArray → .sortedKeys),
     // then LocalCache.reconcile upserts present rows and evicts absent ones so the

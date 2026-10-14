@@ -548,6 +548,7 @@ class AppState {
         currentPersonId = nil
         UserDefaults.standard.removeObject(forKey: "traqs_currentPersonId")
         localCache?.clearAll()
+        localCache?.close()
         jobs = []; people = []; clients = []; messages = []; groups = []
         configuredOrgCode = nil
         // The confirmation belongs to the person who just logged out. Leaving it
@@ -768,7 +769,9 @@ class AppState {
         // slowest single request, and SwiftUI coalesces the whole apply into one
         // update.
         async let jobsR = try? api.fetchJobs()
-        async let peopleR = try? api.fetchPeople()
+        // NOT `try?`: a GET /people failure showed nothing, and the stale roster left on
+        // screen made a request that had failed look like one that hadn't (and vice versa).
+        async let peopleR: Result<Data, Error> = { do { return .success(try await api.fetchPeopleData()) } catch { return .failure(error) } }()
         async let clientsR = try? api.fetchClients()
         async let messagesR = try? api.fetchMessagesData()
         async let groupsR = try? api.fetchGroups()
@@ -778,7 +781,25 @@ class AppState {
         if let r = j, !r.isEmpty || jobs.isEmpty {
             withoutAnimation { jobs = r }
         }
-        if let r = p, !r.isEmpty || people.isEmpty {
+        var roster: [Person]?
+        switch p {
+        case .success(let data):
+            do {
+                roster = try JSONDecoder().decode([Person].self, from: data)
+                // The cache holds what loadAll fetched. Without this the next rehydrate
+                // replaced it with the cached roster seconds later. Skipped when a delta
+                // moved the cursor mid-fetch: then the cache is fresher, and the race guard
+                // below rehydrates from it.
+                if localCache?.cursor() == startCursor { syncService?.mergeFullPeople(data) }
+            } catch {
+                errorMessage = "Couldn't load the team: \(error.localizedDescription)"
+            }
+        case .failure(let error):
+            if !(error is CancellationError), (error as? URLError)?.code != .cancelled {
+                errorMessage = "Couldn't load the team: \(error.localizedDescription)"
+            }
+        }
+        if let r = roster, !r.isEmpty || people.isEmpty {
             // Capture the optimistic clock IMMEDIATELY before overwriting
             // `people` — after the fetch, with no suspension between, so a START
             // TIMER tapped mid-fetch has already happened locally and is kept.
