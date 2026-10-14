@@ -1567,7 +1567,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 16. Day-view before-now refusal applies on every tier; week/month only on Business (J:16858, 16887 vs 18567).
 17. Cross-row record bars are draggable in the day view and write worked hours into `hpd` (J:16637–16648).
 18. Week/month move checks overlap, PTO and past for the grabbed bar only; group and multi members are unchecked (J:18759–18776).
-19. Multi-select drag reassigns only the grabbed bar (J:18759–18776).
+19. [VERIFIED STALE 2026-10-13 (R2), re-checked on Trey's instruction — FIXED in `planDragMove` (src/dragMove.js): on a cross-row drop the grabbed bar AND every selected member on the grabbed bar's row move to the drop person; members on other people's rows move in time only. Held by drag-move-test §6 ("#19 — multi-select reassign"). Never marked.] Multi-select drag reassigns only the grabbed bar (J:18759–18776).
 20. Multi-select drag silently skips members with overdue hours (J:18233).
 21. `_computeMonthMove` uses `addBD`/`diffBD` without org opts (J:18733–18739).
 22. `_finalVWD` uses the flat pro-rate with opts-less `addBD` for the PTO check, a different end from the committed walk (J:18591–18595 vs J:18729).
