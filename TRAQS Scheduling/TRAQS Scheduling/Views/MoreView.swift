@@ -81,12 +81,12 @@ struct MoreView: View {
                                 VStack(spacing: 16) {
                                     statGrid(utilization: utilization,
                                              switching: switching,
+                                             efficiency: efficiencyPercent(from: days),
                                              idle: idleHours(from: days))
                                         .padding(.top, 10)   // breathing room under the range tabs
-                                    EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
-                                                   days: days,
+                                    EfficiencyCard(days: days,
                                                    now: date,
-                                                      info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
+                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
@@ -96,21 +96,20 @@ struct MoreView: View {
                             // admin picked from the person button.
                             statsTitle
                             rangeToggle
-                            personalStatGrid(for: pid)
-                                .padding(.top, 10)
-                                .padding(.horizontal, 16)
-
-                            // This person's own efficiency for the selected week —
-                            // ticks every 5s so it grows live while they're clocked in.
+                            // This person's grid and chart — ticks every 5s so the
+                            // Efficiency tile and the bars grow live while they're
+                            // clocked in. One walk of the week feeds both.
                             PausableTimeline(tab: .stats, interval: 5) { date in
-                                let days = efficiencyDays(for: pid, now: date)   // once, not twice
-                                EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
-                                               days: days,
-                                               now: date,
-                                                  info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 16)
-                                    .padding(.bottom, 8)
+                                let days = efficiencyDays(for: pid, now: date)
+                                VStack(spacing: 16) {
+                                    personalStatGrid(for: pid, efficiency: efficiencyPercent(from: days))
+                                        .padding(.top, 10)
+                                    EfficiencyCard(days: days,
+                                                   now: date,
+                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 8)
                             }
                         }
 
@@ -354,15 +353,16 @@ struct MoreView: View {
     /// re-ran every 5 seconds — even though both are WEEKLY aggregates that
     /// don't depend on `now` at all. The caller now evaluates them once per body
     /// evaluation (i.e. on real data changes) and the tick only refreshes Idle.
-    private func statGrid(utilization: Int, switching: Int, idle: Double) -> some View {
+    private func statGrid(utilization: Int, switching: Int, efficiency: Int, idle: Double) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilization)%",
                     info: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (productive hours per day × its work days), capped at 100%, then averaged across the team.")
             StatBox(label: "Task Switching", value: "\(switching)",
                     info: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
-            StatBox(label: "Reworks", value: "—",
-                    info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
+            // Replaced Reworks (never tracked) on request, 2026-10-14.
+            StatBox(label: "Efficiency", value: "\(efficiency)%",
+                    info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%.")
             StatBox(label: "Idle Time", value: fmtIdle(idle),
                     info: "Paid clocked-in time not logged onto any job \(rangeNoun) — pay hours minus job hours.")
         }
@@ -401,14 +401,15 @@ struct MoreView: View {
                               / capacityHours(in: interval) * 100.0).rounded())
     }
     @ViewBuilder
-    private func personalStatGrid(for personId: String) -> some View {
+    private func personalStatGrid(for personId: String, efficiency: Int) -> some View {
         let pOps = ops(for: personId)
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilizationPercent(for: personId))%",
                     info: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (productive hours per day × its work days), capped at 100%.")
-            StatBox(label: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)",
-                    info: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
+            // Replaced Jobs Done on request, 2026-10-14 — efficiency moved off the chart.
+            StatBox(label: "Efficiency", value: "\(efficiency)%",
+                    info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%.")
             StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
                     info: "Operations they're assigned to that are currently in progress. A snapshot of right now — not scoped to the selected week or pay period.")
             StatBox(label: "Hours", value: String(format: "%.1fh", jobHours(for: personId, in: statsInterval)),
@@ -825,7 +826,6 @@ private struct EfficiencyCard: View {
     // Observed so an accent change repaints the bars at once — T.accent isn't
     // observable on its own.
     @Environment(ThemeSettings.self) private var theme
-    let percent: String
     let days: [EffDay]
     /// The timeline's tick — used only to find today's column to highlight.
     let now: Date
@@ -842,11 +842,7 @@ private struct EfficiencyCard: View {
                 Spacer()
                 if !info.isEmpty { InfoButton(text: info) }
             }
-            Text(percent)
-                .font(.traqs(.bold, size: 40))
-                .foregroundStyle(Color(hex: T.ink))
-                .tnum()
-
+            // The percentage lives in the stat grid now (2026-10-14).
             WeeklyBars(days: days,
                        todayId: days.first { ShopTime.current.calendar.isDate($0.date, inSameDayAs: now) }?.date)
 
