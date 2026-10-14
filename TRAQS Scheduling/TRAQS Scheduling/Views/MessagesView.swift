@@ -1462,6 +1462,9 @@ struct ThreadDetailView: View {
         .background(KeyboardTracker { height, duration in
             let lift = max(0, height - windowBottomInset)
             guard lift != keyboardLift else { return }
+            #if DEBUG
+            print("[kb] lift \(Int(lift)) animated=\(duration > 0)")
+            #endif
             if duration > 0 {
                 withAnimation(.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)) {
                     keyboardLift = lift

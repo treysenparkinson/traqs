@@ -781,13 +781,13 @@ class AppState {
         let (j, p, c, m, g, s) = await (jobsR, peopleR, clientsR, messagesR, groupsR, settingsR)
 
         if let r = j, !r.isEmpty || jobs.isEmpty {
-            withoutAnimation { jobs = r }
+            LaunchTrace.measure("assign jobs (\(r.count))") { withoutAnimation { jobs = r } }
         }
         var roster: [Person]?
         switch p {
         case .success(let data):
             do {
-                roster = try JSONDecoder().decode([Person].self, from: data)
+                roster = try LaunchTrace.measure("decode people (loadAll) \(data.count / 1024)KB") { try JSONDecoder().decode([Person].self, from: data) }
                 // The cache holds what loadAll fetched. Without this the next rehydrate
                 // replaced it with the cached roster seconds later. Skipped when a delta
                 // moved the cursor mid-fetch: then the cache is fresher, and the race guard
@@ -1809,7 +1809,7 @@ class AppState {
     /// rehydrate stays correct. Empty-guarded so a transient empty GET (e.g. a
     /// momentary auth blip resolving no viewer) can't blank a populated list.
     private func applyServerMessages(_ data: Data) {
-        let r = (try? JSONDecoder().decode([Message].self, from: data)) ?? []
+        let r = LaunchTrace.measure("decode messages \(data.count / 1024)KB") { (try? JSONDecoder().decode([Message].self, from: data)) ?? [] }
         guard !r.isEmpty || messages.isEmpty else { return }
         withoutAnimation { messages = keepingOutgoing(r) }
         syncService?.mergeFullMessages(data)
@@ -1870,7 +1870,7 @@ class AppState {
     func refreshTimeclock(personId: String? = nil) async {
         guard let api else { return }
         if let entries = try? await api.fetchTimeclock(personId: personId) {
-            withoutAnimation { timeclockEntries = entries }
+            LaunchTrace.measure("assign timeclock (\(entries.count))") { withoutAnimation { timeclockEntries = entries } }
         }
     }
 
@@ -1885,10 +1885,11 @@ class AppState {
     func refreshJobSessions(personId: String? = nil, seedProgress: Bool = false) async {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
+            LaunchTrace.log("assign jobSessions (\(sessions.count))")
             withoutAnimation {
                 jobSessions = sessions
                 if seedProgress, !sessions.isEmpty || productionHours.isEmpty {
-                    applyProductionHours(sessions)
+                    LaunchTrace.measure("applyProductionHours (\(sessions.count) sessions)") { applyProductionHours(sessions) }
                 }
             }
         }

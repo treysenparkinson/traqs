@@ -45,7 +45,12 @@ struct KeyboardTracker: UIViewRepresentable {
             p.isUserInteractionEnabled = false
             p.translatesAutoresizingMaskIntoConstraints = false
             p.onHeight = { [weak self] h in
-                self?.onChange?(h, UIView.inheritedAnimationDuration)
+                // Read the animation context NOW (it only exists inside the
+                // layout pass), deliver just AFTER it: the probe reports in the
+                // middle of the hosting view's own layout, where a SwiftUI state
+                // change is dropped — the composer never moved (2026-10-14).
+                let duration = UIView.inheritedAnimationDuration
+                DispatchQueue.main.async { self?.onChange?(h, duration) }
             }
             root.addSubview(p)
             NSLayoutConstraint.activate([
