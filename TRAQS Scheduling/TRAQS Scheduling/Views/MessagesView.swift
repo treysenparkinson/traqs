@@ -1754,6 +1754,10 @@ struct ThreadDetailView: View {
             timestamp: Date.nowISO()
         )
         newText = ""
+        // The keyboard can commit a pending autocorrect / predictive word AFTER
+        // the binding clears, putting the sent text back in the box. Clear once
+        // more on the next frame, after it has (2026-10-14).
+        DispatchQueue.main.async { newText = "" }
         pickedImage = nil; pickedFile = nil; photoItem = nil
         // A light tap as the bubble springs in (#4 send feel).
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
