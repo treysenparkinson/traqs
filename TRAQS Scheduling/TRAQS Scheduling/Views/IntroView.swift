@@ -37,11 +37,10 @@ struct IntroView: View {
                     Text("Get Started")
                         .font(TTypo.smBold(16))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: 320)
-                        .padding(.vertical, 16)
-                        .glassCTA(in: Capsule(style: .continuous), tint: brandBlue)
+                        .frame(maxWidth: 296) // 320 - 2 * 12 native inset
+                        .padding(.vertical, 9) // 16 - 7 native inset
                 }
-                .buttonStyle(.plain)
+                .nativeGlass(.capsule, prominent: true, tint: brandBlue)
                 .disabled(dispersing)
                 .padding(.horizontal, 28)
                 .padding(.bottom, 36)

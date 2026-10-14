@@ -157,9 +157,8 @@ struct OrgSignupView: View {
             }
             .foregroundStyle(.white)
             .modifier(NavPillSize())
-            .glassCTA(in: Capsule(style: .continuous), tint: Paper.blue)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule, prominent: true, tint: Paper.blue)
         .disabled(loading)
     }
 
@@ -170,9 +169,8 @@ struct OrgSignupView: View {
                 .foregroundStyle(Paper.ink)
                 .lineLimit(1)
                 .modifier(NavPillSize())
-                .glassControl(in: Capsule(style: .continuous))
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule)
         .disabled(loading)
     }
 
@@ -283,10 +281,9 @@ private struct IdentityStep: View {
                     .font(TTypo.smBold(14))
                     .foregroundStyle(Paper.ink)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .glassControl(in: Capsule(style: .continuous))
+                    .padding(.vertical, 5) // 12 - 7 native inset
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.capsule)
             .padding(.top, 2)
         }
     }
@@ -438,11 +435,10 @@ private struct PayrollStep: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(Paper.stone)
                         }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 13)
-                        .glassControl(in: Capsule(style: .continuous))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlass(.capsule)
 
                     if pickingDate {
                         DatePicker("First pay period starts", selection: date, displayedComponents: .date)
@@ -627,10 +623,9 @@ private struct ActivatedPanel: View {
                     .font(TTypo.smBold(15))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .glassCTA(in: Capsule(style: .continuous), tint: Paper.blue)
+                    .padding(.vertical, 7)
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.capsule, prominent: true, tint: Paper.blue)
         }
         .frame(maxWidth: .infinity)
     }
@@ -642,8 +637,8 @@ private struct ActivatedPanel: View {
 private struct NavPillSize: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 22)
-            .frame(minWidth: 108, minHeight: 46)
+            .padding(.horizontal, 10) // 22 - 12 native inset
+            .frame(minWidth: 84, minHeight: 32) // 108 - 2*12, 46 - 2*7
     }
 }
 
@@ -787,11 +782,11 @@ private struct GlassPill: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .glassControl(in: Capsule(style: .continuous), tint: on ? Paper.ink : nil)
+                .padding(.vertical, 3)
                 .animation(.easeInOut(duration: 0.12), value: on)
         }
-        .buttonStyle(.plain)
+        // Selected = prominent ink fill; off = clear glass.
+        .nativeGlass(.capsule, prominent: on, tint: Paper.ink)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
@@ -817,12 +812,10 @@ private struct GlassMenuButton<Items: View>: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Paper.stone)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 13)
-            .contentShape(Capsule())
-            .glassControl(in: Capsule(style: .continuous))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule)
     }
 }
 
@@ -871,11 +864,10 @@ private struct GlassSmallButton: View {
             Text(title)
                 .font(TTypo.smBold(12.5))
                 .foregroundStyle(Paper.ink)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .glassControl(in: Capsule(style: .continuous))
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule)
     }
 }
 
@@ -927,15 +919,16 @@ private struct TierCard: View {
                 .padding(.top, 9)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 13)
-            .glassControl(in: RoundedRectangle(cornerRadius: 18, style: .continuous),
-                          interactive: !disabled)
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(on ? Paper.ink : .clear, lineWidth: 1.5))
-            .opacity(disabled ? 0.62 : 1)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 6)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.rounded(18))
+        // On the Button, not the label, so the ring traces the glass edge
+        // rather than sitting inside the native inset.
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(on ? Paper.ink : .clear, lineWidth: 1.5)
+            .allowsHitTesting(false))
+        .opacity(disabled ? 0.62 : 1)
         .disabled(disabled)
         .accessibilityAddTraits(on ? .isSelected : [])
     }

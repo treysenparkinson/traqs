@@ -321,10 +321,9 @@ struct WelcomeView: View {
                 .font(TTypo.smBold(15))
                 .foregroundStyle(ink)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .glassControl(in: Capsule(style: .continuous))
+                .padding(.vertical, 7) // 14 - 7 native inset
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule)
         .disabled(isChecking || screenOut)
     }
 
@@ -391,30 +390,13 @@ struct WelcomeView: View {
             }
             .foregroundStyle(enabled ? glassCTALabel(brandBlue) : Color.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .padding(.vertical, 7)
 
-            // BOTH faces are always rendered, cross-faded by opacity. An
-            // if/else swaps one view for another, which SwiftUI cannot tween —
-            // the colour arrived and left in a single frame however long the
-            // animation said. Two layers can actually fade past each other, so
-            // the button warms up as the code is typed and cools as it's
-            // backspaced away.
             label
-                .background {
-                    ZStack {
-                        // Muted grey rather than tinted glass: disabled glass
-                        // still reads as a live button.
-                        Capsule(style: .continuous)
-                            .fill(stone.opacity(0.45))
-                            .opacity(enabled ? 0 : 1)
-                        Color.clear
-                            .glassCTA(in: Capsule(style: .continuous), tint: brandBlue)
-                            .opacity(enabled ? 1 : 0)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.32), value: enabled)
         }
-        .buttonStyle(.plain)
+        // Native prominent glass dims itself when disabled, so the hand-built
+        // grey/blue cross-fade is gone.
+        .nativeGlass(.capsule, prominent: true, tint: brandBlue)
         .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
     }
 
@@ -445,10 +427,9 @@ struct WelcomeView: View {
                     }
                     .foregroundStyle(glassCTALabel(brandBlue))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .glassCTA(in: Capsule(), tint: brandBlue)
+                    .padding(.vertical, 8)
                 }
-                .buttonStyle(.plain)
+                .nativeGlass(.capsule, prominent: true, tint: brandBlue)
             }
         }
     }

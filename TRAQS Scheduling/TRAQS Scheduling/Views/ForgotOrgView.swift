@@ -149,10 +149,9 @@ struct ForgotOrgView: View {
                     .font(TTypo.smBold(15))
                     .foregroundStyle(glassCTALabel(Paper.blue))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .glassCTA(in: Capsule(style: .continuous), tint: Paper.blue)
+                    .padding(.vertical, 7) // 14 - 7 native inset
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.capsule, prominent: true, tint: Paper.blue)
         }
     }
 
@@ -169,10 +168,9 @@ struct ForgotOrgView: View {
             }
             .foregroundStyle(glassCTALabel(Paper.blue))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .glassCTA(in: Capsule(style: .continuous), tint: Paper.blue)
+            .padding(.vertical, 7)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.capsule, prominent: true, tint: Paper.blue)
         .disabled(loading)
     }
 
