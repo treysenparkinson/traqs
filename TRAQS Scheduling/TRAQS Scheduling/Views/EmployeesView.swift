@@ -38,18 +38,14 @@ struct EmployeesView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        RvTitle(title: "Employees")
+                        RvTitle(title: "Employees", side: 16)
 
                         searchField
-                            .padding(.horizontal, Rv.side)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
 
-                        LazyVStack(spacing: 0) {
-                            RvSection(title: "Everyone") {
-                                Text("\(people.count)")
-                                    .font(.traqs(.semibold, size: 12))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                    .tnum()
-                            }
+                        // The old arrangement: one card per person, no section header.
+                        LazyVStack(spacing: 10) {
                             ForEach(people) { p in
                                 EmployeeCard(person: p, isMe: p.id == appState.currentPersonId)
                             }
@@ -58,10 +54,11 @@ struct EmployeesView: View {
                                     .font(.traqs(.regular, size: 13))
                                     .foregroundStyle(Color(hex: T.muted))
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 28)
+                                    .padding(.vertical, 22)
+                                    .frostedCard(radius: T.cornerMd)
                             }
                         }
-                        .padding(.horizontal, Rv.side)
+                        .padding(.horizontal, 16)
                         .padding(.bottom, 28)
                     }
                 }
@@ -114,8 +111,8 @@ private struct EmployeeCard: View {
     }
 
     var body: some View {
-        RvRow {
-            Avatar(initials: Initials.from(person), size: 42,
+        HStack(spacing: 12) {
+            Avatar(initials: Initials.from(person), size: 46,
                    fill: .personFill(person.color), imageData: person.image)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -160,6 +157,9 @@ private struct EmployeeCard: View {
                 }
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frostedCard(radius: T.cornerMd)
     }
 
     private func contactButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
