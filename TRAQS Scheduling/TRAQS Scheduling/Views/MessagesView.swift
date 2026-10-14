@@ -959,7 +959,12 @@ struct ThreadDetailView: View {
         case .linear:    return .linear(duration: duration)
         case .easeIn:    return .easeIn(duration: duration)
         case .easeInOut: return .easeInOut(duration: duration)
-        default:         return .easeOut(duration: duration)   // .easeOut + private curve 7
+        case .easeOut:   return .easeOut(duration: duration)
+        default:
+            // Curve 7 — the keyboard's own. It is a spring, not an ease-out:
+            // easeOut trailed behind the keyboard, so the composer lagged
+            // (2026-10-14). This spring is the keyboard's motion as UIKit runs it.
+            return .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
         }
     }
 
