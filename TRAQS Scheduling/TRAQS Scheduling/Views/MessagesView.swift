@@ -2463,9 +2463,10 @@ struct ThreadTopBar: View {
     /// The name pill's geometry, shared with MembersHero, whose first and last
     /// frames have to BE this pill. Even padding above and below the name — it was
     /// 18 over 9, reaching up under the avatar, which read as top-heavy.
-    static let avatarSize: CGFloat = 44
-    /// How far the avatar sits down over the pill's top edge.
-    static let avatarOverlap: CGFloat = 8
+    static let avatarSize: CGFloat = 50   // 44 -> 50 on request (2026-10-14)
+    /// How far the avatar sits down over the pill's top edge. 8 -> 6 with the
+    /// bigger avatar: the pill sits ~8pt lower than it did.
+    static let avatarOverlap: CGFloat = 6
     static let pillPadH: CGFloat = 18
     static let pillPadV: CGFloat = 10
 
