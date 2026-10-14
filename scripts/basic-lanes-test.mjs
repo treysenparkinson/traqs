@@ -207,6 +207,19 @@ console.log("\n7. The render actually uses it");
   ok("...and no lane is measured from personShareHours of the stored hpd",
     !SRC.includes("walkProductiveHours(b.task.startHour, personShareHours(b.task.hpd"), true);
 }
+console.log("\n#360 (web half). The DAY view lanes on Business too");
+{
+  // Ruled 2026-10-13 (Trey): "give the Business day view lanes. Reuse barLanes." The day view's
+  // lane sweep was switched off on Business on the claim that packing leaves no same-person
+  // overlap. #360 measured otherwise on the iOS twin: a multi-day unit sits on the day at its
+  // OWN walked segment, ignoring the shared cursor (the parity fixture holds web and iOS to the
+  // same placement), so two of them overlap and one card hides the other. Week/month keep their
+  // Basic-only gate above; this is the day view only.
+  const src = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  ok("the day view computes lanes on every tier", /const barLanes = \(\(\) => \{/.test(src), true);
+  ok("...with no Business gate left on it", /const barLanes = billingTier === "business" \? null/.test(src), false);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no assertions ran"); process.exit(2); }
 process.exit(fail === 0 ? 0 : 1);

@@ -16387,13 +16387,14 @@ ${jobsCtx || "No jobs found."}`;
                       // ORIGINAL start, so the planned right edge stays put while the left one advances into it.
                       return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, startH), rawE: endH, hpd: bar.task?.hpd || 0, isFirstSeg, isLastSeg };
                     });
-                  // Basic only: overlap is allowed in the data (no packing, see above) but
-                  // two bars painted at the same vertical position with one on top of the
-                  // other reads as though only one exists — only a sliver of the covered
-                  // bar shows. Split the row's height into lanes so every overlapping bar
-                  // stays fully visible and independently clickable, without moving anything
-                  // in time. Business never needs this: its packing pass already guarantees
-                  // no same-person overlap exists in the data to begin with.
+                  // Every tier (#360, ruled 2026-10-13): two bars painted at the same vertical
+                  // position with one on top of the other read as though only one exists —
+                  // only a sliver of the covered bar shows. Split the row's height into lanes
+                  // so every overlapping bar stays fully visible and independently clickable,
+                  // without moving anything in time. This used to be Basic only, on the claim
+                  // that Business packing leaves no same-person overlap; it does not on the DAY
+                  // view — a multi-day unit sits at its own walked segment, ignoring the shared
+                  // cursor, so two of them can share an hour (measured on the iOS twin, #360).
                   //
                   // Lane assignment is a standard greedy interval sweep (sort by start, reuse
                   // the first lane whose occupant already ended). lanesTotal per bar is the
@@ -16401,7 +16402,7 @@ ${jobsCtx || "No jobs found."}`;
                   // for pathological overlap graphs, but exactly right for the common case
                   // (two or three bars sharing a time range), which is what "double-booked"
                   // actually looks like in practice.
-                  const barLanes = billingTier === "business" ? null : (() => {
+                  const barLanes = (() => {
                     const sorted = [...barPositions].sort((a, b) => a.rawS - b.rawS || a.rawE - b.rawE);
                     const laneEnds = [];
                     const withLane = sorted.map(item => {
@@ -16447,10 +16448,9 @@ ${jobsCtx || "No jobs found."}`;
                         const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
-                        // Basic only (barLanes is null on Business): a bar sharing its time
-                        // range with another gets a fraction of the row's height instead of
-                        // painting full-height on top of it — see barLanes above.
-                        const _lane = barLanes?.get(bar.id);
+                        // A bar sharing its time range with another gets a fraction of the
+                        // row's height instead of painting full-height on top of it — see barLanes above.
+                        const _lane = barLanes.get(bar.id);
                         const _laneH = _lane && _lane.lanesTotal > 1 ? (rH - 8) / _lane.lanesTotal : rH - 8;
                         const _laneTop = _lane && _lane.lanesTotal > 1 ? 4 + _lane.lane * _laneH : 4;
                         const _laneHeight = _lane && _lane.lanesTotal > 1 ? _laneH - 2 : _laneH;
