@@ -19,6 +19,16 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 struct MoreView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
+    /// The text size the app is using here (it sets a floor on large phones).
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Analytics' text, one Dynamic Type step smaller than the rest of the app
+    /// (2026-10-14, "a little smaller"). The page title keeps the app's size.
+    private var analyticsTypeSize: DynamicTypeSize {
+        let all = DynamicTypeSize.allCases
+        guard let i = all.firstIndex(of: typeSize), i > 0 else { return typeSize }
+        return all[i - 1]
+    }
     /// Any day within the week being shown; defaults to the current week. The
     /// calendar button in the header repoints this to jump to another week.
     /// In AppNav because the menu that drives it is drawn by
@@ -60,7 +70,7 @@ struct MoreView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         if appState.isAdmin && selectedWorkerId == nil {
-                            statsTitle
+                            statsTitle.dynamicTypeSize(typeSize)   // title at the app's size
                             rangeToggle
 
                             // Ticks every 5s so the stat grid (Idle) + Efficiency
@@ -94,7 +104,7 @@ struct MoreView: View {
                         } else if let pid = statsPersonId {
                             // Personal stats — your own (non-admin) or a worker an
                             // admin picked from the person button.
-                            statsTitle
+                            statsTitle.dynamicTypeSize(typeSize)   // title at the app's size
                             rangeToggle
                             // This person's grid and chart — ticks every 5s so the
                             // Efficiency tile and the bars grow live while they're
@@ -157,6 +167,7 @@ struct MoreView: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                     }
+                    .dynamicTypeSize(analyticsTypeSize)
                 }
                 .scrollIndicators(.visible)
                 .topFadeMask()
@@ -193,6 +204,7 @@ struct MoreView: View {
     private var statsTitle: some View {
         // At 34pt "Analytics" leaves ample room for the range meta in both modes,
         // so the title no longer needs the fixed-width meta column it had at 56pt.
+        // Back at the app's text size — the rest of the page is a step smaller.
         VStack(alignment: .leading, spacing: 0) {
             RvTitle(title: "Analytics", meta: rangeLabel, side: 16)
 
