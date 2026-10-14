@@ -1137,10 +1137,26 @@ struct ThreadDetailView: View {
                 // the bottom (scrollTo on a lazy trailing anchor at .onAppear
                 // often no-ops because the anchor isn't realized yet).
                 .defaultScrollAnchor(.bottom)
-                // …and keep the BOTTOM fixed while row heights settle, so the
-                // system holds the newest message in place instead of us
-                // chasing it with re-pins (which were the snap).
-                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                // Follow the content's HEIGHT: whenever it changes while we're
+                // following (opening, or already at the bottom), pin to the bottom
+                // in the same frame, unanimated — so nothing visibly moves. Rows
+                // that finish late (a photo loading, a long thread measuring in
+                // batches, a completion-request card) are followed too; the
+                // `.sizeChanges` anchor alone left those short of the bottom.
+                //
+                // "At the bottom" is read from the geometry just BEFORE the growth,
+                // not from `isAtBottom`: that flag comes from the 1pt bottom marker
+                // appearing, and a photo growing above it can push the marker off
+                // screen — flipping the flag — before this runs.
+                .onScrollGeometryChange(for: TranscriptGeometry.self) { g in
+                    TranscriptGeometry(height: g.contentSize.height,
+                                       fromBottom: g.contentSize.height - g.visibleRect.maxY)
+                } action: { old, new in
+                    guard new.height != old.height,
+                          !didInitialScroll || old.fromBottom < 48 else { return }
+                    var t = Transaction(); t.disablesAnimations = true
+                    withTransaction(t) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                }
                 // iOS 26 adds a soft "scroll edge effect" fade at the top where
                 // content meets the safe area — that stacked a second fade under
                 // our header. Hide it; the header owns the top fade.
@@ -3742,4 +3758,11 @@ extension String {
             ? "MMMM d" : "MMMM d, yyyy"
         return "\(day.string(from: date)) at \(t)"
     }
+}
+
+/// The transcript's scroll geometry, as the follow-the-bottom rule reads it:
+/// content height, and how far the visible bottom sits above the content's end.
+struct TranscriptGeometry: Equatable {
+    let height: CGFloat
+    let fromBottom: CGFloat
 }
