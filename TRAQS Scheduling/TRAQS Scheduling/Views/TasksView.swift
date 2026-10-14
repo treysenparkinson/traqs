@@ -431,14 +431,11 @@ struct TasksView: View {
         let othersTop: CGFloat = (lead && !hasOverdue && !hasToday && !hasUpcoming) ? 0 : 16
         return VStack(spacing: 0) {
             if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
-                VStack(spacing: 6) {
-                    // Today with nothing on it says so plainly; other ranges keep
-                    // their specific wording.
-                    NoJobsPlaceholder(text: segment == .today ? "It's quiet here..."
-                                      : filter == .mine ? "Nothing assigned to you" : "No jobs scheduled")
-                    diagnosticLine
-                }
-                .padding(.horizontal, 16).padding(.top, 8)
+                // Today with nothing on it says so plainly; other ranges keep
+                // their specific wording.
+                NoJobsPlaceholder(text: segment == .today ? "It's quiet here..."
+                                  : filter == .mine ? "Nothing assigned to you" : "No jobs scheduled")
+                    .padding(.horizontal, 16).padding(.top, 8)
             }
             if hasOverdue {
                 sectionHeader("Overdue", count: overdue.count + jobOverdue.count,
@@ -616,22 +613,6 @@ struct TasksView: View {
         .padding(.horizontal, 16)
     }
 
-    /// Surfaces what the iOS app actually has in `appState.jobs` and how it's
-    /// interpreting the current user. Quick way to spot whether data is missing,
-    /// `currentPersonId` is unset, or your team membership simply doesn't match.
-    private var diagnosticLine: some View {
-        let me = appState.currentPersonId ?? "—"
-        let total = appState.jobs.count
-        let assignedJobs = appState.jobs.filter { j in
-            guard let m = appState.currentPersonId else { return false }
-            return j.team.contains(m)
-                || j.subs.contains { p in p.team.contains(m) || p.subs.contains { $0.team.contains(m) } }
-        }.count
-        return Text("\(total) jobs loaded · \(assignedJobs) assigned · me=\(me)")
-            .font(TTypo.mono(10))
-            .foregroundStyle(Color(hex: T.muted))
-            .tnum()
-    }
 
     // ── Data helpers ──────────────────────────────────────────────────────
 
