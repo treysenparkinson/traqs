@@ -940,6 +940,18 @@ struct ThreadDetailView: View {
 
     // MARK: - Scroll follow (#1) + entrance animation (#4) helpers
 
+    /// A UIKit keyboard animation as SwiftUI: the keyboard's own curve (7) is a
+    /// spring — this one is the keyboard's motion as UIKit runs it.
+    private static func keyboardAnimation(duration: Double, curveRaw: Int) -> Animation {
+        switch UIView.AnimationCurve(rawValue: curveRaw) {
+        case .linear:    return .linear(duration: duration)
+        case .easeIn:    return .easeIn(duration: duration)
+        case .easeInOut: return .easeInOut(duration: duration)
+        case .easeOut:   return .easeOut(duration: duration)
+        default:         return .interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
+        }
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         if animated {
             withAnimation(.easeOut(duration: 0.25)) {
@@ -1131,11 +1143,6 @@ struct ThreadDetailView: View {
                 // the bottom (scrollTo on a lazy trailing anchor at .onAppear
                 // often no-ops because the anchor isn't realized yet).
                 .defaultScrollAnchor(.bottom)
-                // When the keyboard opens or closes the visible area shrinks or
-                // grows; the system keeps the BOTTOM anchored through it, inside
-                // the keyboard's own animation — so the newest message stays just
-                // above the composer the whole way (2026-10-14).
-                .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 // Follow the content's HEIGHT: whenever it changes while we're
                 // following (opening, or already at the bottom), pin to the bottom
                 // in the same frame, unanimated — so nothing visibly moves. Rows
@@ -1191,6 +1198,19 @@ struct ThreadDetailView: View {
                     // of my OWN latest message so its bubble doesn't jump.
                     if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
                         scrollToBottom(proxy, animated: didInitialScroll)
+                    }
+                }
+                // Keyboard opening shrinks the viewport — scroll to the newest
+                // message inside the keyboard's OWN animation. Native keyboard
+                // avoidance applies its inset in the same run-loop turn as
+                // keyboardWillShow, so this targets the final layout and the
+                // transcript rises together with the composer (2026-10-14).
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+                    let info = note.userInfo
+                    let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                    let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
+                    withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
                 }
                 .onAppear {
