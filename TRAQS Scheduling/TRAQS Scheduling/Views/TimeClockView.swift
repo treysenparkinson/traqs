@@ -1049,37 +1049,31 @@ private struct ClockPinOverlay: View {
     }
 
     // A round digit key.
+    // Native `.glass` button (GlassKey): the system owns the press, as on any
+    // iOS keypad. It was a `.plain` Button with interactive glass painted on the
+    // label — two things tracking one touch, and it felt stiff (2026-10-14).
     private func digitKey(_ d: String) -> some View {
-        Button {
+        GlassKey(size: keySize, action: {
             tapTick += 1
             guard !submitting, pin.count < maxDigits else { return }
             error = nil
             pin.append(d)
-        } label: {
+        }) {
             Text(d)
                 .font(.traqs(.bold, size: 27))
                 .foregroundStyle(Color(hex: T.ink))
-                .frame(width: keySize, height: keySize)
-                // Neutral Liquid Glass, the same material as every other round
-                // control in the app. NOT the hand-rolled `specularRim` these
-                // carried before they were flattened — twelve hand-rimmed discs
-                // packed three-across read as texture rather than as buttons.
-                // System glass gives each key its own edge and press response
-                // without that.
-                .glassKeyBackground(filled: false)
         }
-        .buttonStyle(.plain)
         .disabled(submitting)
     }
 
     // A round action key: delete (⌫, neutral glass) or confirm (✓, tinted glass).
     private func actionKey(icon: String, filled: Bool, action: @escaping () -> Void) -> some View {
         let isConfirm = icon == "checkmark"
-        return Button {
+        return GlassKey(size: keySize, prominent: filled, tint: Color(hex: T.accent), action: {
             tapTick += 1
             guard !submitting else { return }
             action()
-        } label: {
+        }) {
             // The confirm key is the same tinted Liquid Glass as Clock In and
             // the Start buttons — tinted with the FLAT accent, so its label is
             // judged against that.
@@ -1093,12 +1087,9 @@ private struct ClockPinOverlay: View {
                         .foregroundStyle(filled ? onFill : Color(hex: T.ink))
                 }
             }
-            .frame(width: keySize, height: keySize)
-            // Confirm takes the tinted CTA glass; delete takes the neutral
-            // glass, matching the digits above it — see `glassKeyBackground`.
-            .glassKeyBackground(filled: filled)
+            // Confirm is `.glassProminent` tinted with the accent; delete is the
+            // neutral `.glass` of the digits above it.
         }
-        .buttonStyle(.plain)
         .disabled(submitting || (isConfirm && pin.isEmpty))
     }
 

@@ -1037,23 +1037,6 @@ extension View {
     /// Capsule, with a state colour — Clock Out red, STOP red.
     func glassCTA(tint: Color?) -> some View { glassCTA(in: Capsule(), tint: tint) }
 
-    /// A PIN-pad key's paint. Both branches are glass; what differs is weight.
-    ///
-    /// Confirm takes the TINTED CTA glass — it's the primary action, and the
-    /// one key that commits. The digits and the delete key take neutral,
-    /// untinted glass, so the pad reads as one material without twelve keys
-    /// competing with the one that submits.
-    ///
-    /// One helper so the two branches can't drift into different sizes.
-    @ViewBuilder
-    func glassKeyBackground(filled: Bool) -> some View {
-        if filled {
-            glassCTA(in: Circle())
-        } else {
-            glassControl(in: Circle())
-        }
-    }
-
     /// Picks a CTA's paint: tinted glass when asked for it, the solid brand
     /// gradient otherwise. One place, so a glass CTA and a solid one can never
     /// drift into different capsule shapes or paddings.
@@ -1970,3 +1953,38 @@ extension View {
     }
 }
 #endif
+
+// MARK: - Glass key (native Liquid Glass button, a fixed round size)
+
+/// A round key on Apple's own Liquid Glass button style — `.glass`, or
+/// `.glassProminent` tinted for the one key that commits. The system owns the
+/// press (touch-down flex, glow, release), which is what a native keypad feels
+/// like. The PIN keys were a `.plain` Button with interactive glass painted on
+/// the label: two things tracking one touch, and the glass answered stiffly.
+///
+/// The style insets its label, so the label is sized `size - 2 * inset` and the
+/// key lands at `size` overall — pinned by GlassKeyTests.
+struct GlassKey<Label: View>: View {
+    let size: CGFloat
+    var prominent: Bool = false
+    var tint: Color? = nil
+    let action: () -> Void
+    @ViewBuilder var label: () -> Label
+
+    /// The `.glass` style's own inset around a circular label — measured at 7pt
+    /// a side (a 78pt label made a 92pt key), the same for `.glassProminent`.
+    static var inset: CGFloat { 7 }
+
+    var body: some View {
+        let side = max(0, size - 2 * Self.inset)
+        let button = Button(action: action) {
+            label().frame(width: side, height: side)
+        }
+        .buttonBorderShape(.circle)
+        if prominent {
+            button.buttonStyle(.glassProminent).tint(tint)
+        } else {
+            button.buttonStyle(.glass)
+        }
+    }
+}
