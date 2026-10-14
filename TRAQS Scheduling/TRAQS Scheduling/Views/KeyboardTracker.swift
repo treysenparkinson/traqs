@@ -27,8 +27,11 @@ struct KeyboardTracker: UIViewRepresentable {
         uiView.onChange = onChange
     }
 
-    /// Zero-size, invisible; on joining a window it pins a probe to that
-    /// window's keyboard guide.
+    /// Zero-size, invisible; on joining a window it pins a probe to the ROOT
+    /// view controller's view and that view's keyboard guide. Not the window
+    /// itself: UIKit applies keyboard-guide changes through the view
+    /// controller's layout pass, and a probe on the bare window was never laid
+    /// out again — it never reported, and the composer never moved.
     final class Anchor: UIView {
         var onChange: ((CGFloat, TimeInterval) -> Void)?
         private var probe: Probe?
@@ -37,19 +40,19 @@ struct KeyboardTracker: UIViewRepresentable {
             super.didMoveToWindow()
             probe?.removeFromSuperview()
             probe = nil
-            guard let window else { return }
+            guard let root = window?.rootViewController?.view else { return }
             let p = Probe()
             p.isUserInteractionEnabled = false
             p.translatesAutoresizingMaskIntoConstraints = false
             p.onHeight = { [weak self] h in
                 self?.onChange?(h, UIView.inheritedAnimationDuration)
             }
-            window.addSubview(p)
+            root.addSubview(p)
             NSLayoutConstraint.activate([
-                p.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+                p.leadingAnchor.constraint(equalTo: root.leadingAnchor),
                 p.widthAnchor.constraint(equalToConstant: 1),
-                p.topAnchor.constraint(equalTo: window.keyboardLayoutGuide.topAnchor),
-                p.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+                p.topAnchor.constraint(equalTo: root.keyboardLayoutGuide.topAnchor),
+                p.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             ])
             probe = p
         }
@@ -71,6 +74,9 @@ struct KeyboardTracker: UIViewRepresentable {
             let h = bounds.height
             guard h != last else { return }
             last = h
+            #if DEBUG
+            print("[kb] probe height \(Int(h)) animating=\(UIView.inheritedAnimationDuration > 0)")
+            #endif
             onHeight?(h)
         }
     }
