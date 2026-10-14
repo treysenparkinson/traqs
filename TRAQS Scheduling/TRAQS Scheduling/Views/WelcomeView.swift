@@ -254,13 +254,9 @@ struct WelcomeView: View {
                     .padding(.bottom, 16)
             }
 
-            Text("ORGANIZATION CODE")
-                .font(TTypo.xsBold(10))
-                .tracking(1)
-                .foregroundStyle(stone)
-                .padding(.bottom, 8)
-
+            // No title above the field — the placeholder says what goes in it.
             TextField("Enter your organization code", text: $code)
+                .accessibilityLabel("Organization code")
                 .textFieldStyle(.plain)
                 .font(.traqs(.bold, size: 17))
                 .foregroundStyle(ink)
