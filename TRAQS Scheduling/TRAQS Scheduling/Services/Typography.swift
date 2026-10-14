@@ -68,6 +68,11 @@ extension TFontName {
 /// One dial for iOS body text size. 1.0 is the nominal size every call site names.
 enum TextScale {
     static let body: CGFloat = 0.93
+    /// Letter spacing on every tab but Messages (2026-10-14: "closer together,
+    /// same spacing as the page titles"). Titles track at −4.4% of their size;
+    /// an environment tracking is one absolute value, so this is that ratio at
+    /// typical 11–14pt text. Text with its own `.tracking` keeps it.
+    static let tracking: CGFloat = -0.5
 }
 
 extension Font {

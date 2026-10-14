@@ -395,14 +395,17 @@ private struct TabHost: View {
             // In bar order: Jobs · Time Clock · Home · Messages · Stats.
             JobsHubView()                           // reserves bar space inside its own NavigationStack
                 .tint(Self.pageTint)
+                .tracking(TextScale.tracking)   // every tab but Messages
                 .tabItem { item(.jobs) }.tag(TTab.jobs)
                 .toolbar(barVisibility, for: .tabBar)
             reserveBar(TimeClockView())
                 .tint(Self.pageTint)
+                .tracking(TextScale.tracking)   // every tab but Messages
                 .tabItem { item(.hours) }.tag(TTab.hours)
                 .toolbar(barVisibility, for: .tabBar)
             reserveBar(HomeView())
                 .tint(Self.pageTint)
+                .tracking(TextScale.tracking)   // every tab but Messages
                 .tabItem { item(.home) }.tag(TTab.home)
                 .toolbar(barVisibility, for: .tabBar)
             MessagesView()                          // reserves bar space inside its own NavigationStack
@@ -414,6 +417,7 @@ private struct TabHost: View {
                 if appState.isBusinessTier { reserveBar(MoreView()) } else { reserveBar(EmployeesView()) }
             }
             .tint(Self.pageTint)
+            .tracking(TextScale.tracking)
             .tabItem { item(.stats) }.tag(TTab.stats)
             .toolbar(barVisibility, for: .tabBar)
         }
