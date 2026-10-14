@@ -86,8 +86,7 @@ the Mac target typechecks, since Services are shared. The user runs each page as
 layout and spacing are judged on device, and values (paddings, radii, sizes) are kept easy to
 redial.
 
-## Open to the user on review
+## Confirmed by the user on review (2026-10-14)
 
-- Home: the old single suggested job replacing today's full list (above) — confirm.
-- Jobs: keeping the fixed title/Day-Week row rather than the old scrolling title, so the gantt
-  toggle keeps a home — confirm.
+- Home: the old single suggested job replaces today's full list — YES.
+- Jobs: the fixed title/Day-Week row stays, so the gantt toggle keeps a home — YES.
