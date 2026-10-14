@@ -96,7 +96,7 @@ struct MoreView: View {
                                         .padding(.top, 10)   // breathing room under the range tabs
                                     EfficiencyCard(days: days,
                                                    now: date,
-                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
+                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours minus working hours (pay minus breaks) — + is time beyond, − is time not logged to a job.")
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
@@ -116,7 +116,7 @@ struct MoreView: View {
                                         .padding(.top, 10)
                                     EfficiencyCard(days: days,
                                                    now: date,
-                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is the hours clocked that day.")
+                                                   info: "The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours minus working hours (pay minus breaks) — + is time beyond, − is time not logged to a job.")
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
@@ -925,11 +925,12 @@ private struct WeeklyBars: View {
 
     private func dayColumn(_ d: EffDay, max maxValue: Double, showDate: Bool) -> some View {
         VStack(spacing: 6) {
-            // The day's clocked (pay) hours — what the bar measures (d9cc596). It
-            // was the signed job-vs-working difference, which read as a score.
-            Text(Self.hoursLabel(d))
+            // The day's +/− : job hours against working time (pay minus breaks),
+            // so a day spent entirely on jobs reads 0 (back by request,
+            // 2026-10-14). Green over, red under, muted at zero.
+            Text(Self.diffLabel(d))
                 .font(TTypo.mono(9))
-                .foregroundStyle(Color(hex: d.date == todayId ? T.ink : T.muted))
+                .foregroundStyle(Self.diffColor(d))
                 .tnum()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -955,8 +956,13 @@ private struct WeeklyBars: View {
         .frame(maxWidth: .infinity)
     }
 
-    static func hoursLabel(_ d: EffDay) -> String {
-        d.pay > 0 ? String(format: "%.1fh", d.pay) : "0h"
+    static func diffLabel(_ d: EffDay) -> String {
+        String(format: "%+.2f", d.diff)
+    }
+
+    static func diffColor(_ d: EffDay) -> Color {
+        if abs(d.diff) < 0.005 { return Color(hex: T.muted) }
+        return Color(hex: d.diff < 0 ? T.red : T.green)
     }
 
     /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
