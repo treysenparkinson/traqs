@@ -140,7 +140,7 @@ struct TasksView: View {
                         cardStack(inProgressTasks).padding(.top, workingTasks.isEmpty ? 14 : 10)
                     }
                     if !inProgressJobs.isEmpty {
-                        jobCardStack(inProgressJobs).padding(.top, 4)
+                        jobCardStack(inProgressJobs).padding(.top, 12)
                     }
                   }
                   // The WHOLE section fades in when it first appears — header,
@@ -480,7 +480,7 @@ struct TasksView: View {
             cardStack(tasks).padding(.top, 14)
         }
         if !jobs.isEmpty {
-            jobCardStack(jobs).padding(.top, tasks.isEmpty ? 0 : 4)
+            jobCardStack(jobs).padding(.top, tasks.isEmpty ? 14 : 12)   // 14 under a header, as cardStack
         }
     }
 
@@ -722,7 +722,8 @@ struct TasksView: View {
     @ViewBuilder
     private func jobCardStack(_ jobs: [Job]) -> some View {
         if !jobs.isEmpty {
-            VStack(spacing: 0) {
+            // 12 between pills, as the old list had; cardless rows needed 0.
+            VStack(spacing: 12) {
                 ForEach(jobs) { job in
                     AllJobsCard(job: job, onOpenJob: onOpenJob)
                 }

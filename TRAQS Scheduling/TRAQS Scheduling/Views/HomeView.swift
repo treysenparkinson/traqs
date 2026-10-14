@@ -216,27 +216,16 @@ private struct TodayDateCard: View {
 private struct ShiftStatusHero: View {
     let status: ShiftStatus
     let liveHours: Double
-    /// How long the open lunch or break has run. On lunch or break THAT is the
-    /// clock worth reading — the shift total is paused (lunch) or beside the
-    /// point (break) until they're back.
+    /// How long the open lunch or break has run — shown in the title; the clock
+    /// itself holds today's hours (see ShiftClockText).
     let pauseSeconds: Double
     /// Taps jump to the Time Clock tab, where the shift can actually be acted on.
     let onOpen: () -> Void
 
     private var isPaused: Bool { status == .lunch || status == .onBreak }
 
-    private var title: String {
-        switch status {
-        case .lunch:   return "On lunch"
-        case .onBreak: return "On break"
-        default:       return "This shift"
-        }
-    }
-
-    private var elapsed: String {
-        let secs = max(0, Int(isPaused ? pauseSeconds : liveHours * 3600))
-        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
-    }
+    private var title: String { ShiftClockText.title(status: status, pauseSeconds: pauseSeconds) }
+    private var elapsed: String { ShiftClockText.value(status: status, todayHours: liveHours, pauseSeconds: pauseSeconds) }
 
     var body: some View {
         Button(action: onOpen) {
@@ -255,9 +244,9 @@ private struct ShiftStatusHero: View {
                 // the space the icon chip used to take. Placeholder dashes when
                 // off the clock keep the card the same height whether or not a
                 // shift is open.
-                Text(status == .offline ? "--:--:--" : elapsed)
+                Text(elapsed)
                     .font(TTypo.monoBold(30))
-                    .foregroundStyle(Color(hex: status == .offline ? T.muted : T.ink))
+                    .foregroundStyle(Color(hex: ShiftClockText.isIdle(status: status, todayHours: liveHours) ? T.muted : T.ink))
                     .tnum()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -272,6 +261,35 @@ private struct ShiftStatusHero: View {
             .aspectRatio(1, contentMode: .fit)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The shift card's words (d9cc596, kept through the Liquid Glass arrangement):
+/// the big number is TODAY'S HOURS — the Time Clock hero's number — frozen on
+/// lunch and held after clock-out. It was the open lunch/break's own count-up,
+/// which read as the shift still running through lunch; the pause's length rides
+/// in the title instead.
+enum ShiftClockText {
+    /// Offline with nothing clocked today — the only time the clock shows dashes.
+    static func isIdle(status: ShiftStatus, todayHours: Double) -> Bool {
+        status == .offline && todayHours <= 0
+    }
+
+    static func value(status: ShiftStatus, todayHours: Double, pauseSeconds: Double) -> String {
+        if isIdle(status: status, todayHours: todayHours) { return "--:--:--" }
+        let secs = max(0, Int(todayHours * 3600))
+        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
+
+    /// "On lunch · 12m" / "On break · 1h 15m" / "This shift".
+    static func title(status: ShiftStatus, pauseSeconds: Double) -> String {
+        let mins = max(0, Int(pauseSeconds / 60))
+        let suffix = mins >= 60 ? " · \(mins / 60)h \(mins % 60)m" : " · \(mins)m"
+        switch status {
+        case .lunch:   return "On lunch" + suffix
+        case .onBreak: return "On break" + suffix
+        default:       return "This shift"
+        }
     }
 }
 
