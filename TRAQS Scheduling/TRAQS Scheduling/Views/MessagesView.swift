@@ -1230,11 +1230,9 @@ struct ThreadDetailView: View {
                                     Image(systemName: "plus")
                                         .font(.system(size: 18, weight: .medium))
                                         .foregroundStyle(.primary)
-                                        .frame(width: 40, height: 40)
-                                        .contentShape(Circle())
+                                        .frame(width: 26, height: 26)   // 40 - 2×7 native inset
                                 }
-                                .buttonStyle(.plain)
-                                .glassControl(in: Circle())
+                                .nativeGlass(.circle)
                                 .sheet(isPresented: $showAttachSheet, onDismiss: openPendingSource) {
                                     AttachSourceSheet { source in
                                         pendingSource = source
@@ -2225,14 +2223,12 @@ struct TimeOffRequestBubble: View {
                         HStack(spacing: 8) {
                             Button { denying = false; reason = "" } label: {
                                 Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                                    .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                    .glassControl(in: Capsule())
-                            }.buttonStyle(.plain)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 4)
+                            }.nativeGlass(.capsule)
                             Button { decide("deny") } label: {
                                 Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
-                                    .frame(maxWidth: .infinity).padding(.vertical, 13)
-                                    .glassCTA(tint: Color(hex: "#ef4444"))
-                            }.buttonStyle(.plain).disabled(busy)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 6)
+                            }.nativeGlass(.capsule, prominent: true, tint: Color(hex: "#ef4444")).disabled(busy)
                         }
                     }
                 } else {
@@ -2504,14 +2500,11 @@ struct ThreadTopBar: View {
             // A change, if one comes, lands in one frame.
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
 
-            Button(action: context.onBack) {
-                HeaderGlassCircle {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: T.ink))
-                }
+            GlassKey(size: HeaderControl.diameter, action: context.onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .padding(.leading, 16)
             .padding(.top, 12)
@@ -2693,23 +2686,22 @@ struct ThreadMembersPage<AddCover: View>: View {
                         }
                     }
                     if canAdd {
-                        Button {
-                            onAddWillOpen()
-                            withTransaction(Transaction.noAnimation) { showAdd = true }
-                        } label: {
-                            VStack(spacing: 8) {
+                        // Only the glyph is the button; the caption sits under it.
+                        VStack(spacing: 8) {
+                            GlassKey(size: 80) {
+                                onAddWillOpen()
+                                withTransaction(Transaction.noAnimation) { showAdd = true }
+                            } label: {
                                 Image(systemName: "plus")
                                     .font(.system(size: 26, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
-                                    .frame(width: 80, height: 80)
-                                    .glassControl(in: Circle())
-                                Text("Add")
-                                    .font(TTypo.sm(13))
-                                    .foregroundStyle(Color(hex: T.ink))
                             }
+                            .accessibilityLabel("Add people")
+                            Text("Add")
+                                .font(TTypo.sm(13))
+                                .foregroundStyle(Color(hex: T.ink))
+                                .accessibilityHidden(true)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Add people")
                     }
                 }
                 .padding(.horizontal, 20)
@@ -2737,14 +2729,11 @@ struct ThreadMembersPage<AddCover: View>: View {
         // The back button sits exactly where the thread's does, so one hands over
         // to the other in place as the page grows.
         .overlay(alignment: .topLeading) {
-            Button(action: onClose) {
-                HeaderGlassCircle {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: T.ink))
-                }
+            GlassKey(size: HeaderControl.diameter, action: onClose) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
             }
-            .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .padding(.leading, 16)
             .padding(.top, topInset + 18)
@@ -3048,26 +3037,14 @@ struct EditGroupPopup: View {
             let trimmed = name.trimmingCharacters(in: .whitespaces)
             close { onSave(trimmed, members) }
         } label: {
-            let enabled = !selectedIds.isEmpty
-            let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
-            let label = Text("Save Changes")
+            // Disabled is the native style's own dimming, via .disabled below.
+            Text("Save Changes")
                 .font(TTypo.smBold(15))
-                .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+                .foregroundStyle(glassCTALabel())
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-
-            Group {
-                if enabled {
-                    label.glassCTA(in: shape)
-                } else {
-                    label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
-                }
-            }
-            .shadow(color: Color(hex: T.ctaGlowColor).opacity(enabled ? T.ctaGlowOpacity : 0),
-                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-            .opacity(enabled ? 1 : 0.7)
+                .padding(.vertical, 7)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.rounded(T.cornerLg), prominent: true)
         .disabled(selectedIds.isEmpty)
         .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
     }
@@ -3077,10 +3054,9 @@ struct EditGroupPopup: View {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
-                .frame(width: 36, height: 36)
-                .glassControl(in: Circle())
+                .frame(width: 22, height: 22)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.circle)
         .padding(18)
     }
 
@@ -3210,30 +3186,16 @@ struct AddPeoplePopup: View {
             let ids = Array(selected)
             close { onAdd(ids) }
         } label: {
-            let enabled = !selected.isEmpty
-            let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
-            let label = HStack(spacing: 7) {
+            // Disabled is the native style's own dimming, via .disabled below.
+            HStack(spacing: 7) {
                 Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                 Text(selected.isEmpty ? "Add" : "Add (\(selected.count))").font(TTypo.smBold(15))
             }
-            .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+            .foregroundStyle(glassCTALabel())
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-
-            Group {
-                if enabled {
-                    label.glassCTA(in: shape)
-                } else {
-                    // Disabled = muted grey, not progressTrack: that chart token is
-                    // near-white on light presets, which leaves this invisible.
-                    label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
-                }
-            }
-            .shadow(color: Color(hex: T.ctaGlowColor).opacity(enabled ? T.ctaGlowOpacity : 0),
-                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-            .opacity(enabled ? 1 : 0.7)
+            .padding(.vertical, 7)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.rounded(T.cornerLg), prominent: true)
         .disabled(selected.isEmpty)
         .animation(.easeInOut(duration: 0.18), value: selected.isEmpty)
     }
@@ -3246,10 +3208,9 @@ struct AddPeoplePopup: View {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
-                .frame(width: 36, height: 36)
-                .glassControl(in: Circle())
+                .frame(width: 22, height: 22)
         }
-        .buttonStyle(.plain)
+        .nativeGlass(.circle)
         .padding(18)
     }
 
@@ -3625,37 +3586,21 @@ struct NewMessageSheet: View {
             // At the foot of the CARD now, not pinned to the screen. A bar floating
             // over a popup this size would have covered the roster it existed to
             // keep reachable.
+            // Same accent-filled Liquid Glass as Clock In, Start and Start Job —
+            // this is the one action the popup exists for. Disabled is the native
+            // style's own dimming, via .disabled below.
             Button { start() } label: {
-                let enabled = !selectedIds.isEmpty
-                let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
-                let label = HStack(spacing: 7) {
+                HStack(spacing: 7) {
                     Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                     Text("Create").font(TTypo.smBold(15))
                 }
-                // Tinted glass is tinted with the FLAT accent, so the label is
-                // judged against that; the disabled state is a grey, judged against
-                // the gradient's two stops.
-                .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+                // Prominent glass is filled with the FLAT accent, so the label is
+                // judged against that.
+                .foregroundStyle(glassCTALabel())
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-
-                Group {
-                    if enabled {
-                        // Same tinted Liquid Glass as Clock In, Start and Start Job
-                        // — this is the one action the popup exists for.
-                        label.glassCTA(in: shape)
-                    } else {
-                        // Disabled = muted grey, not progressTrack: that chart token
-                        // is near-white on light presets, which left this button
-                        // invisible AND its white label unreadable.
-                        label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
-                    }
-                }
-                .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
-                        radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-                .opacity(selectedIds.isEmpty ? 0.7 : 1)
+                .padding(.vertical, 7)
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.rounded(T.cornerLg), prominent: true)
             .disabled(selectedIds.isEmpty)
             .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
         }
@@ -3673,10 +3618,9 @@ struct NewMessageSheet: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 36, height: 36)
-                    .glassControl(in: Circle())
+                    .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .nativeGlass(.circle)
             .padding(18)
         }
         .padding(.horizontal, 24)
