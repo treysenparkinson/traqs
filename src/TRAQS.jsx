@@ -402,7 +402,10 @@ const deriveWorkedState = (t, produced = 0, live = 0) => {
 const FAST_TRAQS_MAX_FILE_MB = 10;
 const FAST_TRAQS_MAX_TOTAL_MB = 25;
 // Anthropic tool schema for the unified AI import — Claude must call this tool with the structured extraction.
-const EXTRACT_TOOL = {
+// #448. Built from the ORG's statuses at the call: as a module constant it pinned `status` to
+// the five defaults, so on an org with seventeen the model could set five and did not know
+// the rest existed. The chat tools already read the org's list.
+const extractTool = (statuses) => ({
   name: "submit_extraction",
   description: "Submit the parsed jobs, panels/ops, and updates extracted from the user's input. ALWAYS call this tool, even if both arrays end up empty.",
   input_schema: {
@@ -463,7 +466,7 @@ const EXTRACT_TOOL = {
               properties: {
                 dueDate:  { type: "string", description: "YYYY-MM-DD" },
                 poNumber: { type: "string" },
-                status:   { type: "string", enum: ["Not Started","Pending","In Progress","On Hold","Finished"] },
+                status:   { type: "string", enum: statuses },
                 notes:    { type: "string" },
               },
             },
@@ -474,7 +477,7 @@ const EXTRACT_TOOL = {
     },
     required: ["jobs", "updates"],
   },
-};
+});
 const findToolUse = (aiRes, toolName) => {
   const block = (aiRes?.content || []).find(b => b.type === "tool_use" && b.name === toolName);
   return block?.input ?? null;
@@ -4664,7 +4667,7 @@ Extraction rules:
           // Generous budget: full-Excel extractions can produce a lot of structured JSON.
           // The backend uses Sonnet 4's output-128k beta so this won't be capped.
           max_tokens: 32000,
-          tools: [EXTRACT_TOOL],
+          tools: [extractTool(STATUSES)],
           tool_choice: { type: "tool", name: "submit_extraction" },
         }, getToken);
       } catch (e) {
