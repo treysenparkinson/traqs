@@ -158,7 +158,7 @@ class AppState {
     var timeOffRequests: [TimeOffRequest] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
-    var orgSettings: OrgSettings = .default { didSet { ShopTime.set(org: orgSettings); dataRevision &+= 1 } }
+    var orgSettings: OrgSettings = .default { didSet { ShopTime.set(org: orgSettings); StatusMeaning.set(org: orgSettings); dataRevision &+= 1 } }
 
     /// "basic" | "business", from `GET /billing`. Basic until told otherwise —
     /// the web's default too, and what an org with no billing record IS.

@@ -195,11 +195,15 @@ struct Operation: Codable, Identifiable, Equatable {
     // `statusKnown` is for code that must be able to tell "iOS does not model
     // this" from "it is Not Started", which the non-optional `status` cannot say.
     var statusRaw: String
+    //
+    // #504: `.finished` and `.inProgress` are MEANINGS, read from the org's list
+    // (StatusMeaning), not spellings — a renamed "Finished" is still finished, and
+    // writing `.finished` stores the org's own name for it.
     var status: JobStatus {
-        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
-        set { statusRaw = newValue.rawValue }
+        get { StatusMeaning.current.status(of: statusRaw) }
+        set { statusRaw = StatusMeaning.current.raw(for: newValue) }
     }
-    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
+    var statusKnown: JobStatus? { StatusMeaning.current.known(statusRaw) }
     // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
     // has "On time" and "Late"), and decoding into the three-case enum with a
     // `.medium` fallback, then re-encoding the whole array on save, rewrote every
@@ -401,11 +405,15 @@ struct Panel: Codable, Identifiable, Equatable {
     // `statusKnown` is for code that must be able to tell "iOS does not model
     // this" from "it is Not Started", which the non-optional `status` cannot say.
     var statusRaw: String
+    //
+    // #504: `.finished` and `.inProgress` are MEANINGS, read from the org's list
+    // (StatusMeaning), not spellings — a renamed "Finished" is still finished, and
+    // writing `.finished` stores the org's own name for it.
     var status: JobStatus {
-        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
-        set { statusRaw = newValue.rawValue }
+        get { StatusMeaning.current.status(of: statusRaw) }
+        set { statusRaw = StatusMeaning.current.raw(for: newValue) }
     }
-    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
+    var statusKnown: JobStatus? { StatusMeaning.current.known(statusRaw) }
     // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
     // has "On time" and "Late"), and decoding into the three-case enum with a
     // `.medium` fallback, then re-encoding the whole array on save, rewrote every
@@ -633,11 +641,15 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     // `statusKnown` is for code that must be able to tell "iOS does not model
     // this" from "it is Not Started", which the non-optional `status` cannot say.
     var statusRaw: String
+    //
+    // #504: `.finished` and `.inProgress` are MEANINGS, read from the org's list
+    // (StatusMeaning), not spellings — a renamed "Finished" is still finished, and
+    // writing `.finished` stores the org's own name for it.
     var status: JobStatus {
-        get { JobStatus(rawValue: statusRaw) ?? .notStarted }
-        set { statusRaw = newValue.rawValue }
+        get { StatusMeaning.current.status(of: statusRaw) }
+        set { statusRaw = StatusMeaning.current.raw(for: newValue) }
     }
-    var statusKnown: JobStatus? { JobStatus(rawValue: statusRaw) }
+    var statusKnown: JobStatus? { StatusMeaning.current.known(statusRaw) }
     // #518 — #447's fix, applied to priority. `priOpts` is org-editable (Matrix
     // has "On time" and "Late"), and decoding into the three-case enum with a
     // `.medium` fallback, then re-encoding the whole array on save, rewrote every
