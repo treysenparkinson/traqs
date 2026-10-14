@@ -2137,10 +2137,8 @@ select:not(:disabled):active {
 html { scroll-behavior: smooth; }
 
 .traqs-midnight input[type="date"]::-webkit-calendar-picker-indicator,
-.traqs-obsidian  input[type="date"]::-webkit-calendar-picker-indicator,
 .traqs-dark      input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) brightness(2); cursor: pointer; }
 .traqs-midnight input[type="date"],
-.traqs-obsidian  input[type="date"],
 .traqs-dark      input[type="date"] { color-scheme: dark; }
 
 .traqs-frost input[type="date"]::-webkit-calendar-picker-indicator,
@@ -2474,7 +2472,6 @@ const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
 
 const THEMES = {
   midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex(DARK.accent, 0.45), 0.2), hoverStrong: hexA(blendHex(DARK.accent, 0.45), 0.34), danger: "#f43f5e", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark", ...DARK },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
   frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: FONT_UI, mono: FONT_UI, radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light", ...LIGHT },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves

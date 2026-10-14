@@ -53,5 +53,13 @@ check("job-card, list-cell and grid controls stayed", () =>
   /setDc\(\{ jobBarMode: /.test(SRC) && /setDc\(\{ jobBarColor: /.test(SRC)
   && /setDc\(\{ cellColorMode: /.test(SRC) && /setDc\(\{ scheduleGrid: /.test(SRC) || "missing");
 
+// #472 (Trey, 2026-10-13: "delete obsidian"). No picker offered it and it was a quarter of the
+// contrast suite. The theme, its CSS and its contrast ladder go; the LEGACY MAPPING above stays,
+// so an account that still stores "obsidian" lands on Dark rather than on nothing.
+check("#472: the obsidian theme is gone from THEMES", () => !/^\s*obsidian:\s*\{ name: "Obsidian"/m.test(SRC) || "still defined");
+check("#472: ...and its date-input CSS", () => !/\.traqs-obsidian/.test(SRC) || "still styled");
+check("#472: ...and the contrast suite's ladder", () =>
+  !/key: "obsidian"/.test(readFileSync(new URL("./contrast-test.mjs", import.meta.url), "utf8")) || "still measured");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -38,11 +38,10 @@ const MATRIX = [
 ];
 const TOTAL_BARS = MATRIX.reduce((s, [, n]) => s + n, 0);
 
-// The three built-in ladders, plus the custom theme one Matrix account is actually on.
+// The two built-in ladders (obsidian deleted, #472), plus the custom theme one Matrix account is actually on.
 // Only the fields the paint helpers read.
 const THEMES = [
   { key: "midnight", surface: "#202024", surfaceSolid: "#202024" },
-  { key: "obsidian", surface: "#0d0d1a", surfaceSolid: "#0d0d1a" },
   // frost follows src/themeTokens.js LIGHT (redesign pass 1: white surface, tinted card).
   { key: "frost",    surface: "#FFFFFF", surfaceSolid: "#FFFFFF" },
   { key: "custom(Matrix)", surface: "#f5f5f5", surfaceSolid: "#f5f5f5" },
@@ -175,7 +174,7 @@ for (const T of THEMES) {
   ok(`${T.key} overdue chip: ${r2(barInkRatio(["#f59e0b"]))}:1 >= ${AA_TEXT}`, barInkRatio(["#f59e0b"]) >= AA_TEXT);
   // The header's "Overdue · N" button keeps its hue (it is a secondary button, not a filled
   // pill — one primary CTA per header), so the TEXT steps instead of the ground.
-  const card = T.key === "frost" ? "#F4F5FA" : T.key === "midnight" ? "#27272C" : T.key === "obsidian" ? "#111120" : "#ffffff";
+  const card = T.key === "frost" ? "#F4F5FA" : T.key === "midnight" ? "#27272C" : "#ffffff";
   ok(`${T.key} overdue button: ${r2(contrastRatio(legibleOn("#b45309", card), card))}:1 >= ${AA_TEXT}`,
     contrastRatio(legibleOn("#b45309", card), card) >= AA_TEXT);
   ok(`${T.key} overdue button: the hard-coded amber it replaces fails (${r2(contrastRatio("#b45309", card))}:1)`,
