@@ -534,7 +534,10 @@ private struct ChannelRow: View {
 
     var body: some View {
         let _ = theme.accent; let _ = theme.bgPresetId
-        RvRow(divider: divider) {
+        // The line runs under the name and preview only — not under the avatar.
+        // Avatar + the row's 14pt spacing; in select mode the 22pt checkmark
+        // and its spacing sit in front of it too.
+        RvRow(divider: divider, dividerInset: avatarSize + 14 + (selectMode ? 22 + 14 : 0)) {
             if selectMode {
                 // The checkmark fades + slides in from the leading edge
                 // when the user enters select mode, and the rest of the

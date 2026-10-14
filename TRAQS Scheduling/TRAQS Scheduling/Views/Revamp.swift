@@ -139,6 +139,9 @@ struct RvTitle: View {
 /// A cardless list row: content, 14pt above and below, a hairline under it.
 struct RvRow<Content: View>: View {
     var divider: Bool = true
+    /// Where the hairline starts. 0 = full width; the Messages inbox starts it at
+    /// the text, clear of the avatar (2026-10-14).
+    var dividerInset: CGFloat = 0
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -147,7 +150,7 @@ struct RvRow<Content: View>: View {
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-            if divider { Rv.line.frame(height: 1) }
+            if divider { Rv.line.frame(height: 1).padding(.leading, dividerInset) }
         }
     }
 }
