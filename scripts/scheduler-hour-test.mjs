@@ -83,7 +83,9 @@ console.log("\n2. BOTH RUNS PASS THE HOUR");
   const applyCalls = (CODE.match(/isAvail\([^)]*\)/g) || []).filter(c => !c.includes("=>") && !c.includes("isAvailLocal"));
   ok("every isAvailLocal call passes an hour", localCalls.filter(c => !/_opH/.test(c)), []);
   ok("every isAvail call passes an hour", applyCalls.filter(c => !/_opH/.test(c)), []);
-  ok("...and there are six of them in total", localCalls.length + applyCalls.length, 6);
+  // Five since #527: team mode's two calls (the wait-for-everyone loop and the silent subset
+  // fallback) became one, inside placeCrew's isFree — still passing the hour.
+  ok("...and there are five of them in total", localCalls.length + applyCalls.length, 5);
   // The hour comes from the op being placed, not from a constant.
   ok("the preview run reads it off the op", /const _opH = \(typeof op === "object" && op\) \? \(op\.startHour \?\? null\) : null;/.test(bodyFrom("const pickTeamLocal = (op, minStart = null) => {")), true);
   ok("the apply run reads it off the op", /const _opH=\(typeof op === "object" && op\) \? \(op\.startHour \?\? null\) : null;/.test(CODE), true);

@@ -137,7 +137,8 @@ console.log("\n6. The preview asks the engine, it does not model the run");
     /schedulerAvailability\(tasks, overlapCtx, \{ excludeOpIds: rescheduleSelection, people \}\)/.test(J), true);
   ok("...and the same objective", /objective: SCHEDULE_OBJECTIVE/.test(J), true);
   // OUTCOME is now reported, which is what this step was for.
-  ok("OUTCOME is imported by the app, not just by tests", /OUTCOME \} from "\.\/placement\.js"/.test(J), true);
+  // Matched on the name, not its position in the list: #527 appended placeCrew after it.
+  ok("OUTCOME is imported by the app, not just by tests", /import \{[^}]*\bOUTCOME\b[^}]*\} from "\.\/placement\.js"/.test(J), true);
   ok("...and read in the panel", /r\.outcome/.test(J), true);
 }
 
