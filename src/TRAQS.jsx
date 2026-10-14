@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, resolveDepartments, departmentsAfterToggle, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME, placeCrew } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -9247,6 +9247,16 @@ Extraction rules:
         <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
           These stay exactly where they are. Nothing is moved to a date it does not fit.
         </div>
+      </div>}
+      {/* #527. A crew placed with someone missing says who and why — never silently short. */}
+      {rows.some(r => r.outcome === OUTCOME.placed && r.left?.length) && <div style={{ marginBottom: byPerson.length ? 12 : 0 }}>
+        {rows.filter(r => r.outcome === OUTCOME.placed && r.left?.length).map((r,i) => (
+          <div key={`left-${r.op?.id ?? i}`} style={{ display:"flex", gap:8, alignItems:"baseline", fontSize:12, color:T.text, padding:"3px 0" }}>
+            <span style={{ color:T.warn || "#f59e0b", flexShrink:0 }}>●</span>
+            <strong style={{ flexShrink:0 }}>{r.op?.title || "Untitled"}</strong>
+            <span style={{ color:T.textDim }}>{"Not on it: " + r.left.map(l => `${people.find(pp => String(pp.id) === String(l.id))?.name || l.id} (${l.reason === "busy" ? "not free" : l.reason === "department" ? "outside its department" : "not schedulable"})`).join(", ")}</span>
+          </div>
+        ))}
       </div>}
       {byPerson.length > 0 && <div>
         <div style={{ fontSize:10.5, fontWeight:700, color:T.textDim, marginBottom:6 }}>HOURS PER PERSON</div>
@@ -25141,27 +25151,20 @@ ${jobsCtx || "No jobs found."}`;
                           const fallback=minStart||slot.start;
                           return {team:[],start:fallback,end:sAddBD(fallback,Math.max(0,singleDur-1)),outcome:OUTCOME.noWindow,candidates:eligible.length};
                         }
-                        const teamSize=eligible.length;
-                        const durBD=Math.max(1,Math.ceil(totalHours/(teamSize*productiveHoursPerDay)));
-                        let tryStart=eligible.reduce((best,m) => { const c=personCursors[m.id]||slot.start; return c>best?c:best; },slot.start);
-                        if(minStart && tryStart<minStart) tryStart=minStart;
-                        for(let guard=0;guard<300;guard++) {
-                          const tryEnd=sAddBD(tryStart,Math.max(0,durBD-1));
-                          let allFree=true;
-                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd,_opH)) { allFree=false; break; } }
-                          if(allFree) return {team:eligible,start:tryStart,end:tryEnd};
-                          tryStart=sAddBD(tryStart,1);
+                        // TEAM MODE (#527), on #302's three rulings: hours split evenly across the
+                        // crew; everyone in it matches the department; place who's free on the
+                        // EARLIEST day and report who wasn't. This used to wait up to 300 business
+                        // days for the whole crew, then place whatever subset was free and say
+                        // nothing about the rest. placeCrew (placement.js) holds the rule.
+                        let crewFrom=eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
+                        if(minStart && crewFrom<minStart) crewFrom=minStart;
+                        const crewRes=placeCrew({ crew: eligible, departments: reqDepts, named: (typeof op==="object" && Array.isArray(op?.team)) ? op.team : [],
+                          hours: totalHours, productiveHoursPerDay, from: crewFrom, addBD: sAddBD, isFree: (id,s0,e0) => isAvail(id,s0,e0,_opH) });
+                        if(crewRes.outcome) {
+                          const fallbackStart=minStart||slot.start;
+                          return {team:[],start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1)),outcome:crewRes.outcome,candidates:crewRes.candidates,left:crewRes.left};
                         }
-                        const fallbackStart=minStart||slot.start;
-                        for(let g2=0;g2<300;g2++) {
-                          const tryS=sAddBD(fallbackStart,g2);
-                          const tryE=sAddBD(tryS,Math.max(0,singleDur-1));
-                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE,_opH));
-                          if(freeSubset.length>0) { const sz=freeSubset.length; const finalDur=Math.max(1,Math.ceil(totalHours/(sz*productiveHoursPerDay))); return {team:freeSubset,start:tryS,end:sAddBD(tryS,Math.max(0,finalDur-1))}; }
-                        }
-                        // Same refusal for the team path: no subset of the crew was free on
-                        // any day in the horizon, so there is no honest placement to make.
-                        return {team:[],start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1)),outcome:OUTCOME.noWindow,candidates:eligible.length};
+                        return {team:crewRes.team,start:crewRes.start,end:crewRes.end,left:crewRes.left};
                       };
                       let latestEnd=slot.start;
                       // #344. Per-op results, reported in step 3 in the same shape the
@@ -25202,13 +25205,13 @@ ${jobsCtx || "No jobs found."}`;
                           // which meant slot.start, another route to day one.
                           const unassigned = !deptOfUnit(op, null, null);
                           const floor = unassigned ? laterOf(slot.start, flowEnd && sAddBD(flowEnd, 1)) : slot.start;
-                          const {team:panelTeam,start:ps,end:pe,outcome:pOut,candidates:pCand}=pickTeam(op,floor);
+                          const {team:panelTeam,start:ps,end:pe,outcome:pOut,candidates:pCand,left:pLeft}=pickTeam(op,floor);
                           // A panel with no ops of its own IS the unit of work, so it is
                           // reported like one — placed or blocked. Reporting only the
                           // blocked ones would make "4 of 7 scheduled" count a different
                           // set of things depending on how the job happens to be shaped.
-                          if(pOut) runOutcomes.push({id:op.id,op,outcome:pOut,person:null,candidates:pCand});
-                          else if(panelTeam.length>0) runOutcomes.push({id:op.id,op,outcome:OUTCOME.placed,person:panelTeam[0]});
+                          if(pOut) runOutcomes.push({id:op.id,op,outcome:pOut,person:null,candidates:pCand,left:pLeft});
+                          else if(panelTeam.length>0) runOutcomes.push({id:op.id,op,outcome:OUTCOME.placed,person:panelTeam[0],team:panelTeam,left:pLeft});
                           resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id),_outcome:pOut||null};
                           panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||productiveHoursPerDay)/Math.max(1,panelTeam.length)}); _applyAvail.book(m.id,ps,pe); personCursors[m.id]=sAddBD(pe,1); });
                           if(pe>latestEnd) latestEnd=pe;
@@ -25222,9 +25225,9 @@ ${jobsCtx || "No jobs found."}`;
                           // identically on both sides of the call.
                           const unassigned = !deptOfUnit(sub, pnl, null);
                           const floor = unassigned ? laterOf(opCursor, flowEnd && sAddBD(flowEnd, 1)) : opCursor;
-                          const {team:subTeam,start:ss,end:se,outcome:sOut,candidates:sCand}=pickTeam(sub,floor);
-                          if(sOut) runOutcomes.push({id:sub.id,op:sub,outcome:sOut,person:null,candidates:sCand});
-                          else if(subTeam.length>0) runOutcomes.push({id:sub.id,op:sub,outcome:OUTCOME.placed,person:subTeam[0]});
+                          const {team:subTeam,start:ss,end:se,outcome:sOut,candidates:sCand,left:sLeft}=pickTeam(sub,floor);
+                          if(sOut) runOutcomes.push({id:sub.id,op:sub,outcome:sOut,person:null,candidates:sCand,left:sLeft});
+                          else if(subTeam.length>0) runOutcomes.push({id:sub.id,op:sub,outcome:OUTCOME.placed,person:subTeam[0],team:subTeam,left:sLeft});
                           // A REFUSED op does not keep its old team. The previous
                           // `: (sub.team||[])` fallback handed the existing team brand new
                           // dates precisely when the search had failed to find any — the

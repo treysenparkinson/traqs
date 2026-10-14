@@ -266,8 +266,11 @@ function summarize(rows, crew) {
   const load = new Map();
   for (const r of rows) {
     if (r.outcome !== OUTCOME.placed || !r.person) continue;
-    const k = sid(r.person.id);
-    load.set(k, (load.get(k) || 0) + (Number(r.op?.hpd) || 0));
+    // A crew shares the op's total evenly (#302 ruling 1, #527). Crediting the whole hpd to
+    // the first member called a three-person op one person's week.
+    const members = Array.isArray(r.team) && r.team.length ? r.team : [r.person];
+    const share = (Number(r.op?.hpd) || 0) / members.length;
+    for (const m of members) { const k = sid(m.id); load.set(k, (load.get(k) || 0) + share); }
   }
   const byPerson = [...load.entries()]
     .map(([id, hours]) => ({ id, hours, name: (crew || []).find(p => sid(p.id) === id)?.name || id }))
@@ -296,6 +299,8 @@ export function foldRunOutcomes(results, { crew = [] } = {}) {
   const rows = (results || []).map(r => {
     const row = { op: r.op, outcome: r.outcome || OUTCOME.placed, person: r.person || null };
     if (r.candidates != null) row.candidates = r.candidates;
+    if (Array.isArray(r.team) && r.team.length) row.team = r.team;
+    if (Array.isArray(r.left) && r.left.length) row.left = r.left;
     return row;
   });
   return summarize(rows, crew);
@@ -456,4 +461,53 @@ export function dayLoadHint(personId, start, end, ctx = {}) {
   }
   if (days === 0 || loaded === 0) return null;
   return `${loaded} of ${days} days full`;
+}
+
+/**
+ * A CREW on one op — the wizard's team mode (#527), on #302's three rulings (Trey, 2026-10-13).
+ *
+ *   1. Hours split evenly: the span is each member's share of `hours` (the op's total for the
+ *      crew) over a productive day.
+ *   2. Everyone in the crew matches `departments` (when it names any). `candidatesFor` returns a
+ *      named team outright whatever its departments; a member outside them is left off and named.
+ *   3. Place who's free on the EARLIEST day that has anyone, and report who wasn't. The path
+ *      this replaces waited up to `horizon` days for the whole crew, then placed whatever subset
+ *      was free and said nothing about the rest. A smaller crew takes longer, so the free check
+ *      re-runs over the longer span until it settles; it only shrinks, so it ends.
+ *
+ * Pure: `isFree(id, start, end)` and `addBD(day, n)` are the caller's calendar and bookings.
+ * @returns {{ team, start, end, left }} when placed, else {{ team: [], outcome, left, candidates? }}
+ *   `left`: [{ id, reason: "department" | "busy" | "notSchedulable" }]
+ */
+export function placeCrew({ crew = [], departments = [], named = [], hours, productiveHoursPerDay,
+  from, addBD, isFree, horizon = 300 }) {
+  const roster = (crew || []).filter(Boolean);
+  const onRoster = new Set(roster.map(p => sid(p.id)));
+  const left = (named || []).map(sid).filter(id => id && !onRoster.has(id))
+    .map(id => ({ id, reason: "notSchedulable" }));
+  const eligible = [];
+  for (const p of roster) {
+    if (personDeptMatch(p, departments)) eligible.push(p);
+    else left.push({ id: sid(p.id), reason: "department" });
+  }
+  if (eligible.length === 0) return { team: [], outcome: OUTCOME.noCandidates, left };
+
+  const perDay = Number(productiveHoursPerDay) > 0 ? Number(productiveHoursPerDay) : 8;
+  const total = Number(hours) > 0 ? Number(hours) : perDay;
+  const span = (k) => Math.max(1, Math.ceil(total / (k * perDay)));
+  let day = from;
+  for (let g = 0; g < horizon; g++, day = addBD(day, 1)) {
+    let team = eligible;
+    for (;;) {
+      const end = addBD(day, span(team.length) - 1);
+      const free = team.filter(p => isFree(p.id, day, end));
+      if (free.length === 0) { team = null; break; }
+      if (free.length === team.length) {
+        const busy = eligible.filter(p => !free.includes(p)).map(p => ({ id: sid(p.id), reason: "busy" }));
+        return { team: free, start: day, end, left: [...busy, ...left] };
+      }
+      team = free;
+    }
+  }
+  return { team: [], outcome: OUTCOME.noWindow, candidates: eligible.length, left };
 }
