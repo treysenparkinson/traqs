@@ -9,6 +9,7 @@
 // Everything here is pure: colours in, colours out, no DOM, no React, no module state.
 
 import { complementSpans } from "./statsMath.js";
+import { isFinished } from "./statusMeaning.js";   // web-only module: the page-level form (#504)
 
 
 function hexLum(hex) {
@@ -101,14 +102,14 @@ function accentText(accent) {
 // out to near-illegible, and the hue is what makes a bar recognisable as its job.
 const DONE_MUTE = "#8c8c94";
 const barPaint = (item, color) =>
-  (item && item.status === "Finished" && typeof color === "string" && color.startsWith("#"))
+  (item && isFinished(item.status) && typeof color === "string" && color.startsWith("#"))
     ? mixHex(color, DONE_MUTE, 0.34)
     : color;
 // Multiplied INTO each renderer's existing opacity rather than assigned over it: those
 // expressions already carry drag ghosting and the hover dim (0.2 for other people's rows),
 // and overwriting them would strand a finished bar at full opacity mid-drag.
 const DONE_FADE = 0.7;
-const barFade = (item) => (item && item.status === "Finished" ? DONE_FADE : 1);
+const barFade = (item) => (item && isFinished(item.status) ? DONE_FADE : 1);
 
 // The "spent" fill, shared by a drained reservoir and a stopped live bar. Replaces a
 // flat-black hatch (rgba(0,0,0,0.28)/0.14) that read as grime on every light ladder

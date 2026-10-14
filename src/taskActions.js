@@ -36,6 +36,8 @@
 //   empty           an absent key equals [], "" or {}: clients that always write the
 //                   empty value are not editing anything.
 
+import { isFinishedStatus, isFinished } from "./statusMeaning.js";
+
 export const SCHEDULE_FIELDS = ["start", "end", "startHour", "endHour", "hpd"];
 export const LOG_FIELDS = ["moveLog", "apprLog"];
 /** Every field approving or declining a finish may write — the web's
@@ -141,7 +143,10 @@ function chainChange(a, b) {
  *   raisedBy    — the `by` of every finish request raised; the caller checks they are the caller
  *   chainSigns  — each chain step signed; allowed for canApprove or that step's assignee
  */
-export function classifyTaskActions(nextTasks, prevTasks) {
+// `statuses`: the org's list (#504) — what MEANS finished, so setting it needs approveCompletions
+// whatever it is called. The server passes settings.statusOpts; without it, the page-level form.
+export function classifyTaskActions(nextTasks, prevTasks, { statuses } = {}) {
+  const fin = (st) => (statuses !== undefined ? isFinishedStatus(st, statuses) : isFinished(st));
   const perms = new Set();
   let needsApprove = false, needsEngineer = false, changed = false;
   const raisedBy = new Set();
@@ -230,7 +235,7 @@ export function classifyTaskActions(nextTasks, prevTasks) {
       if (inScope && RESOLUTION.has(key)) { perms.add("approveCompletions"); continue; }
       if (boundsOf.has(id) && BOUNDS_FIELDS.has(key)) { perms.add("approveCompletions"); continue; }
       if (key === "status") {
-        perms.add(b.status === "Finished" && a.status !== "Finished" ? "approveCompletions" : "editJobs");
+        perms.add(fin(b.status) && !fin(a.status) ? "approveCompletions" : "editJobs");
         continue;
       }
       if (key === "pendingFinish" && b.pendingFinish === true && raisesPending) continue;   // raising

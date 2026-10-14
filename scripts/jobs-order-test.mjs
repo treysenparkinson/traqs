@@ -76,9 +76,10 @@ console.log("\n2. Inside a group, finished rows sink below live ones");
 console.log("\n3. Both changes are in the source");
 {
   ok("the status buckets push Finished last",
-    /rest\.filter\(\(\[k\]\) => k !== "Finished"\), \.\.\.rest\.filter\(\(\[k\]\) => k === "Finished"\)/.test(CODE), true);
+    // #504: "finished" is the org's list (isFinished), so a renamed Finished still sinks.
+    /rest\.filter\(\(\[k\]\) => !isFinished\(k\)\), \.\.\.rest\.filter\(\(\[k\]\) => isFinished\(k\)\)/.test(CODE), true);
   ok("...after the configured order has been applied, not instead of it",
-    /o\.indexOf\(a\[0\]\) - o\.indexOf\(b\[0\]\)[\s\S]{0,200}?k === "Finished"/.test(CODE), true);
+    /o\.indexOf\(a\[0\]\) - o\.indexOf\(b\[0\]\)[\s\S]{0,200}?isFinished\(k\)/.test(CODE), true);
   ok("the rows inside a group sink finished below live",
     /ordered = _sinkFinished\(/.test(CODE), true);
   ok("...through one helper, so every grouping gets it",

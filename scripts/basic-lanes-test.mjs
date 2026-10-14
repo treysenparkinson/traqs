@@ -215,7 +215,7 @@ console.log("\n#360 (web half). The DAY view lanes on Business too");
   // OWN walked segment, ignoring the shared cursor (the parity fixture holds web and iOS to the
   // same placement), so two of them overlap and one card hides the other. Week/month keep their
   // Basic-only gate above; this is the day view only.
-  const src = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   ok("the day view computes lanes on every tier", /const barLanes = \(\(\) => \{/.test(src), true);
   ok("...with no Business gate left on it", /const barLanes = billingTier === "business" \? null/.test(src), false);
 }

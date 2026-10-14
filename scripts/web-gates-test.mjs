@@ -77,7 +77,9 @@ check("Undo approval needs approveCompletions (as its button)", body("const admi
 
 console.log("\n2. Task writes — UI gates");
 check("Engineering buttons show for admin or engineer", SRC, { not: ["isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering("] });
-check("Status → Finished needs approveCompletions", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return'], not: ['if (s === "Finished" && !isAdmin) return;'] });
+// #504: the gate asks what MEANS finished (the org's list), not the spelling — a renamed
+// "Finished" is still gated.
+check("Status → Finished needs approveCompletions", SRC, { has: ['if (isFinished(s) && !can("approveCompletions")) return'], not: ['if (s === "Finished" && !isAdmin) return;', 'if (s === "Finished" && !can("approveCompletions"))'] });
 check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <button className={barSelectMode ? "rv-pill pri" : "rv-pill"}'],
   not: ['{isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'] });
 check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
@@ -127,7 +129,7 @@ check("Engineering sign-off / revert toast when refused", body("const signOffEng
 check("Chat Approve toasts when refused", body("const adminApproveJobFinish = async (jobId"), { has: ['denied("approve completions")'] });
 check("Chat Decline toasts when refused", body("const adminDeclineJobFinish = async (jobId"), { has: ['denied("decline completions")'] });
 check("Undo approval toasts when refused", body("const adminUndoJobFinish = async (jobId"), { has: ['denied("undo an approval")'] });
-check("Status → Finished toasts when refused", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return denied("mark work Finished");'] });
+check("Status → Finished toasts when refused", SRC, { has: ['if (isFinished(s) && !can("approveCompletions")) return denied("mark work Finished");'] });
 check("Approval-step menu toasts when refused", SRC, { has: ['if (!can("editJobs")) return denied("edit approval steps");'] });
 check("PTO drag / resize toast when refused", SRC, { has: ['if (isPto) denied(PERM_VERB.manageTeam);', 'if (!can(isPto ? "manageTeam" : "moveJobs")) return denied(isPto ? PERM_VERB.manageTeam : PERM_VERB.moveJobs);'] });
 check("Edit Job save toasts (not alert) when refused", body("const saveTask = (ed, parentId)"), { has: ["return denied(missing.map(k => PERM_VERB[k] || k).join(\" or \"));"], not: ["alert(`You don't have permission to save this change"] });

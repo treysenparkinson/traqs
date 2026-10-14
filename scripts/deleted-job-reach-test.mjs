@@ -64,7 +64,8 @@ console.log("\n3. THE PER-PERSON COUNT COMPARES IDS THE WAY THE REST OF THE FILE
   // half of the drift family (#340, #345). The sibling two lines up already
   // used `onTeam`; this one did not.
   ok("the unfinished-operation count uses onTeam",
-    /count: allOps\.filter\(op => onTeam\(op\.team, p\.id\) && op\.status !== "Finished"\)\.length/.test(CODE), true);
+    // #504: "unfinished" reads the org's list (isFinished), not the spelling.
+    /count: allOps\.filter\(op => onTeam\(op\.team, p\.id\) && !isFinished\(op\.status\)\)\.length/.test(CODE), true);
   // SCOPED TO THE LINE THIS ENTRY CHANGED, deliberately. A file-wide assertion
   // was written first and failed on two sites it had no business claiming:
   // `TRAQS.jsx:5837` and `:9560` are the same strict-compare family and are NOT

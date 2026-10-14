@@ -14,6 +14,7 @@ import { unitDepartments, personDeptMatch, personDepartments, normalizeDepartmen
 import { shopMs } from "./shopTime.js";
 import { leaveOn } from "./timeOff.js";
 import { copyForSplit } from "./copyRules.js";
+import { isFinished, isActive } from "./statusMeaning.js";   // web-only module: the page-level form (#504)
 
 const sid = (x) => String(x);
 const same = (a, b) => a != null && b != null && sid(a) === sid(b);
@@ -441,7 +442,7 @@ export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reason
     // so a predecessor the op had before the split it still has (#468).
     const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0,
       ...(go.title ? { title: go.title } : {}),
-      status: go.status || (orig.status === "Finished" ? "Not Started" : (orig.status === "In Progress" ? "Not Started" : orig.status || "Not Started")),
+      status: go.status || (isFinished(orig.status) ? "Not Started" : (isActive(orig.status) ? "Not Started" : orig.status || "Not Started")),
       start: go.to.start, end: go.to.end, startHour: go.to.startHour, endHour: go.to.endHour, team: go.to.team,
       moveLog: [goLog] };
     const subs = [...panel.subs];

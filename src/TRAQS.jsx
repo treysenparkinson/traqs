@@ -55,6 +55,7 @@ import { serializeRuns } from "./saveQueue.js";
 import { markDerived, stripDerived } from "./derived.js";
 import { jobSessions, crewHours, subJobNumber } from "./jobDetail.js";
 import { checkOptionNames } from "./statusText.js";
+import { withMeanings, setOrgStatuses, isFinished, isActive, FINISHED, ACTIVE } from "./statusMeaning.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -396,7 +397,7 @@ const deriveWorkedState = (t, produced = 0, live = 0) => {
     workedHoursShown: shown,
     isOverdueHours: hpd > 0 && shown > hpd,
     // ── completion is a decision, not a threshold ──
-    isFullyWorked: t?.status === "Finished",
+    isFullyWorked: isFinished(t?.status),
     displayLocked: false,   // op.locked retired (ruling 3)
   };
 };
@@ -6048,6 +6049,10 @@ Extraction rules:
   const setPriOpts = useCallback((v) => setOrgSettings(s => ({ ...s, priOpts: typeof v === "function" ? v(s.priOpts || []) : v })), []);
   // Dynamic shadows of the module defaults — every in-component usage resolves to these.
   const STATUSES = useMemo(() => statusOpts.map(o => o.name), [statusOpts]);
+  // #504. What "finished" and "in progress" MEAN is the org's list (its flags), read by the
+  // page-level isFinished/isActive/FINISHED/ACTIVE. Set during render so every reader below,
+  // module-scope helpers included, sees this org's list on this render.
+  useMemo(() => { setOrgStatuses(statusOpts); }, [statusOpts]);
   const PRIORITIES = useMemo(() => priOpts.map(o => o.name), [priOpts]);
   const STA_C = useMemo(() => ({ ...DEFAULT_STA_C, ...Object.fromEntries(statusOpts.map(o => [o.name, o.color])) }), [statusOpts]);
   const STA_ICON = useMemo(() => ({ ...DEFAULT_STA_ICON, ...Object.fromEntries(statusOpts.map(o => [o.name, o.icon || "○"])) }), [statusOpts]);
@@ -6281,7 +6286,7 @@ Extraction rules:
   const _opHoursPair = (op) => {
     // Unestimated (absent or 0) has no estimate — it is not 8.
     const est = (op.hpd || 0) > 0 ? op.hpd : 0;
-    if (op.status === "Finished") return { logged: est, est };
+    if (isFinished(op.status)) return { logged: est, est };
     // Logged = JOB-clock time recorded against THIS op — NOT payroll hours. The payroll clock
     // logs a whole session against every job selected at clock-in, which over-counts and isn't
     // job-specific; this is the precise time the worker logged into this exact op.
@@ -6303,7 +6308,7 @@ Extraction rules:
   // The old floors for In Progress (5%) and On Hold (2%) are gone — they were status
   // dictating progress, and they made an op with no hours against it look started.
   const _opPct = (op) => {
-    if (op.status === "Finished") return 100;
+    if (isFinished(op.status)) return 100;
     const { logged, est } = _opHoursPair(op);
     if (logged === 0 || !(est > 0)) return 0;
     return Math.round(logged / est * 100);
@@ -6330,7 +6335,7 @@ Extraction rules:
     // closed under budget still has to read 100%, not "8 of 20 hours".
     let logged = 0, est = 0;
     for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
-    return panel.status === "Finished" ? { logged: est, est } : { logged, est };
+    return isFinished(panel.status) ? { logged: est, est } : { logged, est };
   };
   const _jobHoursPair = (job) => {
     // Leaves, per panel: a panel with ops contributes its ops, a panel WITHOUT ops is
@@ -6340,18 +6345,18 @@ Extraction rules:
     if (!leaves.length) return { logged: 0, est: 0 };
     let logged = 0, est = 0;
     for (const it of leaves) { const h = _opHoursPair(it); logged += h.logged; est += h.est; }
-    return job.status === "Finished" ? { logged: est, est } : { logged, est };
+    return isFinished(job.status) ? { logged: est, est } : { logged, est };
   };
   // Worked/estimated pair for an item at whatever level it sits — the hours counterpart of
   // _pctForItem, and the same shape-sniffing rule.
   const _panelPct = (panel) => {
-    if (panel.status === "Finished") return 100;
+    if (isFinished(panel.status)) return 100;
     const { logged, est } = _panelHoursPair(panel);
     if (est === 0) return 0;
     return Math.round(logged / est * 100);
   };
   const _jobPct = (job) => {
-    if (job.status === "Finished") return 100;
+    if (isFinished(job.status)) return 100;
     const { logged, est } = _jobHoursPair(job);
     if (est === 0) return 0;
     return Math.round(logged / est * 100);
@@ -7013,7 +7018,7 @@ Extraction rules:
   }, [exportPreview, exportPast, exportFuture, exportLayout]);
   // Display-only status override for sub-ops: shows "Paused" when hours are logged but no one is clocked in
   const getOpDisplayStatus = (op) => {
-    if (op.status === "Finished") return "Finished";
+    if (isFinished(op.status)) return FINISHED();
     // Session rows count as logged time too — on the counter alone, an op whose
     // credit was lost to a concurrent tasks.json save read "Not Started" while its
     // own bar greyed in with hours against it.
@@ -7025,7 +7030,7 @@ Extraction rules:
         if (!jc?.clockIn) return false;
         return sameId(jc.opId ?? jc.panelId ?? jc.jobId, op.id);
       });
-      return isActivelyClocked ? "In Progress" : "Paused";
+      return isActivelyClocked ? ACTIVE() : "Paused";
     }
     return op.status;
   };
@@ -7040,12 +7045,12 @@ Extraction rules:
     // against it and someone clocked in right now.
     if (!ops.length) return getOpDisplayStatus(panel);
     const ds = ops.map(getOpDisplayStatus);
-    if (ds.every(s => s === "Finished")) return "Finished";
-    if (ds.some(s => s === "In Progress")) return "In Progress";
+    if (ds.every(s => isFinished(s))) return FINISHED();
+    if (ds.some(s => isActive(s))) return ACTIVE();
     if (ds.some(s => s === "Paused")) return "Paused";
     if (ds.some(s => s === "On Hold")) return "On Hold";
     if (ds.some(s => s === "Pending")) return "Pending";
-    if (ds.some(s => s && s !== "Not Started")) return "In Progress";
+    if (ds.some(s => s && s !== "Not Started")) return ACTIVE();
     return "Not Started";
   };
   const condFields = [
@@ -9640,7 +9645,7 @@ Extraction rules:
     if (fTimePeriod.length < 3) {
       // Jobs never auto-finish: only an explicit Finished status counts as finished.
       // A past-end unfinished job stays "current" (and shows as Overdue), never hidden.
-      const isFinished = t.status === "Finished";
+      const isFinished = isFinished(t.status);
       const isFuture = !isFinished && (t.start && t.start > TD);
       const isCurrent = !isFinished && !isFuture;
       if (isFinished && !fTimePeriod.includes('finished')) return false;
@@ -10265,7 +10270,7 @@ Extraction rules:
   // HELD or PAUSED badge appeared in one view and not the other for the same session. opId is
   // the right one: the badge is about the clock, and the clock is on opId.
   const liveBadgeFor = (jc, op) => {
-    if (!jc || !op || !sameId(jc.opId, op.id) || op.status === "Finished") return null;
+    if (!jc || !op || !sameId(jc.opId, op.id) || isFinished(op.status)) return null;
     return jc.frozenAtMs ? "held" : jc.pausedAt ? "paused" : null;
   };
   // The left edge of the op being worked, interpolated at render time.
@@ -10290,7 +10295,7 @@ Extraction rules:
   const shrunkStartH = (jc, op, storedSH) => {
     if (!jc || !op || !sameId(jc.reservoirOpId, op.id)) return storedSH;
     // Finished: the DONE bar shows the FULL original scope as a historical record.
-    if (op.status === "Finished") return storedSH;
+    if (isFinished(op.status)) return storedSH;
     if (!jc.drainCheckpoint) return storedSH;
     const effNow = jc.frozenAtMs || Date.now();
     const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), effNow);
@@ -10337,7 +10342,7 @@ Extraction rules:
   const persistShrink = (taskList, jc, nowMs, movedByName) => {
     if (!jc?.reservoirOpId || !jc.drainCheckpoint) return { tasks: taskList, changed: false };
     const op = findOp(taskList, jc.reservoirOpId);
-    if (!op || op.status === "Finished") return { tasks: taskList, changed: false };
+    if (!op || isFinished(op.status)) return { tasks: taskList, changed: false };
     const storedSH = op.startHour ?? workStartH;
     const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), jc.frozenAtMs || nowMs);
     if (!(worked > 0)) return { tasks: taskList, changed: false };
@@ -10415,7 +10420,7 @@ Extraction rules:
     // unconditionally would stamp actualHours: 0 onto every approved panel -- a field that
     // path has never set.
     const base = {
-      status: "Finished", pendingFinish: false, pendingSession: undefined,
+      status: FINISHED(), pendingFinish: false, pendingSession: undefined,
       // WHEN it was finished. Approve previously flipped the status and recorded no instant
       // at all, so a DONE bar had nothing to sit against and kept its PLANNED dates -- which
       // is how an op finished today can paint itself across next week and break §1's rule
@@ -10551,7 +10556,7 @@ Extraction rules:
     const horizon = addBD(clockInDS, 14);
     const snap = [];
     taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
-      if (op.status === "Finished") return;
+      if (isFinished(op.status)) return;
       if (!onTeam(op.team, personId)) return;   // onTeam: a numeric team entry never matches a String() needle
       if (!op.start || op.start > horizon) return;
       snap.push({ opId: op.id, start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null });
@@ -10726,7 +10731,7 @@ Extraction rules:
     const _by = loggedInUser?.name || "Admin";
     // Engineering block: if setting a Wire/Cut/Layout op to In Progress or Finished,
     // check that the parent panel's engineering sign-off is complete.
-    if (pid && upd.status && ["In Progress", "Finished"].includes(upd.status)) {
+    if (pid && upd.status && (isActive(upd.status) || isFinished(upd.status))) {
       for (const job of tasks) {
         const panel = (job.subs || []).find(s => s.id === pid);
         if (panel) {
@@ -11253,7 +11258,7 @@ Extraction rules:
   const buildAskSysPrompt = () => {
     const todayStr = TD;
     const peopleCtx = people.map(p => {
-      const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
+      const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && !isFinished(t.status) && t.end >= todayStr);
       const todayH = bookedHrs(p.id, todayStr);
       const _backupStr = p.secondaryDepartment ? `, backup: ${p.secondaryDepartment}` : "";
       return `${p.name} [person_id:${p.id}] (${p.department || "—"}${_backupStr}, ${capacityOf(p, productiveHoursPerDay)}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
@@ -12011,7 +12016,7 @@ ${jobsCtx || "No jobs found."}`;
     const now = new Date().toISOString();
     const jobLevel = !panelId && !opId;   // iOS / whole-job completion request
     // Mark an item and ALL descendants Finished (used for whole-job completion).
-    const finishTree = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finishTree) });
+    const finishTree = (item) => ({ ...item, status: FINISHED(), subs: (item.subs || []).map(finishTree) });
     // #476. The upsert that used to live here — "a request that never had a
     // finishRequests[] row matched nothing, so approving it recorded who approved
     // it NOWHERE" — is now inside `resolveRequest`, which both approval surfaces
@@ -12128,7 +12133,7 @@ ${jobsCtx || "No jobs found."}`;
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const jobLevel = !panelId && !opId;
-    const reopen = (item) => ({ ...item, status: item.status === "Finished" ? "In Progress" : item.status, subs: (item.subs || []).map(reopen) });
+    const reopen = (item) => ({ ...item, status: isFinished(item.status) ? ACTIVE() : item.status, subs: (item.subs || []).map(reopen) });
     const pendReq = (reqs, item) => {
       const reqs2 = (reqs || []).map(r => !sameId(r.id, requestId) ? r : { id: r.id, by: r.by, byName: r.byName, at: r.at, status: "pending" });
       const e = reqs2.find(r => r.id === requestId);
@@ -12164,7 +12169,7 @@ ${jobsCtx || "No jobs found."}`;
       const target = opId ? (panel.subs || []).find(s => sameId(s.id, opId)) : panel;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
-        if (sameId(item.id, targetId)) return { ...item, status: item.status === "Finished" ? "In Progress" : item.status, ...pendReq(item.finishRequests, item) };
+        if (sameId(item.id, targetId)) return { ...item, status: isFinished(item.status) ? ACTIVE() : item.status, ...pendReq(item.finishRequests, item) };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
       });
@@ -12233,7 +12238,7 @@ ${jobsCtx || "No jobs found."}`;
     // Cascade DOWN only. getOpDisplayStatus already derives a parent's status from its
     // children, so writing the parent here too would put a second competing source of
     // truth on the record.
-    const finish = (node) => ({ ...node, status: "Finished", subs: (node.subs || []).map(finish) });
+    const finish = (node) => ({ ...node, status: FINISHED(), subs: (node.subs || []).map(finish) });
     const applyAt = (items) => items.map(node => {
       if (sameId(node.id, it.id)) return finish(node);
       if (node.subs?.length) return { ...node, subs: applyAt(node.subs) };
@@ -13016,8 +13021,8 @@ ${jobsCtx || "No jobs found."}`;
     const idSet = new Set(fPers.map(String));
     return (t => trimTaskToPeople(t, idSet));
   }, [fPers, trimTaskToPeople]);
-  const finishedTasks = showCompleted ? sortTasks(filtered.filter(t => t.status === "Finished" && jobSearchMatch(t))).map(_persTrim) : [];
-  const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t))).map(_persTrim);
+  const finishedTasks = showCompleted ? sortTasks(filtered.filter(t => isFinished(t.status) && jobSearchMatch(t))).map(_persTrim) : [];
+  const activeTasks = sortTasks(filtered.filter(t => !isFinished(t.status) && jobSearchMatch(t))).map(_persTrim);
 
   // Pending finish requests (admin-only)
   // #176. This read the singular pointer at JOB level only — a fourth reader with a fifth
@@ -13472,7 +13477,7 @@ ${jobsCtx || "No jobs found."}`;
     // Archive have nothing behind them, so they are not drawn. Finished is read
     // here whatever showCompleted says (that toggle belongs to the Schedule).
     const hasAnyTeam = (n) => (n.team || []).some(id => id != null) || (n.subs || []).some(hasAnyTeam);
-    const finishedAll = sortTasks(filtered.filter(t => t.status === "Finished" && jobSearchMatch(t))).map(_persTrim);
+    const finishedAll = sortTasks(filtered.filter(t => isFinished(t.status) && jobSearchMatch(t))).map(_persTrim);
     const JOB_VIEWS = [
       { id: "open", label: "All open", list: activeTasks },
       { id: "mine", label: "Mine", list: loggedInUser ? activeTasks.filter(t => personOnTask(loggedInUser.id, t)) : [] },
@@ -14192,7 +14197,7 @@ ${jobsCtx || "No jobs found."}`;
             // Revamp: one line — a thin bar, then the figure. The ops count rides
             // the tooltip, and the bar keeps the ramp colour (amber past 100%).
             case "progress": return (
-              <div style={{ ...cellBase, gap: 8 }} title={level === 0 ? `${(item.subs || []).flatMap(p => p.subs || []).filter(o => o.status === "Finished").length}/${(item.subs || []).flatMap(p => p.subs || []).length} ops finished` : level === 1 ? `${(item.subs || []).filter(o => o.status === "Finished").length}/${(item.subs || []).length} finished` : undefined}>
+              <div style={{ ...cellBase, gap: 8 }} title={level === 0 ? `${(item.subs || []).flatMap(p => p.subs || []).filter(o => isFinished(o.status)).length}/${(item.subs || []).flatMap(p => p.subs || []).length} ops finished` : level === 1 ? `${(item.subs || []).filter(o => isFinished(o.status)).length}/${(item.subs || []).length} finished` : undefined}>
                 {rvBar(pctBarWidth(pct), pc, 6)}
                 <small className="rv-num rv-mute" style={{ fontSize: 10.5, width: 34, textAlign: "right", flexShrink: 0 }}>{pct}%</small>
               </div>
@@ -14642,8 +14647,8 @@ ${jobsCtx || "No jobs found."}`;
             // inside each half, and splitting says that outright instead of
             // relying on it.
             const _sinkFinished = (list) => [
-              ...list.filter(t => t.status !== "Finished"),
-              ...list.filter(t => t.status === "Finished"),
+              ...list.filter(t => !isFinished(t.status)),
+              ...list.filter(t => isFinished(t.status)),
             ];
             const ordered = _sinkFinished(taskOrder.length
               ? taskOrder.map(id => viewList.find(t => t.id === id)).filter(Boolean).concat(viewList.filter(t => !taskOrder.includes(t.id)))
@@ -14684,7 +14689,7 @@ ${jobsCtx || "No jobs found."}`;
                 // in a list it put the done pile 5th of 17 at Matrix, above Late,
                 // On Hold, Crated and Shipped. Only Finished moves — the statuses
                 // sitting after it in the configured order are still live work.
-                rest.splice(0, rest.length, ...rest.filter(([k]) => k !== "Finished"), ...rest.filter(([k]) => k === "Finished"));
+                rest.splice(0, rest.length, ...rest.filter(([k]) => !isFinished(k)), ...rest.filter(([k]) => isFinished(k)));
               }
               else if (colKey === "pri") { const o = ["High", "Medium", "Low"]; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
               else if (colKey === "jobNum" || colKey === "hrs") { rest.sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0)); }
@@ -14742,7 +14747,7 @@ ${jobsCtx || "No jobs found."}`;
                       {sec.header}
                       <em className="rv-num">{sec.jobs.length}</em>
                     </div>
-                    {!collapsed && sec.jobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: job.status === "Finished" ? "#10b981" : "#94a3b8", isFinished: job.status === "Finished", alwaysExpand: false, groupPrefix: sec.groupPrefix }))}
+                    {!collapsed && sec.jobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: isFinished(job.status) ? "#10b981" : "#94a3b8", isFinished: isFinished(job.status), alwaysExpand: false, groupPrefix: sec.groupPrefix }))}
                   </Fragment>;
                 })}
               </div>
@@ -14785,14 +14790,14 @@ ${jobsCtx || "No jobs found."}`;
     // first; the clients with no jobs collapse into one row under the grid.
     const jobsOf = (c) => tasks.filter(t => t.clientId === c.id);
     const withJobs = filteredClients.filter(c => jobsOf(c).length > 0)
-      .sort((a, b) => jobsOf(b).filter(t => t.status !== "Finished").length - jobsOf(a).filter(t => t.status !== "Finished").length || jobsOf(b).length - jobsOf(a).length || a.name.localeCompare(b.name));
+      .sort((a, b) => jobsOf(b).filter(t => !isFinished(t.status)).length - jobsOf(a).filter(t => !isFinished(t.status)).length || jobsOf(b).length - jobsOf(a).length || a.name.localeCompare(b.name));
     const noJobs = filteredClients.filter(c => jobsOf(c).length === 0);
-    const activeClients = clients.filter(c => jobsOf(c).some(t => t.status !== "Finished")).length;
+    const activeClients = clients.filter(c => jobsOf(c).some(t => !isFinished(t.status))).length;
     const toggleBulk = (id) => setSelClients(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
     const tile = (c) => {
       const ct = jobsOf(c);
-      const active = ct.filter(t => t.status !== "Finished");
+      const active = ct.filter(t => !isFinished(t.status));
       const done = ct.length - active.length;
       const isSel = selClient === c.id;
       const isBulkSel = selClients.has(c.id);
@@ -14893,8 +14898,8 @@ ${jobsCtx || "No jobs found."}`;
       return <FadeOnClose open={false} duration={220}>{null}</FadeOnClose>;
     }
     const selTasks = sel ? tasks.filter(t => t.clientId === sel.id) : [];
-    const completed = selTasks.filter(t => t.status === "Finished").length;
-    const inProg = selTasks.filter(t => t.status === "In Progress").length;
+    const completed = selTasks.filter(t => isFinished(t.status)).length;
+    const inProg = selTasks.filter(t => isActive(t.status)).length;
     // hpd is each unit's total estimate; it is not multiplied by its days.
     const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0), 0);
     // Desktop renders the profile as a page in the content panel, same as the job
@@ -14961,11 +14966,11 @@ ${jobsCtx || "No jobs found."}`;
           </div>
 
           {(() => {
-            const activeJobs = selTasks.filter(t => t.status !== "Finished");
-            const completedJobs = selTasks.filter(t => t.status === "Finished");
+            const activeJobs = selTasks.filter(t => !isFinished(t.status));
+            const completedJobs = selTasks.filter(t => isFinished(t.status));
             const renderJobCard = (t) => {
               const dur = diffD(t.start, t.end) + 1;
-              const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
+              const pct = isFinished(t.status) ? 100 : isActive(t.status) ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
               return <div key={t.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${elColor(t.color)}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
@@ -15324,7 +15329,7 @@ ${jobsCtx || "No jobs found."}`;
     const offNow = team.filter(p => !isOn(p));
 
     // ── Jobs ─────────────────────────────────────────────────────────────────
-    const activeJobs = tasks.filter(t => t.status !== "Finished");
+    const activeJobs = tasks.filter(t => !isFinished(t.status));
     const dueSoon = activeJobs
       .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
       .sort((a, b) => String(a.end).localeCompare(String(b.end)));
@@ -15762,7 +15767,7 @@ ${jobsCtx || "No jobs found."}`;
               // showCompleted), rather than disappearing the instant the op is signed off.
               // The bar still carries `status`, so a muted/Finished treatment can key off
               // that later without another pass through this walk.
-              if (!showCompleted && op.status === "Finished") return;
+              if (!showCompleted && isFinished(op.status)) return;
               // Undated work is NOT on the timeline any more. It used to be pinned to
               // today ("real work you can log against but can't be placed on the
               // timeline — pin it so it still shows instead of vanishing"), which put a
@@ -15816,7 +15821,7 @@ ${jobsCtx || "No jobs found."}`;
             // exception: somebody clocked into it keeps it visible.
             const _pnIsHistory = !!(panel.end && panel.end < _today);
             const _pnIsLive = isLiveOpId(panel.id);
-            if (onPanelTeam && !(_pnIsHistory && !_pnIsLive) && !hasLiveChildren(panel) && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
+            if (onPanelTeam && !(_pnIsHistory && !_pnIsLive) && !hasLiveChildren(panel) && (showCompleted || !isFinished(panel.status)) && isTimelinePlaced(panel)) {
               const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
                 const pStart = panel.start;
@@ -15831,7 +15836,7 @@ ${jobsCtx || "No jobs found."}`;
           // General task: flat subtasks assigned directly to people
           (job.subs || []).forEach(sub => {
             if (!onTeam(sub.team, pid)) return;
-            if (!showCompleted && sub.status === "Finished") return;
+            if (!showCompleted && isFinished(sub.status)) return;
             // Same rule as the panel-job branch above — undated goes to the board.
             if (!isTimelinePlaced(sub)) return;
             // Same rule again for a general job's flat subtasks.
@@ -15925,7 +15930,7 @@ ${jobsCtx || "No jobs found."}`;
         // On the team means the op already has a bar on this row from the walk above, drawn at
         // its planned window -- which is the right bar. Only genuinely off-team work is added.
         if (!xFound || onTeam(xFound.op.team, pid)) continue;
-        if (!showCompleted && xFound.op.status === "Finished") continue;
+        if (!showCompleted && isFinished(xFound.op.status)) continue;
         const xS = xSpans[0][0], xE = xSpans[xSpans.length - 1][1];
         const xStartDS = shopDay(xS), xEndDS = shopDay(xE);
         if (xEndDS < _winS || xStartDS > _winE) continue;
@@ -16469,7 +16474,7 @@ ${jobsCtx || "No jobs found."}`;
                         // than a faded ELEMENT, same as week/month (#95/#96): the title used to contrast
                         // bar.color while sitting on spent grey, which measured 2.22:1 at its worst
                         // across the live palette.
-                        const _dayFill = bar.task?.status === "Finished" ? doneBarFill(T, bar.color, _schedSurf) : bar.color;
+                        const _dayFill = isFinished(bar.task?.status) ? doneBarFill(T, bar.color, _schedSurf) : bar.color;
                         const _dayInk = barInk([_dayFill]);
                         return <div key={bar.id} data-bar-dim="1" data-pid={bar.task?.pid ?? undefined}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE, { isRecord: !!bar.crossRow }); } }}
@@ -16482,7 +16487,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
                           </div>}
                           {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
-                          {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6}}>DONE</span>}
+                          {isFinished(bar.task?.status) && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6}}>DONE</span>}
                           <span style={{fontSize:10,color:_dayInk,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
                           {can("moveJobs") && isLastSeg && !bar.crossRow && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id,rawS,rawE);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
@@ -16951,7 +16956,7 @@ ${jobsCtx || "No jobs found."}`;
                   // already behind the cursor; a legacy op with no stamp clamps to the cursor.
                   // Visual only — the stored dates are not rewritten, because a bar being drawn
                   // truthfully and a record being edited are different things.
-                  const _doneEndMs = bar.task?.status === "Finished" ? (() => {
+                  const _doneEndMs = isFinished(bar.task?.status) ? (() => {
                     const stamped = Date.parse(bar.task.finishedAt);
                     return Math.min(Date.now(), Number.isFinite(stamped) ? stamped : Date.now());
                   })() : null;
@@ -18090,7 +18095,7 @@ ${jobsCtx || "No jobs found."}`;
                   // via updateJobSession, which is a server change and not this pass.
                   const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: liveJobCfg }).unclosed);
                   const _barState = isPto ? "pto"
-                    : bar.task?.status === "Finished" ? "done"
+                    : isFinished(bar.task?.status) ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
                     : _liveClocks.some(jc => jc.pausedAt) ? "paused"
                     : isLive ? "running"
@@ -18114,7 +18119,7 @@ ${jobsCtx || "No jobs found."}`;
                   // THE ALERT CHANNEL: one mark at the right edge, three meanings, highest first.
                   // They are one question -- has this run past its end -- and they share the only
                   // edge the bar has left. See alertCap for why it is two-tone.
-                  const _pastDue = !isPto && !!bar.dueDate && bar.task?.status !== "Finished" && bar.end > bar.dueDate;
+                  const _pastDue = !isPto && !!bar.dueDate && !isFinished(bar.task?.status) && bar.end > bar.dueDate;
                   const _alert = isPto ? null
                     : _barUnclosed ? "unclosed"
                     : (_overrunPerPerson > 0 ? "overrun"
@@ -18439,7 +18444,7 @@ ${jobsCtx || "No jobs found."}`;
     // â”€â”€ KPI strip math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const periodEntries = timeclock.filter(e => e.date >= periodStart && e.date <= periodEnd && !e.eventType);
     const hoursLogged = Math.round(periodEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
-    const activeJobs = tasks.filter(t => t.status !== "Finished" && t.start <= periodEnd && t.end >= periodStart);
+    const activeJobs = tasks.filter(t => !isFinished(t.status) && t.start <= periodEnd && t.end >= periodStart);
     const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
     // WORK THAT HAS NOT STARTED IS NOT A SUCCESS (#440). Both halves of this
     // counted it as one: `notyet` units sat in the denominator AND, being
@@ -18693,8 +18698,8 @@ ${jobsCtx || "No jobs found."}`;
       // onTeam/sameId, not .includes(): raw includes() misses every op whose team
       // stores ids as strings when personId is a number (or the reverse).
       const myOps = allOps.filter(op => onTeam(op.team, personId));
-      const myDone = myOps.filter(op => op.status === "Finished").length;
-      const myActive = myOps.filter(op => op.status === "In Progress").length;
+      const myDone = myOps.filter(op => isFinished(op.status)).length;
+      const myActive = myOps.filter(op => isActive(op.status)).length;
       const myTotal = myOps.length;
       const myCompletion = myTotal ? Math.round(myDone / myTotal * 100) : 0;
       const myStatusCounts = STATUSES.map(s => ({ n: s, c: myOps.filter(op => op.status === s).length })).filter(x => x.c > 0);
@@ -18740,9 +18745,9 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── Admin: job & operation aggregates (team overview) ──
     const totalJobs = tasks.length;
-    const finishedJobs = tasks.filter(t => t.status === "Finished").length;
+    const finishedJobs = tasks.filter(t => isFinished(t.status)).length;
     const completionPct = totalJobs ? Math.round(finishedJobs / totalJobs * 100) : 0;
-    const inProgressJobs = tasks.filter(t => t.status === "In Progress").length;
+    const inProgressJobs = tasks.filter(t => isActive(t.status)).length;
     const jobStatusCounts = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })).filter(x => x.c > 0);
     const jobPriorityCounts = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })).filter(x => x.c > 0);
     const teamWorkload = people
@@ -18751,7 +18756,7 @@ ${jobsCtx || "No jobs found."}`;
       // history, so a strict compare drops a member stored as 7 when asked for
       // "7": the silent half of the drift family (#340, #345). `myOps` two
       // blocks up already did this correctly; this line never did.
-      .map(p => ({ name: p.name.split(" ")[0], count: allOps.filter(op => onTeam(op.team, p.id) && op.status !== "Finished").length }))
+      .map(p => ({ name: p.name.split(" ")[0], count: allOps.filter(op => onTeam(op.team, p.id) && !isFinished(op.status)).length }))
       .filter(x => x.count > 0)
       .sort((a, b) => b.count - a.count);
     const avgOpsPerPerson = teamWorkload.length ? teamWorkload.reduce((s, t) => s + t.count, 0) / teamWorkload.length : 0;
@@ -18921,7 +18926,7 @@ ${jobsCtx || "No jobs found."}`;
     const myParents = tasks.filter(t => (t.team || []).includes(currentUser));
     const todayTasks = myParents.filter(t => TD >= t.start && TD <= t.end);
     const upcoming = myParents.filter(t => t.start > TD).sort((a, b) => a.start.localeCompare(b.start));
-    const overdue = myParents.filter(t => t.end < TD && t.status !== "Finished");
+    const overdue = myParents.filter(t => t.end < TD && !isFinished(t.status));
 
     const renderTaskCard = (t, opts = {}) => {
       const cl = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
@@ -19437,7 +19442,7 @@ ${jobsCtx || "No jobs found."}`;
     // working-time figure as efficiency, and is capped: overtime is reported by the
     // Overtime tile rather than by pushing this past full.
     const utilization = capacity > 0 ? Math.min(100, Math.round((perf.working / capacity) * 100)) : null;
-    const doneOps = myOps.filter(m => m.op.status === "Finished" && m.op.end >= pStart && m.op.end <= pEnd);
+    const doneOps = myOps.filter(m => isFinished(m.op.status) && m.op.end >= pStart && m.op.end <= pEnd);
     const dueOps = myOps.filter(m => m.op.end >= pStart && m.op.end <= pEnd);
     // Same exclusion as the dashboard tile (#440), and it matters more here:
     // this number is shown to an individual against their own name, so counting
@@ -19460,7 +19465,7 @@ ${jobsCtx || "No jobs found."}`;
     // productive hours into wall-clock hours (same conversion the Gantt uses).
     const blocksFor = (ds) => {
       const sized = myOps
-        .filter(m => m.op.status !== "Finished")
+        .filter(m => !isFinished(m.op.status))
         .filter(m => {
           // Undated work is real and loggable but cannot be placed on the timeline. The
           // Schedule page pins it to today rather than letting it vanish, so match that
@@ -19541,7 +19546,7 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── Assigned queue / time history / attendance ───────────────────────────
     const queue = myOps
-      .filter(m => m.op.status !== "Finished" && !(jc && sameId(m.op.id, jcTargetId)))
+      .filter(m => !isFinished(m.op.status) && !(jc && sameId(m.op.id, jcTargetId)))
       // No cap — the card scrolls, so truncating would just hide real backlog.
       .sort((a, b) => String(a.op.end).localeCompare(String(b.op.end)));
     // Time history runs on the PAY PERIOD, independent of the Performance card's
@@ -20159,7 +20164,7 @@ ${jobsCtx || "No jobs found."}`;
           const myOps = tasks.flatMap(job =>
             (job.subs || []).flatMap(panel =>
               (panel.subs || [])
-                .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
+                .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && !isFinished(op.status))
                 .map(op => ({ job, panel, op }))
             )
           );
@@ -20222,13 +20227,13 @@ ${jobsCtx || "No jobs found."}`;
                     if (job.id !== firstRef.jobId) return job;
                     return {
                       ...job,
-                      status: job.status === "Finished" ? job.status : "In Progress",
+                      status: isFinished(job.status) ? job.status : ACTIVE(),
                       subs: (job.subs || []).map(panel => {
                         const hasActiveOp = (panel.subs || []).some(op => op.id === firstRef.opId);
                         return {
                           ...panel,
-                          status: hasActiveOp ? "In Progress" : panel.status,
-                          subs: (panel.subs || []).map(op => op.id === firstRef.opId ? { ...op, status: "In Progress" } : op),
+                          status: hasActiveOp ? ACTIVE() : panel.status,
+                          subs: (panel.subs || []).map(op => op.id === firstRef.opId ? { ...op, status: ACTIVE() } : op),
                         };
                       }),
                     };
@@ -20290,7 +20295,7 @@ ${jobsCtx || "No jobs found."}`;
     const myTodayOps = tasks.flatMap(job =>
       (job.subs || []).flatMap(panel =>
         (panel.subs || [])
-          .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
+          .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && !isFinished(op.status))
           .map(op => ({ job, panel, op }))
       )
     );
@@ -21291,15 +21296,15 @@ ${jobsCtx || "No jobs found."}`;
               if (job.id !== jobId) return job;
               return {
                 ...job,
-                status: job.status === "In Progress" ? job.status : "In Progress",
+                status: isActive(job.status) ? job.status : ACTIVE(),
                 subs: (job.subs || []).map(panel => {
                   const hasActiveOp = (panel.subs || []).some(op => op.id === opId);
                   return {
                     ...panel,
-                    status: hasActiveOp ? "In Progress" : panel.status,
+                    status: hasActiveOp ? ACTIVE() : panel.status,
                     subs: (panel.subs || []).map(op => {
                       if (op.id !== opId) return op;
-                      return { ...op, status: "In Progress" };
+                      return { ...op, status: ACTIVE() };
                     }),
                   };
                 }),
@@ -21393,7 +21398,7 @@ ${jobsCtx || "No jobs found."}`;
       const allEntries = tasks.reduce((acc, job) => {
         (job.subs || []).forEach(panel => {
           (panel.subs || [])
-            .filter(op => op.status !== "Finished")
+            .filter(op => !isFinished(op.status))
             .forEach(op => acc.push({ job, panel, op }));
         });
         return acc;
@@ -22814,8 +22819,8 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     const renderMobileTasks = () => {
-      const active = filtered.filter(t => t.status !== "Finished");
-      const finished = filtered.filter(t => t.status === "Finished");
+      const active = filtered.filter(t => !isFinished(t.status));
+      const finished = filtered.filter(t => isFinished(t.status));
       const mobileEngOpen = mobileExp["eng_queue"];
       return <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
         {/* Sign-Off Template Queues (mobile) */}
@@ -22909,7 +22914,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>}
       {clients.map(c => {
         const cTasks = tasks.filter(t => t.clientId === c.id);
-        const active = cTasks.filter(t => t.status !== "Finished").length;
+        const active = cTasks.filter(t => !isFinished(t.status)).length;
         const isExp = mobileExp["c_" + c.id];
         return <div key={c.id} style={{ marginBottom: 6 }}>
           <div onClick={() => setMobileExp(p => ({ ...p, ["c_" + c.id]: !p["c_" + c.id] }))} style={{ display: "flex", gap: 12, padding: "13px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
@@ -28512,7 +28517,7 @@ ${jobsCtx || "No jobs found."}`;
           const addBtn = (onClick) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}66`, background: T.systemBg || T.surface, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
           const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 2 };
           const draftKey = isStd ? cid : col.id;
-          const source = isStd ? (cid === "status" ? statusOpts : priOpts) : toOptObjs(col.options || []);
+          const source = isStd ? (cid === "status" ? withMeanings(statusOpts) : priOpts) : toOptObjs(col.options || []);
           const draft = (optDraft && optDraft.key === draftKey) ? optDraft.list : source;
           const setDraft = next => setOptDraft(prev => { const cur = (prev && prev.key === draftKey) ? prev.list : source; return { key: draftKey, list: typeof next === "function" ? next(cur) : next }; });
           const dirty = JSON.stringify(draft) !== JSON.stringify(source);
@@ -28688,7 +28693,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div key={s} onClick={() => {
               if (isCurrent) return;
-              if (s === "Finished" && !can("approveCompletions")) return denied("mark work Finished"); // an approval; others use right-click > Request Finish Approval
+              if (isFinished(s) && !can("approveCompletions")) return denied("mark work Finished"); // an approval; others use right-click > Request Finish Approval
               setDropFlashKey(fk);
               setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
             }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : undefined, background: isCurrent ? sc + "12" : "transparent" }}
@@ -30803,7 +30808,7 @@ ${jobsCtx || "No jobs found."}`;
           instead. Folds in what the separate pencil "Edit" button did on Basic. */}
       {can("editJobs") && (billingTier === "business" ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setRunReport(null); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).flatMap(p => selectableOpIdsOf(p))); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} /> : <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" sub="Change name, team, day or time" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; openSimpleEditForJob(job); setCtxMenu(null); }} animIdx={ci()} />)}
       {/* Split Job */}
-      {!fromJobsList && can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
+      {!fromJobsList && can("editJobs") && isOp && (it.hpd || 0) > 1 && !isFinished(it.status) && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {can("editJobs") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
       {billingTier === "business" && liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
@@ -30814,7 +30819,7 @@ ${jobsCtx || "No jobs found."}`;
           No liveChildCount guard, unlike Request Completion: completing a job or panel
           cascades Finished to everything under it, so it is useful precisely at the levels
           a request cannot be raised from. */}
-      {billingTier === "business" && canQuickComplete && it.status !== "Finished" && <CtxMenuItem
+      {billingTier === "business" && canQuickComplete && !isFinished(it.status) && <CtxMenuItem
         icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>}
         label="Complete Now"
         sub={(it.subs || []).length ? "Admin: marks this and everything under it complete, no approval" : "Admin: marks complete without an approval request"}
@@ -32385,7 +32390,7 @@ ${jobsCtx || "No jobs found."}`;
 function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTask, style: fadeStyle }) {
   const [aS, setAS] = useState(TD); const [aE, setAE] = useState(addD(TD, 5)); const [aH, setAH] = useState(4);
   const [selectedPerson, setSelectedPerson] = useState(null);
-  const results = useMemo(() => people.filter(p => p.userRole !== "admin").map(p => { let tf = 0; const days = []; let c = aS; while (c <= aE) { const b = bookedHrs(p.id, c); const f = Math.max(0, p.cap - b); tf += f; days.push({ d: c, b, f }); c = addD(c, 1); } const avg = days.length ? tf / days.length : 0; const cur = allItems.filter(i => (i.team || []).includes(p.id) && i.end >= aS && i.start <= aE && i.status !== "Finished"); return { p, tf, avg, days, cur, ok: avg >= aH }; }).sort((a, b) => b.tf - a.tf), [aS, aE, aH, people, bookedHrs, allItems]);
+  const results = useMemo(() => people.filter(p => p.userRole !== "admin").map(p => { let tf = 0; const days = []; let c = aS; while (c <= aE) { const b = bookedHrs(p.id, c); const f = Math.max(0, p.cap - b); tf += f; days.push({ d: c, b, f }); c = addD(c, 1); } const avg = days.length ? tf / days.length : 0; const cur = allItems.filter(i => (i.team || []).includes(p.id) && i.end >= aS && i.start <= aE && !isFinished(i.status)); return { p, tf, avg, days, cur, ok: avg >= aH }; }).sort((a, b) => b.tf - a.tf), [aS, aE, aH, people, bookedHrs, allItems]);
   const available = results.filter(r => r.ok);
   const busy = results.filter(r => !r.ok);
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto", ...fadeStyle }}>

@@ -33,6 +33,10 @@ import { opDaySegments, personShareHours, capacityOf, buildDayWindows, walkProdu
 import { workCalendar } from "./scheduleRules.js";
 import { withOrgDefaults } from "./orgDefaults.js";
 import { leaveOn } from "./timeOff.js";
+// #504. Shared with the server: the org's list rides on ctx.statuses (overlapContext puts it
+// there from settings). With none passed, the page-level form — "by name" on the server,
+// which never sets it.
+import { isFinishedStatus, isFinished } from "./statusMeaning.js";
 
 const EPS = 1e-6;
 const nextDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
@@ -89,7 +93,7 @@ export function overlapContext(settings = {}, today = null) {
   const cfg = buildDayWindows(ph(o.workStart), ph(o.workEnd), o.breaks, o.lunch);
   const productiveHoursPerDay = Math.max(1, (cfg.workEndH - cfg.workStartH) - cfg.deadH);
   const cal = workCalendar(o);
-  return { cfg, productiveHoursPerDay, isWorkDay: cal.isWorkDay, today };
+  return { cfg, productiveHoursPerDay, isWorkDay: cal.isWorkDay, today, statuses: Array.isArray(settings?.statusOpts) ? settings.statusOpts : undefined };
 }
 
 /** The unit's blocks per day (for one assignee), from today on when `ctx.today` is set. */
@@ -111,7 +115,7 @@ export function blocksOverlap(a, b) {
 
 /** Whether a unit takes part in overlap at all. */
 export function takesPart(unit, ctx) {
-  if (!unit || !unit.start || unit.deletedAt || unit.status === "Finished") return false;
+  if (!unit || !unit.start || unit.deletedAt || (ctx?.statuses !== undefined ? isFinishedStatus(unit.status, ctx.statuses) : isFinished(unit.status))) return false;
   return !ctx.today || (unit.end || unit.start) >= ctx.today;
 }
 

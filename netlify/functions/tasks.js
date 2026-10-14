@@ -87,6 +87,11 @@ export async function handler(event) {
         try { rulePeople = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { rulePeople = []; }
         try { ruleSettings = await readJson(`orgs/${orgCode}/settings.json`); } catch { ruleSettings = null; }
       }
+      // #504. The permission check below needs the org's status list whatever the rule modes
+      // are: what MEANS finished needs approveCompletions to set, whatever it is called.
+      if (ruleSettings === null) {
+        try { ruleSettings = await readJson(`orgs/${orgCode}/settings.json`); } catch { ruleSettings = null; }
+      }
       const force = event.queryStringParameters?.force === "1";
 
       // Everything that depends on what is stored runs inside updateJson: it reads
@@ -209,7 +214,7 @@ export async function handler(event) {
         // for an unrelated gate — see the note there — but nothing on this endpoint
         // reads it any more, and this decision is no longer conditional on anything.
         const me = member.personId != null ? String(member.personId) : null;
-        const actionCls = classifyTaskActions(incoming, prev);
+        const actionCls = classifyTaskActions(incoming, prev, { statuses: Array.isArray(ruleSettings?.statusOpts) ? ruleSettings.statusOpts : undefined });
         const actionErr = actionCls.changed ? permissionError(actionCls, member, me) : null;
         const decision = actionErr;
         if (decision) return { abort: err(decision.status, decision.message) };

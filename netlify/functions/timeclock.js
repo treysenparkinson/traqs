@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { isFinishedStatus, isActiveStatus, activeStatusName } from "../../src/statusMeaning.js";
 import { can, canClockIn, personCan, permDenied } from "./_utils/can.js";
 import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
@@ -306,14 +307,14 @@ function findNode(tasks, id) {
   return null;
 }
 
-function applyShrinkStartHour(tasks, { opId, proposed, workStartH, workEndH, logBase }) {
+function applyShrinkStartHour(tasks, { opId, proposed, workStartH, workEndH, logBase, statuses }) {
   if (opId == null || typeof proposed !== "number" || !Number.isFinite(proposed)) return tasks;
   return (tasks || []).map(job => ({
     ...job,
     subs: (job?.subs || []).map(panel => ({
       ...panel,
       subs: (panel?.subs || []).map(op => {
-        if (!op || String(op.id) !== String(opId) || op.status === "Finished") return op;
+        if (!op || String(op.id) !== String(opId) || isFinishedStatus(op.status, statuses)) return op;
         const storedSH = op.startHour ?? workStartH;
         const plannedEnd = op.endHour ?? workEndH;
         if (!(proposed > storedSH) || !(proposed <= plannedEnd - SHRINK_MIN_REMAINDER_H)) return op;
@@ -543,7 +544,7 @@ function addBusinessDays(ds, n) {
 // (op.team || []).includes(String(personId)) form — still misses a team stored as [5] rather
 // than ["5"], and person ids are mixed string/number across web and iOS. A miss here yields no
 // reservoir at all, which reads as the feature being off rather than as an id compare failing.
-function deriveJobSession(tasks, personId, opId, clockInIso, orgTz) {
+function deriveJobSession(tasks, personId, opId, clockInIso, orgTz, statuses) {
   const onTeam = (team) => (team || []).some(x => x != null && String(x) === String(personId));
   const horizon = addBusinessDays(orgLocalDay(clockInIso, orgTz), SESSION_SNAPSHOT_HORIZON_BD);
 
@@ -557,7 +558,7 @@ function deriveJobSession(tasks, personId, opId, clockInIso, orgTz) {
         // gets a live bar but nothing to drain. That is the client's rule, kept identical here.
         if (!op || !onTeam(op.team)) continue;
         if (opId != null && String(op.id) === String(opId)) reservoirOpId = op.id;
-        if (op.status === "Finished") continue;
+        if (isFinishedStatus(op.status, statuses)) continue;
         if (!op.start || op.start > horizon) continue;
         sessionSnapshot.push({
           opId: op.id, start: op.start, end: op.end,
@@ -613,11 +614,18 @@ export async function handler(event) {
   // invocation and only when a write actually needs it — clock actions are
   // low-frequency, so one extra GET on those paths is cheaper than threading
   // the value through every call site.
-  let _orgTz;
-  const getOrgTimeZone = async () => {
-    if (_orgTz !== undefined) return _orgTz;
-    try { _orgTz = (await readJson(settingsKey))?.timeZone || null; } catch { _orgTz = null; }
-    return _orgTz;
+  let _orgSettings;
+  const getOrgSettings = async () => {
+    if (_orgSettings !== undefined) return _orgSettings;
+    try { _orgSettings = (await readJson(settingsKey)) || null; } catch { _orgSettings = null; }
+    return _orgSettings;
+  };
+  const getOrgTimeZone = async () => (await getOrgSettings())?.timeZone || null;
+  // #504. The org's status list — what MEANS finished and in progress, whatever it is called.
+  // Undefined when the org has none stored, which means "by name", as before the flag.
+  const getOrgStatuses = async () => {
+    const l = (await getOrgSettings())?.statusOpts;
+    return Array.isArray(l) && l.length ? l : undefined;
   };
 
   // Move a panel counter by `delta`. Non-fatal by design: the session rows are
@@ -1367,7 +1375,7 @@ export async function handler(event) {
         // to the status quo rather than rejecting a punch the worker has already made.
         try {
           const jciTasksForSession = await readJson(tasksKey) ?? [];
-          jciDerived = deriveJobSession(jciTasksForSession, jciPersonId, opId, jciClockIn, await getOrgTimeZone());
+          jciDerived = deriveJobSession(jciTasksForSession, jciPersonId, opId, jciClockIn, await getOrgTimeZone(), await getOrgStatuses());
         } catch (e) { console.warn("jobClockIn: session derivation skipped", e); }
       }
 
@@ -1407,7 +1415,10 @@ export async function handler(event) {
       } catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save"); }
       if (jciFail) return jciFail;
 
-      // Update job and sub-operation status to "In Progress" in tasks.json
+      // Update job and sub-operation status to the org's in-progress status in tasks.json. #504:
+      // whatever the org calls it — a renamed "In Progress" used to be stamped back as the literal.
+      const jciStatuses = await getOrgStatuses();
+      const jciActive = activeStatusName(jciStatuses);
       try {
         await updateStampedArray(tasksKey, (stored) => {
         const jciTasks = [...(stored ?? [])];
@@ -1417,17 +1428,17 @@ export async function handler(event) {
           const jciJob = jciTasks[jciTaskIdx];
           jciTasks[jciTaskIdx] = {
             ...jciJob,
-            status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
+            status: isActiveStatus(jciJob.status, jciStatuses) ? jciJob.status : jciActive,
             // The panel holding the op goes In Progress too. The web used to set it
             // itself and POST the tree, which 403'd every worker (no editJobs).
             subs: (jciJob.subs || []).map(panel => {
               const hasOp = (panel.subs || []).some(op => String(op.id) === String(opId));
               return {
                 ...panel,
-                ...(hasOp ? { status: "In Progress" } : {}),
+                ...(hasOp ? { status: jciActive } : {}),
                 subs: (panel.subs || []).map(op => {
                   if (String(op.id) !== String(opId)) return op;
-                  return { ...op, status: "In Progress" };
+                  return { ...op, status: jciActive };
                 }),
               };
             }),
@@ -1442,6 +1453,8 @@ export async function handler(event) {
 
     // ── Job Clock Out (Bearer token, no PIN) ──────────────────────────────────
     if (action === "jobClockOut") {
+      // #504. Read before the write callbacks below, which cannot await: what MEANS finished.
+      const jcoStatuses = await getOrgStatuses();
       let _jco;
       try { _jco = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
@@ -1597,6 +1610,7 @@ export async function handler(event) {
                 if (jcoGuardMode === "enforce") proposed = Math.round(capReached * 100) / 100;
               }
               tasks = applyShrinkStartHour(tasks, {
+                statuses: jcoStatuses,
                 opId: jcoShrinkOpId,
                 proposed,
                 workStartH: jcoWorkStartH,

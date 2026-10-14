@@ -5,6 +5,9 @@
 import { localDay } from "./localDay.js";
 import { shopMs, shopParts, shopDay, dowOf, nextDayOf, endOfDayFor } from "./shopTime.js";
 import { DEFAULT_ORG_SETTINGS } from "./orgDefaults.js";
+// #504. Only the two web-only readers below use it (slackDaysByPerson, suspectHpdOps); the
+// server imports other functions from this file and never sets the page-level list.
+import { isFinished } from "./statusMeaning.js";
 
 /**
  * Hours accrued on ONE open job clock, net of paused time.
@@ -1311,7 +1314,7 @@ export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, produc
   const out = new Map();
   const perDay = Math.max(0.0001, productiveHoursPerDay || 1);
   for (const op of ops || []) {
-    if (!op || !op.start || op.status === "Finished") continue;
+    if (!op || !op.start || isFinished(op.status)) continue;
     // THE SAME VISIBILITY RULE getPersonBars APPLIES, not an approximation of it. If the
     // two ever drift, the symptom is the one this slack exists to prevent.
     if (today && op.end && op.end < today && !op.isLive) continue;
@@ -1788,7 +1791,7 @@ export function suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay }) {
       if (!panel || panel.deletedAt) continue;
       const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
       for (const u of ops.length ? ops : [panel]) {
-        if (!u.start || !((u.hpd || 0) > 0) || u.status === "Finished") continue;
+        if (!u.start || !((u.hpd || 0) > 0) || isFinished(u.status)) continue;
         const days = workingDays(u.start, u.end || u.start);
         const team = (u.team || []).length;
         let reason = null;
