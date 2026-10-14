@@ -814,7 +814,17 @@ struct EffDay: Identifiable {
     var dayNumber: String { "\(ShopTime.current.calendar.component(.day, from: date))" }
 }
 
+/// The efficiency chart's two hues: the accent itself (pay hours) and its light
+/// derived end (job hours) — the same pair the Wireframes v2 chart used.
+private enum EffColors {
+    static var pay: Color { Color(hex: T.accent) }
+    static var job: Color { Color(hex: ThemeSettings.derivedEnd(from: T.accent)) }
+}
+
 private struct EfficiencyCard: View {
+    // Observed so an accent change repaints the bars at once — T.accent isn't
+    // observable on its own.
+    @Environment(ThemeSettings.self) private var theme
     let percent: String
     let days: [EffDay]
     /// The timeline's tick — used only to find today's column to highlight.
@@ -822,7 +832,8 @@ private struct EfficiencyCard: View {
     var info: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let _ = theme.accent
+        return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 Text("EFFICIENCY")
                     .font(TTypo.xsBold(11))
@@ -840,8 +851,8 @@ private struct EfficiencyCard: View {
                        todayId: days.first { ShopTime.current.calendar.isDate($0.date, inSameDayAs: now) }?.date)
 
             HStack(spacing: 16) {
-                legend(color: Color(hex: T.accentGradientStart), text: "Pay hours")
-                legend(color: Color(hex: T.accentGradientEnd), text: "Job hours")
+                legend(color: EffColors.pay, text: "Pay hours")
+                legend(color: EffColors.job, text: "Job hours")
                 Spacer()
             }
         }
@@ -915,8 +926,8 @@ private struct WeeklyBars: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             HStack(alignment: .bottom, spacing: 3) {
-                bar(value: d.pay, max: maxValue, base: Color(hex: T.accentGradientStart))
-                bar(value: d.job, max: maxValue, base: Color(hex: T.accentGradientEnd))
+                bar(value: d.pay, max: maxValue, color: EffColors.pay)
+                bar(value: d.job, max: maxValue, color: EffColors.job)
             }
             .frame(height: barsHeight)
             VStack(spacing: 1) {
@@ -942,16 +953,19 @@ private struct WeeklyBars: View {
 
     /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
     /// fill grown from the bottom, with a short muted stub when there's no data.
-    private func bar(value: Double, max maxValue: Double, base: Color) -> some View {
+    /// One solid bar in the accent's dark (pay) or light (job) hue. A day with
+    /// nothing draws nothing — the light-grey stub that stood in for zero read as
+    /// a white bar that meant nothing (2026-10-14).
+    private func bar(value: Double, max maxValue: Double, color: Color) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(value > 0
-                      ? AnyShapeStyle(LinearGradient(colors: [base, base.opacity(0.6)],
-                                                     startPoint: .bottom, endPoint: .top))
-                      : AnyShapeStyle(Color(hex: T.progressTrack)))
-                .frame(height: max(6, min(1, value / maxValue) * barsHeight))
+            if value > 0 {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(color)
+                    .frame(height: max(4, min(1, value / maxValue) * barsHeight))
+            }
         }
+        .frame(maxWidth: .infinity)
         .frame(height: barsHeight)
     }
 }
