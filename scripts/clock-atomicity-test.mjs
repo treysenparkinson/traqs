@@ -33,6 +33,13 @@ const ok = (label, got, want) => {
   console.log(`  ${good ? "PASS" : "FAIL"}  ${label}${good ? "" : `\n         got  ${JSON.stringify(got)}\n         want ${JSON.stringify(want)}`}`);
   good ? pass++ : fail++;
 };
+// EVERY ROLLOUT MODE IS SET HERE, NEVER INHERITED — see worker-writes-test for why. Section 4
+// carried a hold timestamp a year BEFORE its clock-in (2025 for 2026), which log mode waved
+// through and enforce, production's mode since 2026-10-08, refuses; nobody saw it because
+// Netlify's build stopped at worker-writes-test first. Section 4 now runs in both modes.
+for (const v of ["SCHEDULE_RULES_MODE", "TASK_CONFLICT_MODE", "OVERLAP_RULE_MODE", "IDENTITY_PROVIDER_MODE", "TZ_FALLBACK_MODE"]) {
+  process.env[v] = "log";
+}
 const reset = () => {
   globalThis.__S3 = {
     [K.settings]: { timeZone: "UTC", workStart: "00:00", workEnd: "24:00", workDays: [0,1,2,3,4,5,6], lunch: { durationMinutes: 0 }, breaks: [] },
@@ -172,28 +179,33 @@ reset();
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n4. Idempotent session merges (#189/#193)");
-reset();
-{
-  person().activeJobClock = { clockIn: "2026-10-01T09:00:00.000Z", sessionId: "S1",
-    jobId: "JOB", panelId: "PANEL", opId: "OP", drainCheckpoint: "2026-10-01T10:00:00.000Z" };
-  globalThis.__AUTH = { personId: "7", isAdmin: false, email: "w@x.com" };
-  await call({ action: "updateJobSession", personId: 7, sessionId: "S1", frozenAtMs: 1759312800000 });
-  ok("frozenAtMs is stamped once", person().activeJobClock.frozenAtMs, 1759312800000);
-  await call({ action: "updateJobSession", personId: 7, sessionId: "S1", frozenAtMs: 1759316400000 });
-  ok("...and a second, later stamp is ignored — write-once", person().activeJobClock.frozenAtMs, 1759312800000);
+for (const MODE of ["log", "enforce"]) {
+  process.env.SCHEDULE_RULES_MODE = MODE;
+  console.log(`   SCHEDULE_RULES_MODE=${MODE}`);
+  reset();
+  {
+    person().activeJobClock = { clockIn: "2026-10-01T09:00:00.000Z", sessionId: "S1",
+      jobId: "JOB", panelId: "PANEL", opId: "OP", drainCheckpoint: "2026-10-01T10:00:00.000Z" };
+    globalThis.__AUTH = { personId: "7", isAdmin: false, email: "w@x.com" };
+    await call({ action: "updateJobSession", personId: 7, sessionId: "S1", frozenAtMs: Date.parse("2026-10-01T10:00:00.000Z") });
+    ok("frozenAtMs is stamped once", person().activeJobClock.frozenAtMs, Date.parse("2026-10-01T10:00:00.000Z"));
+    await call({ action: "updateJobSession", personId: 7, sessionId: "S1", frozenAtMs: Date.parse("2026-10-01T11:00:00.000Z") });
+    ok("...and a second, later stamp is ignored — write-once", person().activeJobClock.frozenAtMs, Date.parse("2026-10-01T10:00:00.000Z"));
+  }
+  reset();
+  {
+    person().activeJobClock = { clockIn: "2026-10-01T09:00:00.000Z", sessionId: "S1",
+      jobId: "JOB", panelId: "PANEL", opId: "OP", drainCheckpoint: "2026-10-01T10:00:00.000Z", pausedMsAtCheckpoint: 0 };
+    await call({ action: "updateJobSession", personId: 7, sessionId: "S1", drainCheckpoint: "2026-10-01T11:00:00.000Z", pausedMsAtCheckpoint: 600000 });
+    ok("drainCheckpoint moves forward", [person().activeJobClock.drainCheckpoint, person().activeJobClock.pausedMsAtCheckpoint],
+      ["2026-10-01T11:00:00.000Z", 600000]);
+    await call({ action: "updateJobSession", personId: 7, sessionId: "S1", drainCheckpoint: "2026-10-01T10:30:00.000Z", pausedMsAtCheckpoint: 1 });
+    ok("...and never backward, taking its paused baseline with it",
+      [person().activeJobClock.drainCheckpoint, person().activeJobClock.pausedMsAtCheckpoint],
+      ["2026-10-01T11:00:00.000Z", 600000]);
+  }
 }
-reset();
-{
-  person().activeJobClock = { clockIn: "2026-10-01T09:00:00.000Z", sessionId: "S1",
-    jobId: "JOB", panelId: "PANEL", opId: "OP", drainCheckpoint: "2026-10-01T10:00:00.000Z", pausedMsAtCheckpoint: 0 };
-  await call({ action: "updateJobSession", personId: 7, sessionId: "S1", drainCheckpoint: "2026-10-01T11:00:00.000Z", pausedMsAtCheckpoint: 600000 });
-  ok("drainCheckpoint moves forward", [person().activeJobClock.drainCheckpoint, person().activeJobClock.pausedMsAtCheckpoint],
-    ["2026-10-01T11:00:00.000Z", 600000]);
-  await call({ action: "updateJobSession", personId: 7, sessionId: "S1", drainCheckpoint: "2026-10-01T10:30:00.000Z", pausedMsAtCheckpoint: 1 });
-  ok("...and never backward, taking its paused baseline with it",
-    [person().activeJobClock.drainCheckpoint, person().activeJobClock.pausedMsAtCheckpoint],
-    ["2026-10-01T11:00:00.000Z", 600000]);
-}
+process.env.SCHEDULE_RULES_MODE = "log";
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no assertions ran"); process.exit(2); }
