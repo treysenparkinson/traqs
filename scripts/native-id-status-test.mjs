@@ -90,16 +90,19 @@ console.log("\n1. #447 — the status is STORED as the server sent it");
 
 console.log("\n2. #447 — the enum survives as a DERIVED view, so no read site moves");
 {
-  const computed = /var status: JobStatus \{\s*\n\s*get \{ JobStatus\(rawValue: statusRaw\) \?\? \.notStarted \}\s*\n\s*set \{ statusRaw = newValue\.rawValue \}\s*\n\s*\}/g;
+  // Pinned by what it DOES (R5), not its spelling: the getter derives from statusRaw and the
+  // setter writes statusRaw from newValue. #504 moved both through StatusMeaning (the org's
+  // list), which changed the text and not this.
+  const computed = /var status: JobStatus \{\s*\n\s*get \{[^}\n]*\bstatusRaw\b[^}\n]*\}\s*\n\s*set \{ statusRaw = [^}\n]*\bnewValue\b[^}\n]*\}\s*\n\s*\}/g;
   ok("all three expose a computed status with a setter", (MODELS.match(computed) || []).length, 3);
   // The SETTER is what keeps the two in step. Without it, `p.status = .finished`
   // would leave statusRaw stale and the next encode would write the old value —
   // the same destruction with the sign flipped.
   ok("the setter writes through to the raw value",
-    (MODELS.match(/set \{ statusRaw = newValue\.rawValue \}/g) || []).length, 3);
+    (MODELS.match(/set \{ statusRaw = [^}\n]*\bnewValue\b[^}\n]*\}/g) || []).length, 3);
   // A caller can ask for the honest answer where it matters.
   ok("an optional accessor exists for code that must know it is unmodelled",
-    /var statusKnown: JobStatus\? \{ JobStatus\(rawValue: statusRaw\) \}/.test(MODELS), true);
+    (MODELS.match(/var statusKnown: JobStatus\? \{[^}\n]*\bstatusRaw\b[^}\n]*\}/g) || []).length, 3);
   // Job's memberwise init still has to name a status; it takes the string now.
   ok("the init default is a string", /status: String = "Not Started"/.test(MODELS), true);
   ok("...and no init still defaults to the enum case", /status: JobStatus = \.notStarted/.test(MODELS), false);
