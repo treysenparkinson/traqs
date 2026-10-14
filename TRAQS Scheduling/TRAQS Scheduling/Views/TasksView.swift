@@ -140,7 +140,7 @@ struct TasksView: View {
                         cardStack(inProgressTasks).padding(.top, workingTasks.isEmpty ? 14 : 10)
                     }
                     if !inProgressJobs.isEmpty {
-                        jobCardStack(inProgressJobs).padding(.top, 12)
+                        jobCardStack(inProgressJobs).padding(.top, 4)
                     }
                   }
                   // The WHOLE section fades in when it first appears — header,
@@ -459,7 +459,7 @@ struct TasksView: View {
                     .padding(.bottom, 14)
                 // Lazy: only on-screen job rows build. "All Jobs" can be the
                 // whole org's job list.
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 0) {
                     ForEach(others) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
@@ -477,7 +477,7 @@ struct TasksView: View {
             cardStack(tasks).padding(.top, 14)
         }
         if !jobs.isEmpty {
-            jobCardStack(jobs).padding(.top, tasks.isEmpty ? 14 : 12)   // 14 under a header, as cardStack
+            jobCardStack(jobs).padding(.top, tasks.isEmpty ? 6 : 4)
         }
     }
 
@@ -553,7 +553,7 @@ struct TasksView: View {
             if !jobs.isEmpty {
                 // Untitled, like All's list; a gap under In Progress.
                 if hasMine { Color.clear.frame(height: 16) }
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
@@ -579,7 +579,7 @@ struct TasksView: View {
                 NoJobsPlaceholder(text: "No finished jobs")
                     .padding(.horizontal, 16).padding(.top, 8)
             } else {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 0) {
                     ForEach(jobs) { job in
                         AllJobsCard(job: job, onOpenJob: onOpenJob)
                     }
@@ -703,8 +703,8 @@ struct TasksView: View {
     @ViewBuilder
     private func jobCardStack(_ jobs: [Job]) -> some View {
         if !jobs.isEmpty {
-            // 12 between pills, as the old list had; cardless rows needed 0.
-            VStack(spacing: 12) {
+            // Cardless rows — each carries its own hairline.
+            VStack(spacing: 0) {
                 ForEach(jobs) { job in
                     AllJobsCard(job: job, onOpenJob: onOpenJob)
                 }
@@ -1991,13 +1991,16 @@ private struct AllJobsCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The old thin pill: dot · number – title · summary · chevron. One
-            // line — a fully round corner needs a single-line row to sit in.
+            // Cardless row: parent dot · number – title over its summary · chevron
+            // (the list look from before the Liquid Glass arrangement, on request).
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                pill(dot: 7, title: rowTitle, trailing: rowSubtitle, open: isExpanded,
-                     font: TTypo.smBold(14), vertical: 12)
+                RvRow(divider: !isExpanded) {
+                    RvDot(color: Color(hex: job.color))
+                    RvRowText(title: rowTitle, subtitle: rowSubtitle)
+                    RvChevron(direction: isExpanded ? .up : .down)
+                }
             }
             .buttonStyle(.plain)
 
@@ -2017,35 +2020,12 @@ private struct AllJobsCard: View {
                         }
                     }
                 }
-                .padding(.top, 12)
+                .padding(.bottom, 14)
+                Rv.line.frame(height: 1)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
         .animation(.easeInOut(duration: 0.2), value: openJobs)
-    }
-
-    /// `SBox(size: .pill, rim: false)` — the old All Jobs row.
-    private func pill(dot: CGFloat, title: String, trailing: String, open: Bool,
-                      font: Font, vertical: CGFloat) -> some View {
-        SBox(size: .pill, rim: false) {
-            HStack(spacing: 10) {
-                Circle().fill(Color(hex: job.color)).frame(width: dot, height: dot)
-                Text(title)
-                    .font(font)
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(1)
-                Spacer(minLength: 6)
-                Text(trailing)
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .lineLimit(1)
-                Image(systemName: open ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, vertical)
-        }
     }
 
     /// A job as a dropdown row: its title and "1 of 3 tasks" (or "No tasks");
@@ -2057,9 +2037,12 @@ private struct AllJobsCard: View {
         return Button {
             if open { openJobs.remove(entry.id) } else { openJobs.insert(entry.id) }
         } label: {
-            pill(dot: 6, title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
-                 trailing: entry.isLeaf ? "No tasks" : "\(done) of \(count) task\(count == 1 ? "" : "s")",
-                 open: open, font: TTypo.smBold(13), vertical: 10)
+            RvRow(divider: false) {
+                RvDot(color: Color(hex: job.color), size: 6)
+                RvRowText(title: entry.panel.title.isEmpty ? "Untitled job" : entry.panel.title,
+                          subtitle: entry.isLeaf ? "No tasks" : "\(done) of \(count) task\(count == 1 ? "" : "s")")
+                RvChevron(direction: open ? .up : .down)
+            }
             .padding(.leading, 12)
         }
         .buttonStyle(.plain)

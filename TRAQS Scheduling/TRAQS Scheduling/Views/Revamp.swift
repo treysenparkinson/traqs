@@ -154,6 +154,29 @@ struct RvRow<Content: View>: View {
 
 /// Title + subtitle stack used inside a row ("401964 – Thacker pass" /
 /// "FLS · 7:00 AM – 3:30 PM").
+struct RvRowText: View {
+    let title: String
+    var subtitle: String? = nil
+    var emphasizeSubtitle = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.traqs(.semibold, size: 15))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.traqs(emphasizeSubtitle ? .medium : .regular,
+                                  size: 12.5))
+                    .foregroundStyle(Color(hex: emphasizeSubtitle ? T.ink : T.muted))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct RvDot: View {
     let color: Color
     var size: CGFloat = 8
@@ -164,6 +187,17 @@ struct RvDot: View {
 }
 
 /// The trailing chevron of a tappable row.
+struct RvChevron: View {
+    var direction: Direction = .right
+    enum Direction { case right, down, up }
+
+    var body: some View {
+        Image(systemName: direction == .right ? "chevron.right" : direction == .down ? "chevron.down" : "chevron.up")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color(hex: T.muted))
+    }
+}
+
 // MARK: Tabs
 
 /// Underline tabs. The selected label is ink with a 2pt accent rule under it;
