@@ -29,4 +29,16 @@ struct GlassKeyTests {
         #expect(abs(s.width - 78) < 0.5, "width \(s.width)")
         #expect(abs(s.height - 78) < 0.5, "height \(s.height)")
     }
+
+    @Test("capsule and rounded native glass pad a label 12pt a side, 7pt top and bottom")
+    func capsuleInsets() {
+        let label = Color.clear.frame(width: 100, height: 40)
+        let want = CGSize(width: 100 + 2 * NativeGlass.insetH, height: 40 + 2 * NativeGlass.insetV)
+        for s in [measure(Button {} label: { label }.nativeGlass(.capsule)),
+                  measure(Button {} label: { label }.nativeGlass(.capsule, prominent: true)),
+                  measure(Button {} label: { label }.nativeGlass(.rounded(18)))] {
+            #expect(abs(s.width - want.width) < 0.5, "width \(s.width)")
+            #expect(abs(s.height - want.height) < 0.5, "height \(s.height)")
+        }
+    }
 }

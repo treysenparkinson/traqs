@@ -1064,10 +1064,31 @@ struct GradientCTA<Label: View>: View {
     @State private var pressed = false
 
     var body: some View {
-        _ = theme.accent
+        let _ = theme.accent
+        if glass { nativeBody } else { gradientBody }
+    }
+
+    /// Glass: Apple's `.glassProminent`, accent-tinted — the system owns the press
+    /// (see NativeGlass). The style pads 12/7, taken off this button's own padding
+    /// so it stays the size it was.
+    private var nativeBody: some View {
+        Button(action: action) {
+            label()
+                .foregroundStyle(T.onAccent)
+                .frame(maxWidth: fullWidth ? .infinity : nil)
+                .padding(.vertical, max(0, verticalPadding - NativeGlass.insetV))
+                .padding(.horizontal, fullWidth ? 0 : max(0, 20 - NativeGlass.insetH))
+        }
+        .nativeGlass(.capsule, prominent: true)
+        .opacity(dimmed ? 0.5 : 1)
+        .disabled(disabled)
+    }
+
+    /// The solid brand-gradient capsule — not Liquid Glass, so unchanged.
+    private var gradientBody: some View {
         // Glass is tinted with the flat accent rather than the gradient, so the
         // label is judged against THAT, not against the gradient's two stops.
-        return Button(action: action) {
+        Button(action: action) {
             label()
                 .foregroundStyle(glass ? T.onAccent : T.onGradient)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
@@ -1954,16 +1975,68 @@ extension View {
 }
 #endif
 
-// MARK: - Glass key (native Liquid Glass button, a fixed round size)
+// MARK: - Native Liquid Glass buttons
+//
+// EVERY Liquid Glass button in the app is Apple's own: `.buttonStyle(.glass)`, or
+// `.glassProminent` tinted for a primary or state-coloured action (2026-10-14).
+// The system owns the press — touch-down flex, glow, release — which is what a
+// native control feels like. The hand-built version (a `.plain` Button with
+// interactive glass painted on its label) had two things tracking one touch and
+// answered stiffly.
+//
+// Exception, on purpose: the header controls keep their hand-built glass, because
+// their tab-to-tab morph (glassEffectID/union in GlassHeader) depends on it.
+//
+// SIZES. The styles pad the label — measured, the same for every border shape and
+// both styles: 12pt a side horizontally, 7pt top and bottom (7 all round on a
+// circle). A converted button subtracts those from its own padding or frame so it
+// lands where it was; GlassKeyTests pins the arithmetic.
 
-/// A round key on Apple's own Liquid Glass button style — `.glass`, or
-/// `.glassProminent` tinted for the one key that commits. The system owns the
-/// press (touch-down flex, glow, release), which is what a native keypad feels
-/// like. The PIN keys were a `.plain` Button with interactive glass painted on
-/// the label: two things tracking one touch, and the glass answered stiffly.
-///
-/// The style insets its label, so the label is sized `size - 2 * inset` and the
-/// key lands at `size` overall — pinned by GlassKeyTests.
+enum NativeGlassShape {
+    case circle, capsule
+    case rounded(CGFloat)
+}
+
+struct NativeGlass: ViewModifier {
+    var shape: NativeGlassShape = .capsule
+    /// `.glassProminent` — filled with `tint` (the accent when nil).
+    var prominent: Bool = false
+    var tint: Color? = nil
+
+    static let insetH: CGFloat = 12
+    static let insetV: CGFloat = 7
+    static let circleInset: CGFloat = 7
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shaped = bordered(content)
+        if prominent {
+            shaped.buttonStyle(.glassProminent).tint(tint ?? Color(hex: T.accent))
+        } else {
+            shaped.buttonStyle(.glass)
+        }
+    }
+
+    @ViewBuilder
+    private func bordered(_ content: Content) -> some View {
+        switch shape {
+        case .circle:           content.buttonBorderShape(.circle)
+        case .capsule:          content.buttonBorderShape(.capsule)
+        case .rounded(let r):   content.buttonBorderShape(.roundedRectangle(radius: r))
+        }
+    }
+}
+
+extension View {
+    /// Apple's Liquid Glass button style on a Button (or Menu). See NativeGlass.
+    func nativeGlass(_ shape: NativeGlassShape = .capsule, prominent: Bool = false,
+                     tint: Color? = nil) -> some View {
+        modifier(NativeGlass(shape: shape, prominent: prominent, tint: tint))
+    }
+}
+
+/// A round native-glass button of a fixed overall `size` — the PIN keys and the
+/// round close/back buttons. The label is sized `size - 2 * circleInset`.
 struct GlassKey<Label: View>: View {
     let size: CGFloat
     var prominent: Bool = false
@@ -1971,20 +2044,13 @@ struct GlassKey<Label: View>: View {
     let action: () -> Void
     @ViewBuilder var label: () -> Label
 
-    /// The `.glass` style's own inset around a circular label — measured at 7pt
-    /// a side (a 78pt label made a 92pt key), the same for `.glassProminent`.
-    static var inset: CGFloat { 7 }
+    static var inset: CGFloat { NativeGlass.circleInset }
 
     var body: some View {
         let side = max(0, size - 2 * Self.inset)
-        let button = Button(action: action) {
+        Button(action: action) {
             label().frame(width: side, height: side)
         }
-        .buttonBorderShape(.circle)
-        if prominent {
-            button.buttonStyle(.glassProminent).tint(tint)
-        } else {
-            button.buttonStyle(.glass)
-        }
+        .nativeGlass(.circle, prominent: prominent, tint: tint)
     }
 }
