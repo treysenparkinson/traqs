@@ -2004,7 +2004,7 @@ struct MessageBubble: View {
 
                 if !isMe {
                     Avatar(initials: Initials.from(message.authorName),
-                           size: 28, gradient: true,
+                           size: 34, gradient: true,   // 28 -> 34 on request (2026-10-14)
                            imageData: appState.people.first { $0.id == message.authorId }?.image)
                 }
 
@@ -2067,7 +2067,7 @@ struct MessageBubble: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(Color(hex: T.muted))
                     // Indent under the bubble (past the avatar) for incoming.
-                    .padding(.leading, isMe ? 0 : 36)
+                    .padding(.leading, isMe ? 0 : 42)   // avatar 34 + spacing 8
                     .padding(.trailing, isMe ? 4 : 0)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
