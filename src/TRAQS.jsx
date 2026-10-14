@@ -20,7 +20,7 @@ import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnin
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
 import { healthState, isJudged, countsAsOnTime } from "./health.js";
-import { changedPrefs } from "./prefsDelta.js";
+import { changedPrefs, syncedBaseline } from "./prefsDelta.js";
 import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { applyBarDelete, planBarDelete } from "./barDelete.js";
 import { holdsDateEdit, withDraftValue, overlayDraft, flushPatch, completionPatch } from "./schedDraft.js";
@@ -5367,6 +5367,11 @@ Extraction rules:
   // When non-empty, the jobs list renders one section per token (a column token
   // expands to one section per distinct value). Multi-select; duplicates allowed.
   const [grouping, setGrouping] = usePersistedUI("grouping", []);
+  // #429. Two of the four view modes that persisted NOWHERE, now account preferences like the
+  // seven. Declared up here, not where they are used, because the preference save effect lists
+  // them in its deps and runs earlier in this function — a later `const` is a TDZ error there.
+  const [scheduleTeamMode, setScheduleTeamMode] = usePersistedUI("scheduleTeamMode", "one"); // "one" | "team"
+  const [tMode, setTMode] = usePersistedUI("tMode", "month");
   const toggleGrouping = (tok) => setGrouping(prev => {
     const i = prev.findIndex(g => g.type === tok.type && g.id === tok.id);
     return i >= 0 ? prev.filter((_, j) => j !== i) : [...prev, tok];
@@ -7296,7 +7301,7 @@ Extraction rules:
   const [startJobSearch, setStartJobSearch] = useState("");
   const [pickerExpandedJobs, setPickerExpandedJobs] = useState(new Set());
   const [pickerExpandedPanels, setPickerExpandedPanels] = useState(new Set());
-  const [tsAdminTab, setTsAdminTab] = useState("live");
+  const [tsAdminTab, setTsAdminTab] = usePersistedUI("tsAdminTab", "live"); // an account preference (#429)
   // Admin live-status page state (mirrors the iOS/Android AdminScreen)
   const [adminFilter, setAdminFilter] = usePersistedUI("adminFilter", "live"); // "live" | "dept" | "today"
   const [adminNow, setAdminNow] = useState(Date.now());
@@ -8709,11 +8714,19 @@ Extraction rules:
   useEffect(() => {
     if (!orgCode) return;
     let cancelled = false;
+    // #431. If the load FAILS, this tab's own values are the baseline: only real edits get
+    // sent. Leaving it empty made the first save after a failed load a full write of local
+    // values over whatever the account held.
+    const prefsAtLoad = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
+      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
     fetchUserSettings(getToken, orgCode)
       .then(remote => {
         if (cancelled || !remote || typeof remote !== "object") return;
         const keys = Object.keys(remote).filter(k => k !== "lastModifiedAt");
         if (keys.length === 0) return; // nothing saved yet — this machine will seed it below
+        // #431. What the server holds is the baseline, so the first save sends only what this
+        // tab changes from it — not every key at its load-time value.
+        lastSyncedUserSettingsRef.current = syncedBaseline(remote);
         // Normalized as a PAIR: the old blob's mode decides how its customTheme is
         // read (a Custom theme keeps its accent, a legacy preset does not).
         if (remote.themeMode != null || (remote.customTheme && typeof remote.customTheme === "object")) {
@@ -8754,6 +8767,12 @@ Extraction rules:
         if (typeof remote.jobsView === "string") setJobsView(remote.jobsView);
         if (typeof remote.showCompleted === "boolean") setShowCompleted(remote.showCompleted);
         if (typeof remote.adminFilter === "string") setAdminFilter(remote.adminFilter);
+        // #429. Three view modes, the same way. Not taskSubView: it only ever holds "list"
+        // (#132/#319), and reading it from the blob would let a stored "cards" reopen the
+        // branch that is deliberately held.
+        if (typeof remote.tMode === "string") setTMode(remote.tMode);
+        if (typeof remote.scheduleTeamMode === "string") setScheduleTeamMode(remote.scheduleTeamMode);
+        if (typeof remote.tsAdminTab === "string") setTsAdminTab(remote.tsAdminTab);
         // statusOpts/priOpts are NOT applied here any more: they are org-wide now,
         // and writing this account's old copy straight in would hand the whole
         // organization one user's stale list on every sign-in.
@@ -8772,7 +8791,7 @@ Extraction rules:
         if (Array.isArray(remote.statusOpts) && remote.statusOpts.length) legacyOptsRef.current.statusOpts = remote.statusOpts;
         if (Array.isArray(remote.priOpts) && remote.priOpts.length) legacyOptsRef.current.priOpts = remote.priOpts;
       })
-      .catch(e => console.warn("fetchUserSettings failed:", e))
+      .catch(e => { lastSyncedUserSettingsRef.current = prefsAtLoad; console.warn("fetchUserSettings failed:", e); })
       .finally(() => { if (!cancelled) userSettingsLoadedRef.current = true; });
     return () => { cancelled = true; };
   }, [orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8793,7 +8812,7 @@ Extraction rules:
     // filter is a current investigation rather than a preference, and expanded/
     // collapsed id sets mean nothing on a different screen.
     const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
-      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter };
+      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
     const patch = changedPrefs(bundle, lastSyncedUserSettingsRef.current);
     if (!patch) return; // unchanged since the last write the server accepted
     const t = setTimeout(() => {
@@ -8805,7 +8824,7 @@ Extraction rules:
     }, 900);
     return () => clearTimeout(t);
   }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
-    grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+    grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -9420,7 +9439,6 @@ Extraction rules:
   const [overrideError, setOverrideError] = useState({});   // panelId → string
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
-  const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -15071,7 +15089,6 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ TEAM (Resource Planner) ═══════════════════
   const [tStart, setTStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
-  const [tMode, setTMode] = useState("month");
   // Default granularity is tier-dependent: Basic opens on Week, Business stays
   // on Month. Applied once, the first time the tier resolves, so it never
   // clobbers a manual switch made afterward.

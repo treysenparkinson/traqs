@@ -46,3 +46,14 @@ export function changedPrefs(next, last) {
   }
   return Object.keys(out).length ? out : null;
 }
+
+/**
+ * #431 (Trey, 2026-10-13: "merge per key"). The baseline a session's FIRST save is measured
+ * against: the blob the server sent. It used to be nothing, so a session's first save sent
+ * every key — a whole-blob write from a tab whose values were as old as its load, which is
+ * how a theme toggle reverted a column layout (#441) even after the server learned to merge.
+ * Junk is no baseline (null), which falls back to sending everything.
+ */
+export function syncedBaseline(remote) {
+  return remote && typeof remote === "object" && !Array.isArray(remote) ? { ...remote } : null;
+}

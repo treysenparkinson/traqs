@@ -49,7 +49,8 @@
 //   node scripts/prefs-merge-test.mjs
 import { readFileSync } from "node:fs";
 import { codeOf } from "./_code-view.mjs";
-import { changedPrefs } from "../src/prefsDelta.js";
+import * as prefsDelta from "../src/prefsDelta.js";
+const { changedPrefs } = prefsDelta;
 import { mergePrefs, wouldEmptyPrefs } from "../netlify/functions/_utils/merge-prefs.js";
 
 let pass = 0, fail = 0;
@@ -261,6 +262,55 @@ console.log("\n6. HOW MANY WRITES, before and after");
   ok("...the no-op render sends nothing", session.length - writes, 1);
   console.log(`         payload: ${bytes} B as patches vs ${fullBytes} B as whole bundles`);
   ok("the patches are smaller than the bundles would be", bytes < fullBytes, true);
+}
+
+console.log("\n7. #431 RULED (merge per key) and #429 RULED (the four view modes are account preferences)");
+{
+  // #431. The server merged per key since #441, but the CLIENT's change baseline started
+  // empty, so the first save of every session sent EVERY key — a whole-blob write from a tab
+  // whose values were as old as its load. The baseline now starts as what the server holds.
+  const syncedBaseline = prefsDelta.syncedBaseline;
+  ok("prefsDelta exports syncedBaseline", typeof syncedBaseline, "function");
+  const fn = typeof syncedBaseline === "function" ? syncedBaseline : () => null;
+  // This tab loaded at 09:00. At 10:00 another tab moved the columns. At 11:00 this tab
+  // toggles the theme — its first save of the session.
+  const loadedAt9 = { themeMode: "midnight", colOrder: ["a", "b"], colWidths: [100, 120] };
+  const thisTab = { themeMode: "frost", colOrder: ["a", "b"], colWidths: [100, 120] };
+  ok("the first save sends only the key this tab changed — not its 09:00 copy of the columns",
+    changedPrefs(thisTab, fn(loadedAt9)), { themeMode: "frost" });
+  ok("...where an empty baseline sent everything (the residue being fixed)",
+    Object.keys(changedPrefs(thisTab, null)).sort(), ["colOrder", "colWidths", "themeMode"]);
+  ok("a key the server lacks is sent", changedPrefs({ ...thisTab, tMode: "week" }, fn(loadedAt9)).tMode, "week");
+  ok("junk from the server is no baseline at all", [fn(null), fn([1]), fn("x")], [null, null, null]);
+
+  // Wiring: the load sets the baseline from what arrived; a FAILED load sets it from this
+  // tab's own values, so a failure can no longer be followed by a full write of defaults.
+  ok("the load adopts the server's blob as the baseline",
+    /lastSyncedUserSettingsRef\.current = syncedBaseline\(remote\)/.test(CODE), true);
+  ok("a failed load takes this tab's own values as the baseline",
+    /\.catch\(e => \{ lastSyncedUserSettingsRef\.current = prefsAtLoad; console\.warn\("fetchUserSettings failed:"/.test(CODE), true);
+
+  // #429. tMode, scheduleTeamMode and tsAdminTab persisted NOWHERE. They are
+  // account preferences now, exactly as the seven: a localStorage hook for the first frame,
+  // a type-checked remote read, a place in the bundle and the save's deps.
+  const bundleLine = (() => { const at = CODE.indexOf("const bundle = {"); return at < 0 ? "" : CODE.slice(at, CODE.indexOf("}", at) + 1); })();
+  const saveDeps = (() => {
+    const at = CODE.indexOf("const bundle = {"); if (at < 0) return [];
+    const open = CODE.indexOf("}, [", at), close = CODE.indexOf("]", open);
+    return open < 0 || close < 0 ? [] : CODE.slice(open + 4, close).split(",").map(x => x.trim()).filter(Boolean);
+  })();
+  // taskSubView is NOT one of them: it only ever holds "list" (#132/#319, dead-code-test), so it
+  // has nothing to persist, and a remote read would let a stored "cards" reopen the held branch.
+  ok("taskSubView stays out of the bundle", bundleLine.includes("taskSubView"), false);
+  ok("...and is never read from the blob", /remote\.taskSubView/.test(CODE), false);
+  for (const [k, fallback] of [["tMode", "month"], ["scheduleTeamMode", "one"], ["tsAdminTab", "live"]]) {
+    ok(`${k} keeps a localStorage hook for the first frame`, new RegExp(`usePersistedUI\\("${k}", "${fallback}"\\)`).test(CODE), true);
+    ok(`${k} is in the bundle`, bundleLine.includes(k), true);
+    ok(`${k} retriggers the save`, saveDeps.includes(k), true);
+    const setter = "set" + k[0].toUpperCase() + k.slice(1);
+    ok(`${k} is applied from the remote blob, behind a type check`,
+      new RegExp(`if \\(typeof remote\\.${k} === "string"\\) ${setter}\\(remote\\.${k}\\)`).test(CODE), true);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
