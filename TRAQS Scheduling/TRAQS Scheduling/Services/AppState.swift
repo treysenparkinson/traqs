@@ -352,6 +352,7 @@ class AppState {
         // subscriptions + doubled downstream work. Re-configuring for a DIFFERENT
         // org still proceeds (org switch).
         if configuredOrgCode == orgCode, api != nil { return }
+        LaunchTrace.startStallWatch()   // TEMPORARY — see LaunchTrace
         configuredOrgCode = orgCode
         self.orgCode = orgCode
         billingTier = UserDefaults.standard.string(forKey: Self.billingTierKey(orgCode)) ?? "basic"
@@ -370,11 +371,11 @@ class AppState {
         self.localCache = cache
         let sync = SyncService(api: apiInstance, cache: cache)
         self.syncService = sync
-        if cache.hasCachedData() { rehydrateFromCache() }   // instant paint from cache
+        if cache.hasCachedData() { LaunchTrace.measure("rehydrate (launch)") { rehydrateFromCache() } }   // instant paint from cache
         startNetworkMonitoring()              // Phase 6: reachability for the sync indicator
         Task {
-            _ = await self.runDeltaSync()     // seed/refresh cache + cursor (flips isSyncing)
-            self.rehydrateFromCache()         // apply anything that changed
+            _ = await LaunchTrace.measure("deltaSync") { await self.runDeltaSync() }     // seed/refresh cache + cursor (flips isSyncing)
+            LaunchTrace.measure("rehydrate (after sync)") { self.rehydrateFromCache() }         // apply anything that changed
             await self.realtime.connect(orgCode: orgCode, api: apiInstance,
                                    onChange: { [weak self] in self?.onRealtimeChange() },
                                    onReconnect: { [weak self] in self?.onRealtimeChange() },
@@ -383,7 +384,7 @@ class AppState {
                                    onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })        }
 
         updateDegradedPoll()   // starts the fallback poll until Ably connects
-        Task { await loadAll() }
+        Task { await LaunchTrace.measure("loadAll") { await loadAll() } }
         // Resolve the org's display name (cached server-side) so the sidebar
         // can render it above the current user. Failure is non-fatal — we
         // fall back to whatever was previously persisted.
@@ -404,10 +405,11 @@ class AppState {
     private func rehydrateFromCache() {
         guard let cache = localCache else { return }
         let dec = JSONDecoder()
-        let j = cache.readAll(SyncedJob.self).compactMap { try? dec.decode(Job.self, from: $0.payload) }
-        let p = cache.readAll(SyncedPerson.self).compactMap { try? dec.decode(Person.self, from: $0.payload) }
+        let j = LaunchTrace.measure("  rehydrate jobs") { cache.readAll(SyncedJob.self).compactMap { try? dec.decode(Job.self, from: $0.payload) } }
+        let p = LaunchTrace.measure("  rehydrate people") { cache.readAll(SyncedPerson.self).compactMap { try? dec.decode(Person.self, from: $0.payload) } }
         let c = cache.readAll(SyncedClient.self).compactMap { try? dec.decode(Client.self, from: $0.payload) }
-        let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
+        let m = LaunchTrace.measure("  rehydrate messages") { cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) } }
+        LaunchTrace.log("  rehydrate counts: jobs \(j.count) people \(p.count) messages \(m.count)")
         let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
         let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
         // SyncService has been writing this slice to the cache since productionhours
