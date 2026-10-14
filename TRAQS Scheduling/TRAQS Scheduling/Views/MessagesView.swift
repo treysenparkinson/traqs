@@ -1232,7 +1232,7 @@ struct ThreadDetailView: View {
                                 Button { showAttachSheet = true } label: {
                                     Image(systemName: "plus")
                                         .font(.system(size: 18, weight: .medium))
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(Color(hex: T.ink))   // black, not the tint
                                         .frame(width: 26, height: 26)   // 40 - 2×7 native inset
                                 }
                                 .nativeGlass(.circle)

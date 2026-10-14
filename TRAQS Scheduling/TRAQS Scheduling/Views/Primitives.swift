@@ -1943,7 +1943,10 @@ struct NativeGlass: ViewModifier {
         if prominent {
             shaped.buttonStyle(.glassProminent).tint(tint ?? Color(hex: T.accent))
         } else {
-            shaped.buttonStyle(.glass)
+            // Ink tint: `.glass` colours a label's default/`.primary` content with
+            // the button's tint — the app's blue — which turned the composer's +
+            // blue (2026-10-14). Labels that set their own colour keep it.
+            shaped.buttonStyle(.glass).tint(Color(hex: T.ink))
         }
     }
 
