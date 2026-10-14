@@ -294,7 +294,7 @@ private struct ZoomSource: ViewModifier {
 // The line is WHO PAINTED IT, not what kind of element it is. Apple's material
 // stays whatever the switch says; TRAQS's own blur-and-tint obeys it. So:
 //
-//   • BUTTONS stay glass — `GlassControl`, `GlassCircleButton`, `GlassCTA`.
+//   • BUTTONS stay glass — Apple's own button styles (NativeGlass, GlassKey).
 //   • THE TAB BAR is Apple's own (TabView's native bar), so it is glass on
 //     the system's terms, like the buttons.
 //   • EVERYTHING TRAQS PAINTS flattens, popups included — `GlassPanel`,
@@ -410,18 +410,6 @@ enum HeaderControl {
     static let diameter: CGFloat = 42
 }
 
-struct HeaderGlassCircle<Content: View>: View {
-    /// Kept as an alias so existing call sites reading it still compile.
-    static var diameter: CGFloat { HeaderControl.diameter }
-
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        content()
-            .frame(width: Self.diameter, height: Self.diameter)
-            .glassControl(in: Circle())
-    }
-}
 
 /// Capsule sibling of `HeaderGlassCircle`, for a header control that carries a
 /// label as well as a glyph. Same height, so it lines up with the round buttons
@@ -732,25 +720,24 @@ struct IconBtn: View {
     var action: () -> Void = {}
 
     var body: some View {
-        Button(action: action) {
-            if let fill {
-                // Explicit fill = a deliberate solid chip; leave it alone.
+        if let fill {
+            // Explicit fill = a deliberate solid chip; leave it alone.
+            Button(action: action) {
                 TIconView(icon: icon, size: size, color: iconColor)
                     .padding(pad)
                     .background(Circle().fill(fill))
                     .overlay(Circle().strokeBorder(stroke ?? Color(hex: T.border), lineWidth: 1))
-            } else {
-                // Glass, and sized by HeaderGlassCircle so these match every other
-                // header control. They were flat chips because clustered IconBtns
-                // were the last "glassEffect updated multiple times per frame"
-                // source on Jobs/Stats — glass again by request; that's the row to
-                // look at if the warning comes back.
-                HeaderGlassCircle {
-                    TIconView(icon: icon, size: size, color: iconColor)
-                }
+            }
+            .buttonStyle(.plain)
+        } else {
+            // Apple's own glass button (2026-10-14), the size of every header
+            // control. If the "glassEffect updated multiple times per frame"
+            // warning comes back on Jobs/Stats, clustered IconBtns are the row
+            // to look at.
+            GlassKey(size: HeaderControl.diameter, action: action) {
+                TIconView(icon: icon, size: size, color: iconColor)
             }
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -977,45 +964,8 @@ struct PageBackground: View {
     }
 }
 
-// ── GradientCTA: the primary action button (Stop / Start Timer / End Job) ──
-// Generic over its label so existing spinner/icon HStacks drop straight in.
-// `disabled` blocks taps; `dimmed` controls the 0.5 fade independently (so a
-// busy-but-full-color "STOPPING…/Ending…" state stays vivid while non-tappable).
-/// A primary action rendered as Liquid Glass instead of solid paint: a capsule
-/// of glass TINTED with the accent, so it still reads as the accent-coloured
-/// button it was, just made of the same material as everything around it.
-///
-/// Tinted, never clear. An untinted glass CTA is only as visible as whatever
-/// happens to be behind it, which for the one button a screen exists to get you
-/// to press is the wrong trade.
-///
-/// Falls back to the solid brand gradient when frosted glass is off — that IS
-/// the flat look for a CTA, so nothing is lost with the toggle down.
-struct GlassCTA<S: InsettableShape>: ViewModifier {
-    @Environment(ThemeSettings.self) private var theme
-    /// Capsule for a normal button; `Circle()` for the PIN pad's confirm key,
-    /// which is a round key and not a pill.
-    let shape: S
-    /// `nil` = the app accent, and the brand gradient as its flat fallback —
-    /// the primary-action look.
-    ///
-    /// A STATE-coloured button passes its own instead: Clock Out and STOP are
-    /// red because red is what they mean, and tinting them with the accent
-    /// would turn "end this" into just another blue button.
-    var tint: Color? = nil
 
-    func body(content: Content) -> some View {
-        // Accent only — the toggle doesn't reach buttons. `theme.accent` is
-        // still observed because a live Customize accent change has to re-tint
-        // this immediately, and T.accent isn't observable on its own.
-        _ = theme.accent
-        // Hit area = the glass — see GlassControl.
-        return content.contentShape(shape)
-            .glassEffect(.regular.tint(tint ?? Color(hex: T.accent)).interactive(), in: shape)
-    }
-}
-
-/// The label colour for a `glassCTA`.
+/// The label colour for a prominent (tinted) native glass button — see NativeGlass.
 ///
 /// White regardless of tint, matching `T.onAccent` — a label on a coloured
 /// button is white whatever the colour underneath it. See the note on
@@ -1027,31 +977,11 @@ func glassCTALabel(_ tint: Color? = nil) -> Color {
     .white
 }
 
-extension View {
-    /// See `GlassCTA`. The glass counterpart of a `GradientCTA` background.
-    func glassCTA() -> some View { glassCTA(in: Capsule()) }
-    /// Same, with a state colour and/or a shape of your own.
-    func glassCTA<S: InsettableShape>(in shape: S, tint: Color? = nil) -> some View {
-        modifier(GlassCTA(shape: shape, tint: tint))
-    }
-    /// Capsule, with a state colour — Clock Out red, STOP red.
-    func glassCTA(tint: Color?) -> some View { glassCTA(in: Capsule(), tint: tint) }
-
-    /// Picks a CTA's paint: tinted glass when asked for it, the solid brand
-    /// gradient otherwise. One place, so a glass CTA and a solid one can never
-    /// drift into different capsule shapes or paddings.
-    @ViewBuilder
-    func glassOrGradientCapsule(glass: Bool) -> some View {
-        if glass { glassCTA() }
-        else     { background(Capsule().fill(T.brandGradient())) }
-    }
-}
-
 struct GradientCTA<Label: View>: View {
     /// Observed so the glass/solid branch below re-renders when the Customize
     /// toggle or accent changes — the T.* tokens aren't observable on their own.
     @Environment(ThemeSettings.self) private var theme
-    /// Render as tinted Liquid Glass rather than solid gradient — see `GlassCTA`.
+    /// Render as Apple's tinted `.glassProminent` rather than the solid gradient — see NativeGlass.
     /// Opt-in per button, not the default: a screen full of glass CTAs has no
     /// primary action left, so this is for the ONE button a page is about.
     var glass: Bool = false
@@ -1090,11 +1020,11 @@ struct GradientCTA<Label: View>: View {
         // label is judged against THAT, not against the gradient's two stops.
         Button(action: action) {
             label()
-                .foregroundStyle(glass ? T.onAccent : T.onGradient)
+                .foregroundStyle(T.onGradient)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .padding(.vertical, verticalPadding)
                 .padding(.horizontal, fullWidth ? 0 : 20)
-                .glassOrGradientCapsule(glass: glass)
+                .background(Capsule().fill(T.brandGradient()))
                 .opacity(dimmed ? 0.5 : 1)
                 .scaleEffect(pressed && !disabled ? 0.97 : 1)
                 .shadow(color: Color(hex: T.ctaGlowColor)
