@@ -1454,27 +1454,23 @@ struct ThreadDetailView: View {
         // The keyboard moves NOTHING on this page except the composer, which
         // `keyboardLift` raises. The header stays fixed at all times.
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            let info = note.userInfo
-            let end = (info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
-            let screenH = UIApplication.shared.connectedScenes
-                .compactMap { ($0 as? UIWindowScene)?.screen.bounds.height }.first ?? end.maxY
-            let overlap = max(0, screenH - end.minY)
-            let lift = max(0, overlap - windowBottomInset)
-            let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-            let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
-            withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
-                keyboardLift = lift
+        // The composer rides the keyboard frame by frame (KeyboardTracker) —
+        // on an interactive swipe-down too, where UIKit sends no notifications
+        // until the drag ends. Inside a UIKit animation (a normal show/hide) the
+        // lift animates on the keyboard's own spring; during a drag it follows
+        // the finger directly.
+        .background(KeyboardTracker { height, duration in
+            let lift = max(0, height - windowBottomInset)
+            guard lift != keyboardLift else { return }
+            if duration > 0 {
+                withAnimation(.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)) {
+                    keyboardLift = lift
+                }
+            } else {
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { keyboardLift = lift }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
-            let info = note.userInfo
-            let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-            let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
-            withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
-                keyboardLift = 0
-            }
-        }
+        })
         .toolbar(.hidden, for: .navigationBar)
         // Hand the current thread to the app (push suppression, the app header); clear it on exit
         // (back button or swipe-back) so the window hides. onBack captures this
