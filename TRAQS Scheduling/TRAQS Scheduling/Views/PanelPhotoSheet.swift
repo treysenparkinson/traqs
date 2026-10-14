@@ -170,7 +170,7 @@ struct EndJobPhotoOverlay: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: 36, height: 36)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .glassControl(in: Circle())
         }
         .buttonStyle(.plain)
         .disabled(isWorking)
@@ -247,7 +247,7 @@ struct EndJobPhotoOverlay: View {
                         .font(.system(size: 34, weight: .light))
                         .foregroundStyle(Color(hex: T.accent))
                         .frame(width: 78, height: 78)
-                        .glassEffect(.regular.interactive(), in: Circle())
+                        .glassControl(in: Circle())
                         .glassEffectID("source.anchor", in: glassNS)
                 }
             }
@@ -292,7 +292,7 @@ struct EndJobPhotoOverlay: View {
             .foregroundStyle(Color(hex: T.ink))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .glassControl(in: Capsule())
             .glassEffectID(id, in: glassNS)
         }
         .buttonStyle(.plain)

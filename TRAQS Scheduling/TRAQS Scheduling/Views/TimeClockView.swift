@@ -945,7 +945,7 @@ private struct ClockPinOverlay: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.ink))
                             .frame(width: 40, height: 40)
-                            .glassEffect(.regular.interactive(), in: Circle())
+                            .glassControl(in: Circle())
                     }
                     .buttonStyle(.plain)
                     // Nudged in from 14: the corner radius above is big enough now

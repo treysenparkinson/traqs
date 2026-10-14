@@ -304,9 +304,16 @@ struct GlassHeader: View {
         }
     }
 
+    /// The glyph, with the capsule as its hit area — the glass is applied
+    /// OUTSIDE the Button/Menu, so without this only the glyph's pixels took a
+    /// tap (see GlassControl).
+    private func face(_ pill: HeaderPill) -> some View {
+        faceContent(pill).contentShape(Capsule())
+    }
+
     /// The glyph. Sized here, BEFORE `.glassEffect` captures it (§6).
     @ViewBuilder
-    private func face(_ pill: HeaderPill) -> some View {
+    private func faceContent(_ pill: HeaderPill) -> some View {
         switch pill.content {
         case .icon(let icon):
             TIconView(icon: icon, size: 18, color: Color(hex: T.ink))

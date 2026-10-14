@@ -1234,7 +1234,7 @@ struct ThreadDetailView: View {
                                         .contentShape(Circle())
                                 }
                                 .buttonStyle(.plain)
-                                .glassEffect(.regular.interactive(), in: Circle())
+                                .glassControl(in: Circle())
                                 .sheet(isPresented: $showAttachSheet, onDismiss: openPendingSource) {
                                     AttachSourceSheet { source in
                                         pendingSource = source
@@ -2702,7 +2702,7 @@ struct ThreadMembersPage<AddCover: View>: View {
                                     .font(.system(size: 26, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
                                     .frame(width: 80, height: 80)
-                                    .glassEffect(.regular.interactive(), in: Circle())
+                                    .glassControl(in: Circle())
                                 Text("Add")
                                     .font(TTypo.sm(13))
                                     .foregroundStyle(Color(hex: T.ink))
@@ -3078,7 +3078,7 @@ struct EditGroupPopup: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: 36, height: 36)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .glassControl(in: Circle())
         }
         .buttonStyle(.plain)
         .padding(18)
@@ -3247,7 +3247,7 @@ struct AddPeoplePopup: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: 36, height: 36)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .glassControl(in: Circle())
         }
         .buttonStyle(.plain)
         .padding(18)
@@ -3674,7 +3674,7 @@ struct NewMessageSheet: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
                     .frame(width: 36, height: 36)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glassControl(in: Circle())
             }
             .buttonStyle(.plain)
             .padding(18)

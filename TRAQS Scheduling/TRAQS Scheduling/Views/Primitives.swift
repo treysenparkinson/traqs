@@ -324,7 +324,11 @@ struct GlassControl<S: InsettableShape>: ViewModifier {
         var g: Glass = .regular
         if let tint { g = g.tint(tint) }
         if interactive { g = g.interactive() }
-        return content.glassEffect(g, in: shape)
+        // The WHOLE glass is the hit area, not just the glyph inside it. Without
+        // this a plain-styled button took taps only on its drawn pixels: a light
+        // tap on the glass animated the press and fired nothing, and only a firm
+        // press — a wider contact patch — reached the icon (2026-10-14).
+        return content.contentShape(shape).glassEffect(g, in: shape)
     }
 }
 
@@ -1005,8 +1009,9 @@ struct GlassCTA<S: InsettableShape>: ViewModifier {
         // still observed because a live Customize accent change has to re-tint
         // this immediately, and T.accent isn't observable on its own.
         _ = theme.accent
-        return content.glassEffect(.regular.tint(tint ?? Color(hex: T.accent)).interactive(),
-                                   in: shape)
+        // Hit area = the glass — see GlassControl.
+        return content.contentShape(shape)
+            .glassEffect(.regular.tint(tint ?? Color(hex: T.accent)).interactive(), in: shape)
     }
 }
 

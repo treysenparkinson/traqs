@@ -101,6 +101,7 @@ struct DecisionActions: View {
             .foregroundStyle(action.tint.map(glassCTALabel) ?? Color(hex: T.ink))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 13)
+            .contentShape(Capsule())   // the whole glass takes the tap — see GlassControl
             .glassEffect(glass(action.tint), in: Capsule())
             .glassEffectID(id, in: glassNS)
         }

@@ -2275,7 +2275,7 @@ private struct StartJobOverlay: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: T.ink))
                     .frame(width: 36, height: 36)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glassControl(in: Circle())
             }
             .buttonStyle(.plain)
             .padding(18)
