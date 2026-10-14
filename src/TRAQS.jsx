@@ -14691,7 +14691,7 @@ ${jobsCtx || "No jobs found."}`;
                 // sitting after it in the configured order are still live work.
                 rest.splice(0, rest.length, ...rest.filter(([k]) => !isFinished(k)), ...rest.filter(([k]) => isFinished(k)));
               }
-              else if (colKey === "pri") { const o = ["High", "Medium", "Low"]; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
+              else if (colKey === "pri") { const o = PRIORITIES; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
               else if (colKey === "jobNum" || colKey === "hrs") { rest.sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0)); }
               else if (colKey === "due" || colKey === "start" || colKey === "end") { rest.sort((a, b) => String(a[0]).localeCompare(String(b[0]))); }
               else { rest.sort((a, b) => String(a[1].label).localeCompare(String(b[1].label))); }
