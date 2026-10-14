@@ -1865,26 +1865,18 @@ private struct AttachmentBubble: View {
             }
     }
 
+    /// A photo's thumbnail is ONE fixed size, loading or loaded (2026-10-14). It
+    /// was a 200×150 placeholder that became the photo's own shape (up to
+    /// 220×260) once it arrived — after the thread had settled — so the
+    /// transcript grew past the bottom and snapped back. Cropped to fill; tapping
+    /// opens the whole photo.
+    static let thumbSide: CGFloat = 220
+
     @ViewBuilder private var thumbnail: some View {
         if isImage, let url {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFit()
-                case .failure:
-                    fileChip
-                case .empty:
-                    ZStack {
-                        RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface))
-                        ProgressView().tint(Color(hex: T.muted))
-                    }
-                    .frame(width: 200, height: 150)
-                @unknown default:
-                    EmptyView()
-                }
-            }
-            .frame(maxWidth: 220, maxHeight: 260)
-            .clipShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
+            CachedThumbnail(url: url) { fileChip }
+                .frame(width: Self.thumbSide, height: Self.thumbSide)
+                .clipShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
                 .stroke(Color(hex: T.hair), lineWidth: isMe ? 0 : 1))
         } else {
@@ -3794,4 +3786,65 @@ extension String {
 struct TranscriptGeometry: Equatable {
     let height: CGFloat
     let fromBottom: CGFloat
+}
+
+// MARK: - Cached photo thumbnail
+
+/// A remote image held in memory once loaded, so a photo seen once never
+/// reloads — scrolling back to it, or reopening the thread, draws it at once.
+/// AsyncImage re-fetched every time its row was rebuilt. Fills whatever frame
+/// the caller gives it; shows a quiet placeholder until loaded and `failure`
+/// if it can't be.
+struct CachedThumbnail<Failure: View>: View {
+    let url: URL
+    @ViewBuilder var failure: () -> Failure
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    private static var cache: NSCache<NSURL, UIImage> {
+        ThumbnailCache.shared
+    }
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if failed {
+                failure()
+            } else {
+                Rectangle().fill(Color(hex: T.surface))
+                ProgressView().tint(Color(hex: T.muted))
+            }
+        }
+        .task(id: url) {
+            if let hit = Self.cache.object(forKey: url as NSURL) { image = hit; return }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                // Decoded and downsized OFF the main thread: a full-size photo
+                // decoded on main is a dropped frame per thumbnail. 440pt covers
+                // the 220pt square at 2×.
+                let decoded = await Task.detached(priority: .userInitiated) {
+                    guard let full = UIImage(data: data) else { return nil as UIImage? }
+                    // Aspect kept: the SHORT side becomes 440, as the square crop needs.
+                    let k = 440 / max(1, min(full.size.width, full.size.height))
+                    guard k < 1 else { return full }
+                    return full.preparingThumbnail(of: CGSize(width: full.size.width * k,
+                                                              height: full.size.height * k))
+                }.value
+                guard let img = decoded else { failed = true; return }
+                Self.cache.setObject(img, forKey: url as NSURL)
+                image = img
+            } catch {
+                if !Task.isCancelled { failed = true }
+            }
+        }
+    }
+}
+
+enum ThumbnailCache {
+    static let shared: NSCache<NSURL, UIImage> = {
+        let c = NSCache<NSURL, UIImage>()
+        c.countLimit = 200
+        return c
+    }()
 }
