@@ -18008,7 +18008,9 @@ ${jobsCtx || "No jobs found."}`;
                   // is an interaction guard, NOT a lock — the op is still unfinished and
                   // still the thing being worked.
                   //
-                  // The reason it has to be blocked: an overrunning bar renders at a
+                  // SUPERSEDED (#102): the paragraph below is why overrunning bars WERE blocked. Its
+                  // premise — a drag measured from the stored start — stopped being true with #25.
+                  // The reason it had to be blocked: an overrunning bar renders at a
                   // PUSHED position (see overrunPushH), while handleTeamDrag bases its
                   // day/hour delta on the task's stored start. The two disagree by
                   // exactly the push, so a drag would land somewhere other than where it
@@ -18019,7 +18021,10 @@ ${jobsCtx || "No jobs found."}`;
                   // synthetic -- dragging it would aim a move at an op id that does not exist. It
                   // is also not this person's scheduled work to reschedule: the op's real bar lives
                   // on the row it was assigned to, and that is the one an admin moves.
-                  const _dragBlocked = !isPto && (_isOverrunning || bar.crossRow);
+                  // #102, ruled: an OVERRUNNING bar moves and resizes like any other. The block above
+                  // was for a drag that measured from the stored start; since #25 it anchors on the
+                  // painted position, and resize works from the painted start and end.
+                  const _dragBlocked = !isPto && bar.crossRow;
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
                   const bc = bar.color;

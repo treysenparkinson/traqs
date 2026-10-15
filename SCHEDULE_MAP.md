@@ -1671,7 +1671,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 99. When the label moves to a tail, the head still shows DONE/HELD/hours and the tail repeats the hours (J:19404–19406, 19470–19474).
 100. Tails never show lock, dep, DONE or HELD marks (J:19426–19478).
 101. The overrun extension has no distinct paint and no badge (J:17795).
-102. Overrun bars can't be dragged at all (J:19164).
+102. FIXED 2026-10-15 ON TREY'S RULING — "overrunning bars should be draggable. Work that ran long is exactly the work someone needs to move." `_dragBlocked` no longer includes `_isOverrunning`; only cross-row record bars stay held. Its stated reason was geometry — a drag measured from the stored start while the bar paints at its pushed position — and that stopped being true when #25 anchored the drag on the painted position (`_paintedDay = _layoutStart`); resize works from the painted start and end too. The old comment is kept, marked SUPERSEDED. NOT changed: a multi-drag MEMBER running over is still refused by name, because a member still moves from its stored position (#309) and would land somewhere it is not drawn. Held by overrun-drag-test (new, wired; scoped — red before); drag-move, bar-geometry, drag-ref, row-push green. WAS: Overrun bars can't be dragged at all (J:19164).
 103. There is no visual state for pending finish, finish requested, overdue vs `dueDate`, non-Finished job status, or the unclosed clock.
 104. The dep-group "locked" glyph is the same padlock as an op lock (J:19395–19396).
 105. FIXED 2026-10-15 WITH #318, which is the same defect written again later — see #318. WAS: Hover dimming keys on `task.pid`, so panel and op bars never dim as siblings (J:19184, 19391).
