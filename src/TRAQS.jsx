@@ -30946,17 +30946,11 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
         setCtxMenu(null);
-        let deleteTarget = { id: it.id, title: it.title, pid: null };
-        if (ctxMenu.source === "team") {
-          // Schedule tab bars are always panels/ops — resolve up to the parent job
-          let parentJob = null;
-          if (isOp) { for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } }
-          else if (isPanel) { parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); }
-          else { parentJob = tasks.find(j => j.id === it.id); }
-          if (parentJob) deleteTarget = { id: parentJob.id, title: parentJob.title, pid: null };
-        } else {
-          deleteTarget.pid = it.isSub ? it.pid : null;
-        }
+        // #167, ruled: the bar's OWN item. The schedule used to climb from an op or panel bar to
+        // its parent job and delete that — one right-click took the whole job. Deleting a job is
+        // the Jobs page's gesture, not a bar's.
+        const deleteTarget = { id: it.id, title: it.title, pid: null };
+        deleteTarget.pid = it.isSub ? it.pid : null;
         setConfirmDelete(deleteTarget);
       }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", ...ctxRowAnim(ci(), flipUp, ctxPlace?.count || 0) }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
