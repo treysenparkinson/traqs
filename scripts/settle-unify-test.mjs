@@ -316,7 +316,8 @@ console.log("\nE. IT IS WIRED — each statement named separately");
   ok("the settle no longer branches on billingTier",
     /overlap: billingTier === "business" \? overlapCtx : null/.test(CODE), false);
   ok("...and passes today instead",
-    /reflowJob\(t, \{ \.\.\.schedOpts, today: shopDay\(\) \}\)/.test(CODE), true);
+    // #415 added phaseIds to the same options; what this guards is that today is passed.
+    /reflowJob\(t, \{ \.\.\.schedOpts, today: shopDay\(\)(, phaseIds)? \}\)/.test(CODE), true);
   // THE TRIGGER. Named as the statement, not as the identifier: a bare
   // /movesSchedule/ would pass on the import line alone, which is how #70's
   // wiring assertion let a deleted CALL through.

@@ -3172,6 +3172,9 @@ const reflowJob = (job, opts) => {
   let out = job, subs = null;
   (job.subs || []).forEach((pn, i) => {
     if (!pn || pn.deletedAt) return;
+    // #415, ruled: settle only the phase(s) the edit touched. Absent, every phase settles
+    // (a job-level move touches them all). The rollup below always covers the whole job.
+    if (opts?.phaseIds && !opts.phaseIds.has(String(pn.id))) return;
     const moves = reflowPhaseOps(pn.subs, opts);
     if (!moves) return;
     if (!subs) subs = [...(job.subs || [])];
@@ -10838,7 +10841,7 @@ Extraction rules:
     // the queue rule's takesPart gate reads. NO TIER BRANCH: the overlap push this
     // used to carry is gone (#404 B), so nothing here is a paid feature any more --
     // and the gate matters MOST on Basic, where enforceNoOverlap does nothing.
-    const settle = (t) => (datesMoved ? reflowJob(t, { ...schedOpts, today: shopDay() }) : t);
+    const settle = (t, phaseIds = null) => (datesMoved ? reflowJob(t, { ...schedOpts, today: shopDay(), phaseIds }) : t);
     setTasks(p => p.map(t => {
     if (pid) {
       // Level 2: updating an operation (Wire/Cut/Layout) — moves independently, no chaining
@@ -10847,7 +10850,7 @@ Extraction rules:
         const panel = t.subs[panelIdx];
         const newOps = (panel.subs || []).map(op => op.id === id ? { ...op, ...upd } : op);
         let newSubs = [...t.subs]; newSubs[panelIdx] = { ...panel, subs: newOps };
-        return settle({ ...t, subs: newSubs });
+        return settle({ ...t, subs: newSubs }, new Set([String(pid)]));
       }
       // Level 1: updating a panel — operations move with it
       if (t.id === pid) {
@@ -10881,7 +10884,7 @@ Extraction rules:
           }
           return updated;
         });
-        return settle({ ...t, subs: newSubs });
+        return settle({ ...t, subs: newSubs }, new Set([String(id)]));
       }
       return t;
     }
