@@ -27820,6 +27820,9 @@ ${jobsCtx || "No jobs found."}`;
                     <div key={job.id}
                       onClick={() => {
                         setBcModalState("closing");
+                        // #161. The wizard is an edit; without editJobs its save is refused and
+                        // rolled back. Go where a bar click goes instead (#160's answer).
+                        if (!can("editJobs")) { openJobDetailOrEdit(job); return; }
                         setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setRunReport(null);
                         setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({});
                         setAiSuggestion(null);
