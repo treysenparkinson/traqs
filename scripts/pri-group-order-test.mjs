@@ -59,6 +59,15 @@ console.log("\n3. Status grouping is untouched (sanity: the slice is the real fu
     ["Not Started", "In Progress", "Finished"]);
 }
 
+// #471, ruled 2026-10-15: "sort by the org's priority ORDER, as #543 did for grouping". The
+// column sort already did — it keys on PRI_ORDER, which IS the org's PRIORITIES (priOpts order).
+// Held here so the sort and the grouping cannot drift onto different orders again.
+{
+  const Jn = J.replace(/\r\n/g, "\n");
+  ok("#471 the Jobs-list priority sort uses the org's own order", /const PRI_ORDER = PRIORITIES;/.test(Jn) && /pri:\s*t => PRI_ORDER\.indexOf\(/.test(Jn), true);
+  ok("#471 ...which is the org's priOpts list", /const PRIORITIES = useMemo\(\(\) => priOpts\.map\(o => o\.name\)/.test(Jn), true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass === 0) process.exit(2);
 process.exit(fail ? 1 : 0);
