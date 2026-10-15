@@ -52,5 +52,12 @@ const dimmed = (code.match(/hoverDim\(hoverJobKey\(bar\)\)/g) || []).length;
 ok(`#318 every bar writes the job key (${keyed})`, keyed >= 3);
 ok(`#318 every hover reads the job key (${dimmed})`, dimmed >= 3);
 ok("#318 the row label lists job keys", /data-row-pids=\{bars\.map\(hoverJobKey\)\.filter\(_k => _k != null\)\.join\(" "\)\}/.test(code));
+// The chip's own element: from its type check to the end of its return.
+const chipAt = code.indexOf('if (bar.type === "eng-chip") {');
+const chipEl = chipAt < 0 ? "" : code.slice(chipAt, code.indexOf("</div>;", chipAt));
+ok("#106 the engineering chip opts in to dimming", /data-bar-dim="1"/.test(chipEl));
+ok("#106 ...under its job's key", /data-pid=\{hoverJobKey\(bar\) \?\? undefined\}/.test(chipEl));
+ok("#106 ...and dims the others when hovered", /hoverDim\(hoverJobKey\(bar\)\)/.test(chipEl));
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -40,7 +40,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -15880,6 +15880,9 @@ ${jobsCtx || "No jobs found."}`;
               activeStep,
               panelTitle: panel.title,
               jobId: job.id,
+              // Carried so the schedule filter can find a chip by its job (#106).
+              jobNumber: job.jobNumber || null,
+              jobTitle: job.title,
               panelId: panel.id,
               task: { ...job, isSub: false },
               subs: [], hasSubs: false,
@@ -15985,25 +15988,15 @@ ${jobsCtx || "No jobs found."}`;
     // `hidden` flag when their dept is collapsed) so we can animate their height instead of
     // popping them in/out of the DOM.
     // Schedule-side bar filter — applied after getPersonBars returns so the bars list
-    // matches the active Schedule filter (status, client, job #). PTO and eng-chip bars
-    // are always kept since they aren't tied to a task status/client/job number.
-    const sJobNumQ = sFJobNum.trim().toLowerCase();
-    const sSearchQ = scheduleSearchQ.trim().toLowerCase();
-    const passesScheduleBarFilter = (b) => {
-      if (b.type !== "task") return true;
-      if (sFStat.length && !sFStat.includes(b.status || "Not Started")) return false;
-      if (sFClient.length) {
-        const cid = b.task?.grandPid || b.task?.pid;
-        const cJob = tasks.find(t => t.id === cid);
-        if (!cJob || !sFClient.includes(cJob.clientId)) return false;
-      }
-      if (sJobNumQ && !String(b.jobNumber || "").toLowerCase().includes(sJobNumQ)) return false;
-      if (sSearchQ) {
-        const hay = `${b.title || ""} ${b.task?.jobTitle || ""} ${b.task?.panelTitle || ""} ${b.jobNumber || ""}`.toLowerCase();
-        if (!hay.includes(sSearchQ)) return false;
-      }
-      return true;
+    // matches the active Schedule filter (status, client, job #, search). The rule is
+    // scheduleBarPasses in statsMath.js: PTO is always kept, an engineering chip is filtered
+    // through its job (#106), and only operations answer to the status filter.
+    const _schedBarFilter = {
+      statuses: sFStat, clientIds: sFClient,
+      jobNumQ: sFJobNum.trim().toLowerCase(), searchQ: scheduleSearchQ.trim().toLowerCase(),
+      clientOfJob: (jid) => { const j = tasksById.get(String(jid)); return j ? j.clientId : undefined; },
     };
+    const passesScheduleBarFilter = (b) => scheduleBarPasses(b, _schedBarFilter);
     // Schedule grid colours — the whole timeline lives on the SURFACE (lists & cards) color,
     // NOT the page background. Disabled days (weekends/holidays) are a darker hue of that
     // surface; group/sub rows + gridlines are subtle surface tints so it reads as one card.
@@ -17253,10 +17246,10 @@ ${jobsCtx || "No jobs found."}`;
                     // the chip is a bar like any other: if the fill cannot carry a label, step it.
                     const _chipFill = legibleBarColor(bar.allDone ? "#10b981" : "#3b82f6");
                     const _chipInk = barInk([_chipFill]);
-                    return <div key={bar.id}
+                    return <div key={bar.id} data-bar-dim="1" data-pid={hoverJobKey(bar) ?? undefined}
                       onClick={() => { if (chipJob) openDetail(chipJob); }}
                       style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 26, background: _chipFill, border: `1.5px solid ${_chipFill}66`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
-                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
+                      onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(hoverJobKey(bar)); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                       <span style={{ fontSize: 10, color: _chipInk, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
                       {!bar.allDone && <span style={{ fontSize: 9, color: _chipInk, marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
                       {bar.allDone && <span style={{ fontSize: 10, marginLeft: 4 }}>✓</span>}

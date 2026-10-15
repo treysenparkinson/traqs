@@ -1914,3 +1914,35 @@ export function hoverJobKey(bar) {
   const k = t.grandPid ?? t.pid;
   return k == null ? null : String(k);
 }
+
+// THE SCHEDULE'S BAR FILTER (status, client, job number, search), as a pure function so it can be
+// tested rather than read (#106). It used to wave every non-task bar through on the reasoning that
+// PTO and engineering chips "aren't tied to a task status/client/job number" — true of PTO, false
+// of a chip, which belongs to one job and so has a client, a job number and a title. A schedule
+// filtered to one client kept every other client's chips on the engineers' rows.
+//
+// The STATUS filter is the one a chip is exempt from: it filters operations by their status, and a
+// chip is not an operation and carries none.
+//
+//   f = { statuses: [], clientIds: [], jobNumQ: "", searchQ: "", clientOfJob: (jobId) => clientId }
+//   (jobNumQ and searchQ already trimmed and lower-cased)
+export function scheduleBarPasses(b, f) {
+  if (!b || b.type === "pto") return true;
+  const chip = b.type === "eng-chip";
+  if (!chip && b.type !== "task") return true;
+  const { statuses = [], clientIds = [], jobNumQ = "", searchQ = "", clientOfJob = () => undefined } = f || {};
+  if (!chip && statuses.length && !statuses.includes(b.status || "Not Started")) return false;
+  if (clientIds.length) {
+    const jobId = chip ? b.jobId : (b.task?.grandPid || b.task?.pid);
+    const cid = jobId == null ? undefined : clientOfJob(jobId);
+    if (cid === undefined || !clientIds.includes(cid)) return false;
+  }
+  if (jobNumQ && !String(b.jobNumber || "").toLowerCase().includes(jobNumQ)) return false;
+  if (searchQ) {
+    const hay = chip
+      ? `${b.title || ""} ${b.jobTitle || ""} ${b.panelTitle || ""} ${b.jobNumber || ""}`
+      : `${b.title || ""} ${b.task?.jobTitle || ""} ${b.task?.panelTitle || ""} ${b.jobNumber || ""}`;
+    if (!hay.toLowerCase().includes(searchQ)) return false;
+  }
+  return true;
+}
