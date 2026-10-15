@@ -1,6 +1,23 @@
 # Dynamic Schedule — Handoff / Status
 
-Last updated: 2026-09-18
+> **HISTORICAL — READ THE CODE, NOT THIS (SCHEDULE_MAP #276, 2026-10-15).**
+> This is the handoff for a branch that has since merged. What follows describes the
+> feature as it stood mid-September, and much of it is no longer true:
+>
+> - **Branch:** `feature/dynamic-schedule` is merged into `master`; it is not "NOT PUSHED",
+>   and the worktree paths below are one machine's, not the project's.
+> - **Deleted:** `computeCascadePushes`, `runClockCascade`, teleport and the 5-second cascade
+>   tick. The live sliver and drain mask are gone; `liveBadgeFor` returns only `held`/`paused`.
+> - **Kept, though this says remove it:** `shrunkStartH` is live (the shrinking left edge).
+> - **Push:** bars are TRANSLATED by `rowPushHours` (src/statsMath.js), not lengthened;
+>   `_pushIdleH` does not exist.
+> - **Approved bars:** `finishedOpFields` re-places them by a backward productive walk.
+>
+> The full list of disagreements is SCHEDULE_MAP.md §G.2, and **the code wins** wherever the
+> two differ. Line numbers throughout are from September and are stale. Kept for its
+> reasoning, not as a description of the code.
+
+Last updated: 2026-09-18 (body sections run to 09-22; the banner above is 2026-10-15)
 
 ## What this feature does
 
