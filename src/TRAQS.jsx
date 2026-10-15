@@ -13312,7 +13312,9 @@ ${jobsCtx || "No jobs found."}`;
       let open = null;
       for (const ev of evClock) { if (ev.type === "breakStart") open = ev.ts; else if (ev.type === "breakEnd") open = null; }
       if (open) return open;
-      const today = new Date(now).toISOString().slice(0, 10);
+      // The SHOP's day (#308): the server dates these events in the org's zone, and the UTC date
+      // moves on at 18:00 in Denver, which pointed this at tomorrow's events.
+      const today = shopDay(now);
       const tcl = (timeclock || [])
         .filter(e => String(e.personId) === String(p.id) && e.date === today && (e.eventType === "breakStart" || e.eventType === "breakEnd"))
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
