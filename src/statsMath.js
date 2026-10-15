@@ -1955,3 +1955,21 @@ export function nowColumnFrac({ nowHour, workStartH, totalWorkH }) {
   if (!Number.isFinite(nowHour) || !(totalWorkH > 0)) return 0;
   return Math.min(1, Math.max(0, (nowHour - workStartH) / totalWorkH));
 }
+
+// WHERE AN ENGINEERING CHIP SITS: across its panel's window, in day columns (#109, ruled —
+// "a sign-off applies to the panel for as long as the panel is live, so a span is truer than a
+// date"). `days` is the visible columns in order. Clamped to the window at both edges; null
+// when the panel has no start (nothing to span — #107's NaN) or lies wholly outside the window.
+export function chipSpanPct({ start, end }, days) {
+  if (!start || !Array.isArray(days) || !days.length) return null;
+  const last = end && end >= start ? end : start;
+  if (last < days[0] || start > days[days.length - 1]) return null;
+  const firstIdx = start <= days[0] ? 0 : days.findIndex(d => d >= start);
+  let lastIdx = days.length - 1;
+  if (last < days[days.length - 1]) {
+    const after = days.findIndex(d => d > last);
+    lastIdx = after - 1;
+  }
+  const n = days.length;
+  return { leftPct: (firstIdx / n) * 100, widthPct: ((lastIdx - firstIdx + 1) / n) * 100 };
+}

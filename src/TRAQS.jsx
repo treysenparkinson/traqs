@@ -41,7 +41,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -15879,15 +15879,18 @@ ${jobsCtx || "No jobs found."}`;
             if (panel.engineering === undefined) return; // not a panel job
             const e = panel.engineering || {};
             const allDone = !!(e.designed && e.verified && e.sentToPerforex);
-            // Position chip on wire start date (first op start), fallback to panel start
-            const wireOp = (panel.subs || []).find(op => op.title === "Wire");
-            const chipDate = wireOp ? wireOp.start : panel.start;
-            if (chipDate < _winS || chipDate > _winE) return;
+            // #109, ruled: the chip SPANS THE PANEL'S WINDOW — a sign-off applies to the panel
+            // for as long as it is live. It used to sit on one day, the start of the op titled
+            // "Wire" (a display title doing a data job). The panel's dates are its ops' rolled
+            // up. No start, no window, no chip — which also ends #107's NaN position.
+            if (!panel.start) return;
+            const chipEnd = panel.end && panel.end >= panel.start ? panel.end : panel.start;
+            if (chipEnd < _winS || panel.start > _winE) return;
             const activeStep = !e.designed ? "Designed" : !e.verified ? "Verified" : "Perforex";
             bars.push({
               type: "eng-chip",
               id: `eng-${job.id}-${panel.id}`,
-              start: chipDate, end: chipDate,
+              start: panel.start, end: chipEnd,
               title: `${panel.title} · ${activeStep}`,
               color: allDone ? "#10b981" : "#3b82f6",
               allDone,
@@ -17264,9 +17267,12 @@ ${jobsCtx || "No jobs found."}`;
                     // the chip is a bar like any other: if the fill cannot carry a label, step it.
                     const _chipFill = legibleBarColor(bar.allDone ? "#10b981" : "#3b82f6");
                     const _chipInk = barInk([_chipFill]);
+                    // Across the panel's window, in day columns (#109).
+                    const _chipSpan = chipSpanPct({ start: bar.start, end: bar.end }, days);
+                    if (!_chipSpan) return null;
                     return <div key={bar.id} data-bar-dim="1" data-pid={hoverJobKey(bar) ?? undefined}
                       onClick={() => { if (chipJob) openDetail(chipJob); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 26, background: _chipFill, border: `1.5px solid ${_chipFill}66`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${_chipSpan.leftPct}% + 2px)`, width: `calc(${_chipSpan.widthPct}% - 4px)`, minWidth: 24, height: rH - 8, borderRadius: 26, background: _chipFill, border: `1.5px solid ${_chipFill}66`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(hoverJobKey(bar)); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                       <span style={{ fontSize: 10, color: _chipInk, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
                       {!bar.allDone && <span style={{ fontSize: 9, color: _chipInk, marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
