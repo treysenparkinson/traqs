@@ -1,6 +1,6 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can } from "./_utils/can.js";
-import { readJson, writeJson } from "./_utils/s3.js";
+import { readJson } from "./_utils/s3.js";
 import { updateJson } from "./_utils/update-json.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -394,23 +394,12 @@ export async function handler(event) {
       // Block id/pin from being changed via this endpoint. id is the
       // primary key; pin should only flow through dedicated admin paths.
       const { id: _id, pin: _pin, ...allowedFields } = fields;
-
-      const existing = (await readJson(s3Key)) ?? [];
-      const idx = existing.findIndex(p => String(p.id) === String(personId));
-      if (idx === -1) return err(404, "Person not found");
-
-      // Non-admins may only patch THEIR OWN row (push token, profile color,
-      // etc.). Admins can patch anyone. Without this gate, any authenticated
-      // org member could overwrite a colleague's pushToken or department.
       const targetIsSelf = member.personId && String(member.personId) === String(personId);
-      if (!can(member, "manageTeam") && !targetIsSelf) {
-        return err(403, "Can only modify your own profile");
-      }
-
-      // Role changes still require admin even via PATCH.
-      if ("userRole" in allowedFields && allowedFields.userRole !== existing[idx].userRole) {
-        if (!can(member, "manageTeam")) return err(403, "Your account does not have permission to add, edit & remove team members");
-      }
+      // Read BEFORE the protected fields are stripped below — userRole is one of them, and
+      // the role check has always run first, so a non-admin asking to change their role is
+      // refused with a 403 rather than silently ignored.
+      const asksRole = "userRole" in allowedFields;
+      const askedRole = allowedFields.userRole;
 
       // Non-admins may only patch SAFE profile fields on their own row — strip
       // any escalation-sensitive fields (PTO/pay/permissions/department/…) so a
@@ -424,13 +413,13 @@ export async function handler(event) {
       // activeJobClock/activeClockIn/activeBreak and forge a session. Pinned for
       // every caller, admins included — admin corrections have their own actions.
       // Stripped in enforce; recorded in log (see _utils/rule-mode.js).
+      // Decided from the request alone, so it is settled BEFORE the write; the events
+      // are recorded only once the write has landed (#292).
       const sessionGuardMode = ruleMode("SCHEDULE_RULES_MODE");
+      const guarded = [];
       if (sessionGuardMode !== "off") {
-        const guarded = [];
         for (const k of PATCH_PINNED_SESSION_FIELDS) {
           if (!(k in allowedFields)) continue;
-          logRule("session-guard", { mode: sessionGuardMode, guard: "peoplePatch", field: k,
-            personId: String(personId), by: member.personId != null ? String(member.personId) : null });
           // The bound is "this field is server-owned at all" — there is no numeric limit to
           // breach, so the value is what the client tried to write and that is the whole of
           // the decision (#327). Clipped: activeJobClock carries a sessionSnapshot.
@@ -442,21 +431,44 @@ export async function handler(event) {
           });
           if (sessionGuardMode === "enforce") delete allowedFields[k];
         }
-        if (guarded.length) await recordRuleEvents(orgCodeFromHeader(event), guarded,
-          { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin, email: member.email });
       }
 
-      existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);
-      // A PATCH is an explicit modification of this one record, so advance its
-      // stamp directly (no diff needed — the caller changed a field on purpose).
-      existing[idx].lastModifiedAt = nowIso();
-      await writeJson(s3Key, existing);
+      // #292. ONE CONDITIONAL READ-MODIFY-WRITE. This read people.json, changed one row and
+      // PUT the whole file back, so anything written in between — an approval, a clock-in,
+      // another device's PATCH — was silently reverted. Every check that depends on the
+      // stored row runs inside the mutate, in the order it always ran, so a retry re-decides
+      // against the copy it is actually writing.
+      const result = await updateJson(s3Key, (stored) => {
+        const existing = Array.isArray(stored) ? stored : [];
+        const idx = existing.findIndex(p => p && String(p.id) === String(personId));
+        if (idx === -1) return { abort: err(404, "Person not found") };
+        // Non-admins may only patch THEIR OWN row (push token, profile color,
+        // etc.). Admins can patch anyone. Without this gate, any authenticated
+        // org member could overwrite a colleague's pushToken or department.
+        if (!can(member, "manageTeam") && !targetIsSelf) return { abort: err(403, "Can only modify your own profile") };
+        // Role changes still require admin even via PATCH.
+        if (asksRole && askedRole !== existing[idx].userRole && !can(member, "manageTeam")) {
+          return { abort: err(403, "Your account does not have permission to add, edit & remove team members") };
+        }
+        const next = existing.slice();
+        next[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);
+        // A PATCH is an explicit modification of this one record, so advance its
+        // stamp directly (no diff needed — the caller changed a field on purpose).
+        next[idx].lastModifiedAt = nowIso();
+        return { value: next, person: next[idx] };
+      });
+      if (result && "abort" in result) return result.abort;
+
+      for (const g of guarded) logRule("session-guard", { mode: g.mode, guard: g.guard, field: g.field,
+        personId: g.personId, by: member.personId != null ? String(member.personId) : null });
+      if (guarded.length) await recordRuleEvents(orgCodeFromHeader(event), guarded,
+        { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin, email: member.email });
       await publishChange(member.orgCode, "people", { ids: [String(personId)] });
       await sendSilentPush(member.orgCode, { entity: "people" });
 
       // Strip PIN before returning, matching the GET behavior; surface hasPin.
-      const { pin: _omit, ...safe } = existing[idx];
-      return json(200, { ...safe, hasPin: !!existing[idx].pin });
+      const { pin: _omit, ...safe } = result.person;
+      return json(200, { ...safe, hasPin: !!result.person.pin });
     } catch (e) {
       console.error("people PATCH error:", e);
       return err(500, "Failed to patch person");
@@ -515,16 +527,21 @@ export async function handler(event) {
 
     if (member.personId == null) return err(404, "Person not found");
     try {
-      const existing = (await readJson(s3Key)) ?? [];
-      const idx = existing.findIndex(p => String(p.id) === String(member.personId));
-      if (idx === -1) return err(404, "Person not found");
-      // Idempotent: a retry after the first call already landed must not
-      // re-stamp the tombstone and re-broadcast it to every client.
-      if (existing[idx].deletedAt) return json(200, { ok: true });
-
-      const { pin: _pin, ...rest } = existing[idx];
-      existing[idx] = softDelete({ ...rest, pushToken: null });
-      await writeJson(s3Key, existing);
+      // #292. One conditional read-modify-write, as the admin removal above: a PUT of the
+      // whole file put back anything written between its read and its write.
+      const result = await updateJson(s3Key, (stored) => {
+        const existing = Array.isArray(stored) ? stored : [];
+        const idx = existing.findIndex(p => p && String(p.id) === String(member.personId));
+        if (idx === -1) return { abort: err(404, "Person not found") };
+        // Idempotent: a retry after the first call already landed must not
+        // re-stamp the tombstone and re-broadcast it to every client.
+        if (existing[idx].deletedAt) return { abort: json(200, { ok: true }) };
+        const { pin: _pin, ...rest } = existing[idx];
+        const next = existing.slice();
+        next[idx] = softDelete({ ...rest, pushToken: null });
+        return { value: next };
+      });
+      if (result && "abort" in result) return result.abort;
       await publishChange(member.orgCode, "people", { ids: [String(member.personId)] });
       await sendSilentPush(member.orgCode, { entity: "people" });
       return json(200, { ok: true });
