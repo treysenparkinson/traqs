@@ -17728,6 +17728,10 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetailOrEdit(bar.task); } return; }
+                      // #381. No landing was projected during this drag, so there is nothing to
+                      // commit — not the bar's own start at work-start, which is where the
+                      // fallbacks below would have put it.
+                      if (!teamDragLiveRef.current) return;
                       const effStart = teamDragLiveRef.current?.snapStart ?? _dragBaseStart;
                       const finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
                       const dropPerson = lastDropPid || origPerson;
@@ -17807,6 +17811,9 @@ ${jobsCtx || "No jobs found."}`;
                       setTasks(prev => _build(prev));
                       setTimeout(() => doSaveRef.current(), 0);
                     };
+                    // #381. The landing belongs to THIS drag. It was never reset, so a drag whose
+                    // moves all failed to project a landing committed the previous drag's.
+                    teamDragLiveRef.current = null;
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
                     autoScrollRaf = requestAnimationFrame(autoScrollStep);
