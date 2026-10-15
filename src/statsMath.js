@@ -1092,7 +1092,11 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   if (typeof diffBD !== "function") return { pushes: out, atCursor };
 
   const anchor = list[0].start;
-  const dayFraction = (h) => Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay);
+  // Clamped at BOTH ends of the working day (#65). Before work start reads as 0; after work end
+  // reads as the whole day. Uncapped above, 22:00 on an 08:00-16:00 day was 13.1 productive
+  // hours — past today's end and into tomorrow — and every evening the cursor pushed
+  // tomorrow's untouched work into tomorrow afternoon.
+  const dayFraction = (h) => Math.min(productiveHoursPerDay, Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay));
   const startProd = (op) => diffBD(anchor, op.start) * productiveHoursPerDay + dayFraction(op.startHour);
   // Now on the same line. Deliberately the SAME formula as startProd rather than a true
   // productive-hours elapsed: two axes that disagree by a lunch break would put the cursor in

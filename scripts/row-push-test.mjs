@@ -868,5 +868,17 @@ let leafRedOk = true;
     console.log(`red proof: the old rule gives Draven a bar for a panel whose ops are all Tyler's`);
   }
 }
+// ── #65: after hours, the cursor stops at the end of the working day ─────
+// `dayFraction` was capped below (before work start reads as 0) and not above, so at 22:00
+// on an 08:00-16:00 day the cursor read 14/8 of a day = 13.125 productive hours: past the end
+// of today and 5.6 hours into tomorrow. An op scheduled for tomorrow morning, which nobody can
+// have started, was pushed to tomorrow afternoon every evening.
+eq("#65 after hours: an op scheduled for tomorrow does not move",
+  asObj(rowPushHours({ ops: [op("a", "2026-09-15")], nowDay: "2026-09-14", nowHour: 22, cfg: CFG })), {});
+eq("#65 after hours: today's untouched op slides to the end of today, not into tomorrow",
+  asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 22, cfg: CFG })), { a: 7.5 });
+eq("#65 exactly at work end is still the end of the day",
+  asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 16, cfg: CFG })), { a: 7.5 });
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk && growRedOk && leafRedOk ? 0 : 1);

@@ -1613,7 +1613,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 62. There are five inconsistent definitions of overlap (J:18512, 9608, 9750, 9480, 3461).
 63. "Move only this one" deliberately commits an overlap (J:18941, 19136, 34826).
 64. The row push axis is clock-linear while the render spends it lunch-aware, so collisions land off the blocker's end (S:183 vs J:17881) [inferred].
-65. `rowPushHours` `dayFraction` isn't capped at ppd after hours (S:183).
+65. FIXED 2026-10-15 — `dayFraction` in `rowPushHours` (src/statsMath.js) is now clamped to [0, ppd]. Measured before the fix on an 08:00–16:00, 7.5 h day: at 22:00 the cursor read 13.125 productive hours, so an untouched op scheduled for TOMORROW was pushed 5.6 h into tomorrow and today's op ran 5.6 h past the end of today — every evening. Held by row-push-test ("#65 after hours", three assertions); mutant (cap removed) caught by two. WAS: `rowPushHours` `dayFraction` isn't capped at ppd after hours (S:183).
 66. `rowPushHours` needs sorted input, enforced only by the caller (S:182, J:17531).
 67. `hasActiveSession` is passed to `rowPushHours` and ignored (J:17577, S:932).
 68. Two row-push mechanisms coexist (`overrunPushH` and `rowPushHours`) (J:17497, 17552).
