@@ -1,4 +1,4 @@
-// Edit entry points that must ask for the permission before they open — #161.
+// Edit and delete entry points that must ask before they act — #161, #165.
 //
 // #161: clicking a job in the TRAQS Cloud tray (jobs parked by Schedule Later) opened the
 // scheduling wizard for anyone. The save was refused by /tasks and rolled back, so nothing was
@@ -29,6 +29,21 @@ const wizardAt = click.search(/setModal\(\{\s*type:\s*"edit"/);
 ok("#161 the tray click opens the wizard", wizardAt > 0);
 ok("#161 ...only after asking for editJobs", gateAt >= 0 && gateAt < wizardAt);
 ok("#161 without it, the click goes where a bar click goes", /openJobDetailOrEdit\(job\)/.test(click.slice(gateAt, wizardAt)));
+
+// #165. Bulk bar delete removed tasks from jobs someone was clocked into; a single delete has
+// always refused that (delTask -> blockedByActiveClock). The bulk Delete must ask the same
+// question of every job its plan touches, and ask it BEFORE it deletes.
+{
+  const modalAt = S.indexOf("{/* Bar Delete Confirmation Modal */}");
+  const delAt = S.indexOf("applyBarDelete(prev, selBars)", modalAt);
+  const btnAt = S.lastIndexOf("onClick={() => {", delAt);
+  const del = S.slice(btnAt, S.indexOf("}}>Delete</Btn>", delAt)).replace(/^\s*\/\/.*$/gm, "");
+  const guardAt = del.search(/blockedByActiveClock\(/);
+  const applyAt = del.search(/applyBarDelete\(/);
+  ok("#165 the bulk Delete is found", modalAt > 0 && delAt > modalAt && applyAt > 0);
+  ok("#165 ...it asks blockedByActiveClock before it deletes", guardAt >= 0 && guardAt < applyAt);
+  ok("#165 ...of every job in the delete plan", /planBarDelete\(/.test(del.slice(0, guardAt)) && /\.jobs\.(some|find|filter)\(/.test(del.slice(0, applyAt)));
+}
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

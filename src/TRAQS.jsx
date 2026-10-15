@@ -31567,6 +31567,10 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", gap: 10 }}>
           <Btn variant="secondary" style={{ flex: 1 }} onClick={() => setBarDeleteConfirmOpen(false)}>Cancel</Btn>
           <Btn style={{ flex: 1 }} onClick={() => {
+            // #165. The single delete refuses a job someone is clocked into (delTask); this did
+            // not ask at all. Same question, of every job the plan touches, and the whole delete
+            // is refused if any of them has someone on the clock — blockedByActiveClock names them.
+            if (planBarDelete(tasks, selBars).jobs.some(j => blockedByActiveClock(j.jobId))) { setBarDeleteConfirmOpen(false); return; }
             setTasks(prev => applyBarDelete(prev, selBars));
             setSelBars(new Set()); setBarSelectMode(false); setBarDeleteConfirmOpen(false);
           }}>Delete</Btn>
