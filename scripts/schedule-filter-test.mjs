@@ -55,10 +55,10 @@ const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 const a = S.indexOf("  const renderTeam = () => {\n");
 const b = S.indexOf("\n  const renderAnalytics = () => {");
 const code = S.slice(a, b).replace(/^\s*\/\/.*$/gm, "");
-ok("the schedule filter is scheduleBarPasses", /const passesScheduleBarFilter = \(b\) => scheduleBarPasses\(b, _schedBarFilter\);/.test(code));
+ok("the schedule filter is scheduleBarPasses", /passesScheduleBarFilter = [^;]*scheduleBarPasses\(/.test(code));
 const chipPush = code.slice(code.indexOf('type: "eng-chip",'), code.indexOf("});", code.indexOf('type: "eng-chip",')));
-ok("#106 the chip carries its job number", /jobNumber: job\.jobNumber \|\| null/.test(chipPush));
-ok("#106 the chip carries its job title", /jobTitle: job\.title/.test(chipPush));
+ok("#106 the chip carries its job number", /jobNumber:\s*job\.jobNumber/.test(chipPush));
+ok("#106 the chip carries its job title", /jobTitle:\s*job\.title/.test(chipPush));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

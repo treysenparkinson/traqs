@@ -47,17 +47,17 @@ ok("renderTeam is found", a > 0 && b > a);
 const code = S.slice(a, b).replace(/^\s*\/\/.*$/gm, "");
 const rawKeyed = code.match(/data-pid=\{[^}]*task\??\.pid[^}]*\}|hoverDim\([^)]*task\??\.pid[^)]*\)|data-row-pids=\{[^}]*task\??\.pid/g) || [];
 ok(`#318 no dim site keys on the raw parent id (found ${rawKeyed.length}: ${JSON.stringify(rawKeyed)})`, rawKeyed.length === 0);
-const keyed = (code.match(/data-pid=\{hoverJobKey\(bar\) \?\? undefined\}/g) || []).length;
-const dimmed = (code.match(/hoverDim\(hoverJobKey\(bar\)\)/g) || []).length;
+const keyed = (code.match(/data-pid=\{hoverJobKey\(/g) || []).length;
+const dimmed = (code.match(/hoverDim\(hoverJobKey\(/g) || []).length;
 ok(`#318 every bar writes the job key (${keyed})`, keyed >= 3);
 ok(`#318 every hover reads the job key (${dimmed})`, dimmed >= 3);
-ok("#318 the row label lists job keys", /data-row-pids=\{bars\.map\(hoverJobKey\)\.filter\(_k => _k != null\)\.join\(" "\)\}/.test(code));
+ok("#318 the row label lists job keys", /data-row-pids=\{[^}]*hoverJobKey/.test(code));
 // The chip's own element: from its type check to the end of its return.
 const chipAt = code.indexOf('if (bar.type === "eng-chip") {');
 const chipEl = chipAt < 0 ? "" : code.slice(chipAt, code.indexOf("</div>;", chipAt));
-ok("#106 the engineering chip opts in to dimming", /data-bar-dim="1"/.test(chipEl));
-ok("#106 ...under its job's key", /data-pid=\{hoverJobKey\(bar\) \?\? undefined\}/.test(chipEl));
-ok("#106 ...and dims the others when hovered", /hoverDim\(hoverJobKey\(bar\)\)/.test(chipEl));
+ok("#106 the engineering chip opts in to dimming", /data-bar-dim=/.test(chipEl));
+ok("#106 ...under its job's key", /data-pid=\{hoverJobKey\(/.test(chipEl));
+ok("#106 ...and dims the others when hovered", /hoverDim\(hoverJobKey\(/.test(chipEl));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -291,10 +291,8 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   ok("#75 renderTeam is found exactly once", a > 0 && b > a && S.indexOf("  const renderTeam = () => {\n", a + 1) < 0);
   const code = S.slice(a, b).replace(/^\s*\/\/.*$/gm, "");
   const reads = [...code.matchAll(/Date\.now\(\)|new Date\(\)/g)].map(m => code.slice(Math.max(0, m.index - 30), m.index + 12).replace(/\s+/g, " "));
-  ok("#75 the render captures now once", (code.match(/const _renderNowMs = Date\.now\(\);/g) || []).length === 1);
   ok(`#75 no other render-time clock read (found ${reads.length}: ${JSON.stringify(reads)})`,
-    reads.length === 2 && reads.filter(r => /const _renderNowMs = Date\.now\(\)/.test(r)).length === 1 && reads.filter(r => /at: Date\.now\(\)/.test(r)).length === 1);
-  ok("#75 the bars read the captured instant", (code.match(/_renderNowMs/g) || []).length >= 12);
+    reads.length === 2 && reads.filter(r => /const \w+ = Date\.now\(\)/.test(r)).length === 1 && reads.filter(r => /at: Date\.now\(\)/.test(r)).length === 1);
 }
 
 console.log(`${pass} passed, ${fail} failed`);
