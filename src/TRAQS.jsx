@@ -27,6 +27,7 @@ import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { applyBarDelete, planBarDelete } from "./barDelete.js";
 import { holdsDateEdit, withDraftValue, overlayDraft, flushPatch, completionPatch } from "./schedDraft.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
+import { pinErrorMessage } from "./pinMessage.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, deletePerson, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, ensureCompletionGroupAction, savePeopleFields, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -20030,7 +20031,11 @@ ${jobsCtx || "No jobs found."}`;
           body: JSON.stringify({ action: "identify", pin }),
         }).then(r => r.json());
 
-        if (!res.ok || res.personId !== loggedInUser.id) {
+        if (!res.ok) {
+          const _msg = pinErrorMessage(res);
+          if (_msg) alert(_msg);
+          else { setPinError(true); setTimeout(() => { setPinError(false); }, 600); }
+        } else if (res.personId !== loggedInUser.id) {
           setPinError(true); setTimeout(() => { setPinError(false); }, 600);
         } else {
           setPinPerson({ ...loggedInUser, _pin: pin });
@@ -20138,7 +20143,9 @@ ${jobsCtx || "No jobs found."}`;
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: null } : p));
           closePin();
         } else {
-          setPinError(true); setTimeout(() => setPinError(false), 600);
+          const _msg = pinErrorMessage(res);
+          if (_msg) alert(_msg);
+          else { setPinError(true); setTimeout(() => setPinError(false), 600); }
         }
       } catch { alert("Network error"); } finally { setPinLoading(false); }
     };
@@ -20159,7 +20166,9 @@ ${jobsCtx || "No jobs found."}`;
           setTimeclock(tc => [...tc, res.event]);
           closePin();
         } else {
-          setPinError(true); setTimeout(() => setPinError(false), 600);
+          const _msg = pinErrorMessage(res);
+          if (_msg) alert(_msg);
+          else { setPinError(true); setTimeout(() => setPinError(false), 600); }
         }
       } catch { alert("Network error"); } finally { setPinLoading(false); }
     };
