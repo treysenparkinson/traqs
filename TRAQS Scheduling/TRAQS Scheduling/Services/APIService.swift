@@ -185,9 +185,13 @@ struct APIService {
     /// Returns the ids the server refused to overwrite — see `JobsSaveReply`.
     /// A refusal throws `ServerMessageError` carrying the server's own sentence,
     /// so a permission or rule failure no longer reads as a network one.
+    ///
+    /// Sent as the delta envelope (#291): every job as an upsert plus the ids this device
+    /// deleted. A bare array made the server tombstone every stored job missing from it,
+    /// including ones created elsewhere after this device loaded.
     @discardableResult
-    func saveJobs(_ jobs: [Job]) async throws -> [String] {
-        let body = try JSONEncoder().encode(jobs)
+    func saveJobs(_ jobs: [Job], deleting: [String]) async throws -> [String] {
+        let body = try JobsSaveEnvelope(upsert: jobs, delete: deleting).encoded()
         let req = try await request("tasks", method: "POST", body: body)
         let (data, response) = try await send(req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {

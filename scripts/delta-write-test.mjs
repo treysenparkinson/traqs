@@ -8,7 +8,8 @@
 // THE BLOCKER was that `reconcileDeletions` infers deletion from ABSENCE, so a
 // partial POST reads as a mass delete. Deletion becomes explicit — an envelope
 // `{ upsert, delete }` — and the bare array still works, detected BY SHAPE so no
-// version flag exists to get wrong. iOS encodes a bare `[Job]` and is untouched.
+// version flag exists to get wrong. iOS encoded a bare `[Job]` until #291; it sends the
+// envelope now (section with #291 below).
 //
 // THE GUARD IS THE POINT OF THIS SUITE. The 2026-06-03 incident guard keyed on
 // the request's SHAPE (`tasks.length === 0`), and under an envelope that breaks
@@ -294,6 +295,26 @@ console.log("\n9. THE HANDLER ITSELF — the guard, exercised end to end");
   const legacy = await post(SIXTY_FOUR.slice(0, 10));
   ok("a bare array still deletes by absence", [legacy.statusCode, liveNow()], [200, 10]);
 
+  // #291. THE PHONE'S SAVE, both ways. A phone loaded 10 jobs; someone else then created
+  // "fresh"; the phone deleted j3 and saved. As a bare array (what iOS sent until #291) the
+  // save tombstoned "fresh", a job the phone never saw. As the envelope iOS sends now —
+  // every job it has, plus the one it deleted — "fresh" is not mentioned and survives.
+  {
+    const TEN = SIXTY_FOUR.slice(0, 10);
+    const phoneAfterDelete = TEN.filter(j => j.id !== "j3");
+    reset([...TEN, job("fresh")]);
+    await post(phoneAfterDelete);
+    // "Live" rather than "tombstoned": this loader stubs timestamps.js, under which an absent
+    // job is dropped rather than tombstoned. Either way it is gone, which is the defect.
+    const liveHas = (id) => storedNow().some(r => r && r.id === id && !r.deletedAt);
+    ok("#291 RED: the old bare-array save deletes a job created after the phone loaded", liveHas("fresh"), false);
+    reset([...TEN, job("fresh")]);
+    const phone = await post({ upsert: phoneAfterDelete, delete: ["j3"] });
+    ok("#291 the phone's envelope save is accepted", phone.statusCode, 200);
+    ok("#291 ...a job the phone never saw survives it", liveHas("fresh"), true);
+    ok("#291 ...and the phone's own delete still lands", liveHas("j3"), false);
+  }
+
   // ?force=1 still overrides, which is how an org is intentionally cleared.
   reset(SIXTY_FOUR);
   const forced = await post([], { force: "1" });
@@ -362,11 +383,27 @@ console.log("\n9. THE HANDLER ITSELF — the guard, exercised end to end");
   }
 }
 
-console.log("\n10. iOS IS UNTOUCHED");
+console.log("\n10. iOS SENDS THE ENVELOPE (#291 — it was left on the bare array by #339)");
 {
   const swift = read("../TRAQS Scheduling/TRAQS Scheduling/Services/APIService.swift");
-  ok("iOS still encodes a bare array", /JSONEncoder\(\)\.encode\(jobs\)/.test(swift), true);
-  ok("...and still reads the same reply", /JobsSaveReply\.conflicts\(in: data\)/.test(swift), true);
+  const at = swift.indexOf("func saveJobs(");
+  const fn = swift.slice(at, swift.indexOf("\n    }\n", at));
+  ok("#291 iOS saveJobs encodes the delta envelope", /JobsSaveEnvelope\(upsert:/.test(fn), true);
+  ok("#291 ...and no longer a bare jobs array", /JSONEncoder\(\)\.encode\(jobs\)/.test(fn), false);
+  ok("...and still reads the same reply", /JobsSaveReply\.conflicts\(in: data\)/.test(fn), true);
+  const env = read("../TRAQS Scheduling/TRAQS Scheduling/Services/JobDeletions.swift");
+  ok("#291 the envelope's keys are the ones tasks.js detects by shape", /let upsert: \[Job\]/.test(env) && /let delete: \[String\]/.test(env), true);
+  // The wiring. The Swift suite (JobDeletionsTests) covers the tracker; it cannot see whether
+  // AppState feeds it. Each user-edit path must record, the save must confirm only what it
+  // sent, and logout must reset — or a deletion is lost, or a logout becomes a mass delete.
+  const app = read("../TRAQS Scheduling/TRAQS Scheduling/Services/AppState.swift").replace(/^\s*\/\/.*$/gm, "");
+  const body = (name) => { const a = app.indexOf(name); return a < 0 ? "" : app.slice(a, app.indexOf("\n    }\n", a)); };
+  ok("#291 updateJobs records deletions", /jobDeletions\.record\(from: jobs, to: newJobs\)/.test(body("func updateJobs(")), true);
+  ok("#291 undo records them", /jobDeletions\.record\(/.test(body("func undo()")), true);
+  ok("#291 redo records them", /jobDeletions\.record\(/.test(body("func redo()")), true);
+  ok("#291 a failed save's rollback records them (restoring what came back)", /jobDeletions\.record\(from: jobs, to: snap\)/.test(app), true);
+  ok("#291 the save sends the pending ids and confirms only those", /saveJobs\(jobs, deleting: Array\(sentDeletes\)\)[\s\S]{0,60}jobDeletions\.confirm\(sentDeletes\)/.test(body("func persistJobs(")), true);
+  ok("#291 logout resets them", /jobs = \[\];[^\n]*\n\s*jobDeletions\.reset\(\)/.test(app), true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

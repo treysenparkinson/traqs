@@ -550,6 +550,7 @@ class AppState {
         localCache?.clearAll()
         localCache?.close()
         jobs = []; people = []; clients = []; messages = []; groups = []
+        jobDeletions.reset()
         configuredOrgCode = nil
         // The confirmation belongs to the person who just logged out. Leaving it
         // set would make `writePushToken` skip the next account's registration on
@@ -563,6 +564,8 @@ class AppState {
     /// Rollback snapshot for the debounced job save: the jobs state as of the
     /// last confirmed save, captured before the first edit of a debounce batch.
     private var rollbackSnapshot: [Job]?
+    /// Jobs the user deleted here and the server has not yet confirmed (#291). See JobDeletions.
+    private var jobDeletions = JobDeletions()
 
     /// Start NWPathMonitor once. Offline is DEBOUNCED ~2s (a brief hiccup
     /// shouldn't flash the indicator — adversarial #6); coming back online is
@@ -876,6 +879,7 @@ class AppState {
         // state. Cleared on the next successful persist. Rapid edits coalesce
         // into one save (adversarial #5) and share this one snapshot.
         if rollbackSnapshot == nil { rollbackSnapshot = jobs }
+        jobDeletions.record(from: jobs, to: newJobs)
         jobs = newJobs
         // Mirror the edit into the cache IMMEDIATELY, before the debounced save.
         // Otherwise a concurrent inbound Ably delta (which writes the cache and
@@ -2191,14 +2195,18 @@ class AppState {
     func undo() {
         guard can(.undoHistory), !undoStack.isEmpty else { return }
         redoStack.append(jobs)
-        jobs = undoStack.removeLast()
+        let restored = undoStack.removeLast()
+        jobDeletions.record(from: jobs, to: restored)
+        jobs = restored
         scheduleSave()
     }
 
     func redo() {
         guard can(.undoHistory), !redoStack.isEmpty else { return }
         undoStack.append(jobs)
-        jobs = redoStack.removeLast()
+        let redone = redoStack.removeLast()
+        jobDeletions.record(from: jobs, to: redone)
+        jobs = redone
         scheduleSave()
     }
 
@@ -2224,7 +2232,11 @@ class AppState {
     private func persistJobs() async {
         guard let api else { return }
         do {
-            let conflicts = try await api.saveJobs(jobs)
+            // Only the deletes this save carries are confirmed by it; one made while it is in
+            // flight is still owed (#291).
+            let sentDeletes = jobDeletions.pending
+            let conflicts = try await api.saveJobs(jobs, deleting: Array(sentDeletes))
+            jobDeletions.confirm(sentDeletes)
             rollbackSnapshot = nil        // batch confirmed on the server
             syncFailed = false
             saveStatus = .saved
@@ -2245,7 +2257,7 @@ class AppState {
             // last confirmed state so the edit visibly returns (not silently
             // kept), flag the error dot, and toast. Assigning `jobs` directly
             // (not via updateJobs) avoids re-triggering a save loop.
-            if let snap = rollbackSnapshot { jobs = snap; rollbackSnapshot = nil }
+            if let snap = rollbackSnapshot { jobDeletions.record(from: jobs, to: snap); jobs = snap; rollbackSnapshot = nil }
             syncFailed = true
             saveStatus = .error(error.localizedDescription)
             // The server's own sentence when it answered (a rule or permission
