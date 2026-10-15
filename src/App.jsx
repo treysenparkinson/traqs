@@ -1752,6 +1752,11 @@ function AuthGate() {
     // isMember is false. Membership is still the real boundary -- requireOrgMember
     // rejects anyone who is neither in people.json nor in config.adminEmails.
     if (!orgConfig.domain) return;
+    // #422, ruled: ENFORCEMENT FOLLOWS THE TIER. The domain setting is Business-only, so its
+    // restriction is too — an org moved to Basic otherwise kept a lock with no control left that
+    // could see or clear it. Unknown tier fails open, as no domain does: membership, enforced by
+    // requireOrgMember on the server, is the real boundary.
+    if (orgConfig.tier !== "business") return;
     const emailDomain = user.email?.split("@")[1]?.toLowerCase();
     if (emailDomain !== orgConfig.domain?.toLowerCase()) {
       setStep("domain-error");
@@ -1759,7 +1764,7 @@ function AuthGate() {
     // isMember is a dependency, not just a read: without it the effect returns
     // early on `undefined` and never runs again once the answer arrives, so a
     // non-member with a mismatched domain would never be bounced at all.
-  }, [isAuthenticated, user, orgConfig?.domain, orgConfig?.isMember, selectedPerson]);
+  }, [isAuthenticated, user, orgConfig?.domain, orgConfig?.isMember, orgConfig?.tier, selectedPerson]);
 
   // REDEEM THE INVITE. Runs after authentication and BEFORE the membership
   // check below, because redeeming is what makes the invitee a member -- run it

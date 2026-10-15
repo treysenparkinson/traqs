@@ -84,8 +84,14 @@ export async function handler(event) {
     // Strip admin PII — the whole reason this endpoint exists is so the client
     // never receives adminEmail(s); it relies on the server-derived isAdmin below.
     const { adminEmail, adminEmails, ...safeConfig } = config;
+    // THE TIER, so the client can enforce what the tier offers (#422): the sign-in domain is a
+    // Business control, and its restriction must not outlive a move to Basic. Read the way
+    // tasks.js reads it — no billing record is Basic.
+    let tier = "basic";
+    try { tier = (await readJson(`orgs/${member.orgCode}/billing.json`))?.tier || "basic"; } catch { tier = "basic"; }
     return json(200, {
       ...safeConfig,
+      tier,
       // Server-derived authorization signals. The client should rely on
       // these, not on comparing emails locally.
       isMember: personId != null,
