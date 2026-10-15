@@ -1683,8 +1683,8 @@ Everything else was read at the cited line. Nothing was run against live data.
 111. The lock border and grips are white, which disappears on light themes (J:19390, 19392, 17252).
 112. The select border and check are hard-coded `#fff` (J:19390, 19394).
 113. `_schedDk` uses `hexLum < 0.5` instead of `wantsLightText` (J:16753).
-114. The highlighted bar ties the sticky column at z10 and paints over names on scroll [inferred].
-115. The today line crosses the sticky name column in month zoom (J:19498, 17602) [inferred].
+114. FIXED 2026-10-15 — the [inferred] is now MEASURED, then fixed. The bar area under a row creates no stacking context (`position: relative`, no z-index), so bars and the sticky name cell compete in one context; a highlighted bar's z10 tied the cell's z10 and won on tree order. Reproduced in headless Chrome on that structure: at z10, `elementFromPoint` over the names returned the BAR; with the cell at 14 it returns the cell. Both row-level sticky name cells now use `STICKY_NAME_Z = 14` — above bars (≤10) and the today line/dot (12/13), below the header's own sticky cell (15) and the drag feedback (34-40). Held by sticky-names-test (new, wired; reads the z-indexes the render uses and holds the ordering); mutants caught (the constant back at 10, and at 12). WAS: The highlighted bar ties the sticky column at z10 and paints over names on scroll [inferred].
+115. FIXED 2026-10-15 WITH #114 — measured the same way: at the cell's z10 the today line (z12) won `elementFromPoint` over the names; at STICKY_NAME_Z = 14 the names win. Held by sticky-names-test (#115). WAS: The today line crosses the sticky name column in month zoom (J:19498, 17602) [inferred].
 116. The external live label overlaps neighbouring bars (z8 over z4) [inferred].
 117. `barDropIn` and `scheduleGlow` animations override dim, fade, hover, selected and locked styles (J:1039, 1043).
 118. The row-header team-number label differs between day and week/month (J:17221 vs 17607).

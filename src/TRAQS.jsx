@@ -3038,6 +3038,12 @@ function TimeField({ value, onChange, style = {}, stepMinutes = 15, portal = fal
 // another person appears to do nothing. Compare person ids through these — never
 // with === or Array.includes.
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+// THE SCHEDULE'S STICKY NAME COLUMN sits above everything that scrolls under it (#114, #115):
+// bars (a highlighted one is z10) and the today line and dot (z12, z13). At z10 a highlighted bar
+// tied it and won on tree order, and the today line beat it outright — measured in headless
+// Chrome on the same structure. Below the header's own sticky cell (15) and the drag feedback
+// (34-40), which should stay visible while dragging.
+const STICKY_NAME_Z = 14;
 // A node's CHILDREN: its subs minus tombstones (#209). A deleted panel or op is not a child of
 // anything — counting it as one suggests it, checks it for overlaps, and rolls it into dates.
 const liveSubs = (n) => (n?.subs || []).filter(o => o && !o.deletedAt);
@@ -16647,7 +16653,7 @@ ${jobsCtx || "No jobs found."}`;
               const isC = tCollapsed[row.role];
               const isGroupDrop = rowDragId != null && rowDragOver?.type === "group" && rowDragOver.id === row.role;
               return <div key={row.role} data-rowtype="group" data-rowid={row.role} style={{ display: "flex", height: grpH, borderBottom: `1px solid ${T.border}`, background: isGroupDrop ? T.accent + "18" : schedSubBg, outline: isGroupDrop ? `2px dashed ${T.accent}66` : "none", transition: "background 0.1s" }}>
-                <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : schedSubBg, zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
+                <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : schedSubBg, zIndex: STICKY_NAME_Z, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
                   {groupClockPill(row.members, { size: 12 })}
@@ -16867,7 +16873,7 @@ ${jobsCtx || "No jobs found."}`;
                 onClick={canEditPerson ? (e) => { e.stopPropagation(); setPersonModal({ ...p }); } : undefined}
                 title={canEditPerson ? "Edit this person" : undefined}
                 role={canEditPerson ? "button" : undefined}
-                style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", cursor: canEditPerson ? "pointer" : undefined, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
+                style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", cursor: canEditPerson ? "pointer" : undefined, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: STICKY_NAME_Z, transition: "background 0.15s" }}>
                 <div data-row-pids={bars.map(hoverJobKey).filter(_k => _k != null).join(" ")} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
                 {/* Only for manageTeam (#146). Without it the same glyph is kept, invisible and
