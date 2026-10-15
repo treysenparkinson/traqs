@@ -98,8 +98,10 @@ console.log("\n3. THE FOUR WRITERS ARE WIRED");
     /if \(upd\.moveLog === undefined\) \{/.test(CODE), true);
   ok("4. the override builds an entry for each op it places",
     /placementEntry\(sub, _placed, \{ date: TD, movedBy: _ovBy, reason: "Override start date", runId: _ovRunId \}\)/.test(CODE), true);
-  ok("...and PUSHES the logged op, not the bare one",
-    /placedSubs\.push\(_oe \? \{ \.\.\._placed, moveLog: \[\.\.\.\(sub\.moveLog \|\| \[\]\), _oe\] \} : _placed\);/.test(CODE), true);
+  // Since #351 the override places through placeOpsInOrder, and the op it places is what its
+  // onPlaced hook RETURNS — the same logged-or-bare choice, no longer spelled as a push.
+  ok("...and PLACES the logged op, not the bare one",
+    /onPlaced:[\s\S]{0,400}?return _oe \? \{ \.\.\._placed, moveLog: \[\.\.\.\(sub\.moveLog \|\| \[\]\), _oe\] \} : _placed;/.test(CODE), true);
   ok("...and the panel's own entry survives alongside them", /overrideEntry/.test(CODE), true);
 }
 
