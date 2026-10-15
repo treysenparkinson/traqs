@@ -17,7 +17,7 @@
 
 import { readFileSync } from "node:fs";
 import { personDeptMatch, unitDepartment, scheduleRuleViolations } from "../src/scheduleRules.js";
-import { clearOverlaps, planPushes, overlapContext } from "../src/overlapRules.js";
+import { clearOverlaps, overlapContext } from "../src/overlapRules.js";
 import { splitWorkedOp } from "../src/statsMath.js";
 
 const J = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
@@ -145,8 +145,6 @@ console.log("\n4. op.locked is retired — the only lock is an active clock");
   const moved = clearOverlaps(tree(op("C"), op("L", { locked: true })), ["L"], ctx);
   ok("clearOverlaps moves a unit carrying a stray locked flag",
     moved.tasks[0].subs[0].subs[1].start !== "2026-10-05", true);
-  const blocked = planPushes(tree(op("Y", { locked: true })), op("M", { id: "M" }), ctx);
-  ok("planPushes is not blocked by one", blocked.blocked, false);
 
   // The server rule is gone, and activeClock — the real lock — is not.
   const people = [{ id: 7, name: "W", department: "", activeJobClock: null }];

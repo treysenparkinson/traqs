@@ -17,7 +17,7 @@ try {
   O = await import(new URL("../src/overlapRules.js", import.meta.url).href);
   tasksFn = (await import(new URL("../netlify/functions/tasks.js", import.meta.url).href)).handler;
 } catch (e) { console.error("could not load the modules under test:", e); process.exit(2); }
-for (const f of ["overlapContext", "occupyingUnits", "overlapsWith", "clearOverlaps", "planPushes", "overlapViolations", "capacityWarnings"]) {
+for (const f of ["overlapContext", "occupyingUnits", "overlapsWith", "clearOverlaps", "overlapViolations", "capacityWarnings"]) {
   if (typeof O[f] !== "function") { console.error("overlapRules.js does not export", f); process.exit(2); }
 }
 
@@ -80,17 +80,10 @@ console.log("\n2. Clearing overlaps is sequential (#53)");
 
 console.log("\n3. Pushes");
 {
-  const tasks = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 8 }), op("Z", { start: "2026-10-06", end: "2026-10-06", startHour: 8, hpd: 8 }));
-  const moving = op("X", { start: MON, end: MON, startHour: 8, hpd: 8 });
-  const r = O.planPushes(tasks, moving, ctx);
-  ok("landing on Y pushes it a day, which pushes Z (cascade)", r.pushes.map(p => [p.opId, p.newStart]), [["Y", "2026-10-06"], ["Z", "2026-10-07"]]);
-  const adj = O.planPushes(tasks, op("X", { start: "2026-10-02", end: "2026-10-02", startHour: 8, hpd: 8 }), ctx);
-  ok("a move that touches nothing pushes nothing", adj.pushes.length, 0);
-  const lockedT = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 8, locked: true }));
-  // Was "a locked unit in the way blocks the move". Nothing blocks on the flag
-  // now; `blocked` means only that the cascade could not settle inside maxDays.
-  ok("a stray locked flag in the way no longer blocks the move", O.planPushes(lockedT, moving, ctx).blocked, false);
-  ok("...and the unit is pushed like any other", O.planPushes(lockedT, moving, ctx).pushes.length > 0, true);
+  // #348. planPushes had no caller anywhere, and this section tested it, which is what made a
+  // dead export read as live and covered. Deleted with its tests; the live push is rowPushHours
+  // (row-push-test) and the live settle is clearOverlaps (section 2).
+  ok("planPushes is gone, not exported to be tested", "planPushes" in O, false);
 }
 
 console.log("\n4. Capacity is a separate warning (#61)");

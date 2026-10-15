@@ -18,7 +18,7 @@ import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
-import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
+import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
 import { healthState, isJudged, countsAsOnTime } from "./health.js";

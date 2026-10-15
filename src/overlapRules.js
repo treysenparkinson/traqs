@@ -198,42 +198,10 @@ export function clearOverlaps(tasks, touchedIds, ctx, { maxDays = 260 } = {}) {
   return { tasks: current, moved, refused };
 }
 
-/**
- * Where a move pushes the units it lands on. `candidate` is the moved unit at its
- * new position. Each unit it overlaps goes to the first working day where it
- * clears everything already placed; that can land on the next, which cascades.
- * Returns { pushes, blocked, lockedOps }. `blocked` now means only that the
- * cascade could not settle inside maxDays; `lockedOps` is always empty and is
- * kept so callers that destructure it keep working. Nothing reads it.
- *
- * It USED to mean "a locked unit is in the way". That check is gone with the
- * rest of op.locked — see clearOverlaps above.
- */
-export function planPushes(tasks, candidate, ctx, { excludeIds = null, maxDays = 260 } = {}) {
-  const exclude = new Set([...(excludeIds || [])].map(String));
-  exclude.add(String(candidate.id));
-  let units = occupyingUnits(tasks, ctx).filter(u => !exclude.has(String(u.unit.id)));
-  const placed = [{ unit: candidate }];
-  const queue = overlapsWith(candidate, units, ctx).map(x => x.other);
-  const pushes = [];
-  const seen = new Set();
-  while (queue.length) {
-    const o = queue.shift();
-    const id = String(o.unit.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    // No locked check: a clocked-out op is pushed like any other (ruling 3).
-    let n = 1, probe = shiftUnit(o.unit, 1, ctx);
-    while (n <= maxDays && overlapsWith(probe, placed, ctx).length) { n++; probe = shiftUnit(o.unit, n, ctx); }
-    if (n > maxDays) return { pushes: [], blocked: true, lockedOps: [] };
-    pushes.push({ opId: o.unit.id, opTitle: o.unit.title || "", panelTitle: o.panel?.title || "", jobTitle: o.job?.title || "",
-      oldStart: o.unit.start, oldEnd: o.unit.end, newStart: probe.start, newEnd: probe.end, daysPushed: n, personId: ids(o.unit.team)[0] ?? null });
-    placed.push({ unit: probe });
-    units = units.filter(u => String(u.unit.id) !== id);
-    for (const hit of overlapsWith(probe, units, ctx)) if (!seen.has(String(hit.other.unit.id))) queue.push(hit.other);
-  }
-  return { pushes, blocked: false, lockedOps: [] };
-}
+// `planPushes` stood here (#348, deleted 2026-10-15): "where a move pushes the units it lands on".
+// It had no caller anywhere in src/ or netlify/ — TRAQS.jsx imported it and never called it — while
+// overlap-test and scheduler-rules-test exercised it, so it read as live and covered. The live
+// push is rowPushHours (statsMath.js); the live settle is clearOverlaps above.
 
 function replaceUnit(tasks, id, next) {
   return tasks.map(job => ({ ...job, subs: (job.subs || []).map(panel => {
