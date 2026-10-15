@@ -10,6 +10,7 @@ import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRu
 const SCHEDULE_OBJECTIVE = "even";
 import { workWindowError, invalidWorkWindow, DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { movePersonRow } from "./personRowDrag.js";
+import { expandQty } from "./panelQty.js";
 import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIso } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
@@ -25143,30 +25144,15 @@ ${jobsCtx || "No jobs found."}`;
                           })
                         : (p.subs||[]);
                       const expandedOps=panelsForScheduling.filter(panel => !p.isReschedule
-                        || (panel.subs||[]).some(o => rescheduleSelection.includes(o.id))).flatMap(op => {
-                        const qty=Math.max(1,parseInt(op.qty)||1);
-                        const baseTitle=op.title.replace(/-\d+$/,"").trimEnd();
-                        return Array.from({length:qty},(_,i) => {
-                          const {qty:_q,...rest}=op;
-                          const idMap={};
-                          (rest.subs||[]).forEach(sub => { idMap[sub.id]=i===0?sub.id:uid(); });
-                          return {
-                            ...rest,
-                            id:i===0?op.id:uid(),
-                            title:qty>1?`${baseTitle}-${String(i+1).padStart(3,"0")}`:op.title,
-                            depsMode:op.depsMode,
-                            // Enrich the panel-level requiredDepartment so a sub-op
-                            // without its own can fall back to it (or to a title match).
-                            requiredDepartment: _inferDept2(op, null),
-                            subs:(rest.subs||[]).map(sub => ({
-                              ...sub,
-                              id:idMap[sub.id],
-                              deps:(sub.deps||[]).filter(d=>d!=='__pending__').map(d=>idMap[d]||d),
-                              requiredDepartment: _inferDept2(sub, op),
-                            })),
-                          };
-                        });
-                      });
+                        || (panel.subs||[]).some(o => rescheduleSelection.includes(o.id))).flatMap(op =>
+                        // One expansion (#485), enriched for scheduling: the panel-level
+                        // requiredDepartment lets a sub-op without its own fall back to it.
+                        expandQty(op,{uid,cleanDeps:(d)=>(d||[]).filter(x=>x!=='__pending__')}).map(c => ({
+                          ...c,
+                          depsMode:op.depsMode,
+                          requiredDepartment: _inferDept2(op, null),
+                          subs:c.subs.map((sub,si) => ({ ...sub, requiredDepartment: _inferDept2((op.subs||[])[si], op) })),
+                        })));
                       const personCursors={};
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
                       const inSession=[];
@@ -25557,7 +25543,7 @@ ${jobsCtx || "No jobs found."}`;
           {modalStep === 2 && <>
             <Btn variant="ghost" onClick={() => goStep(1)}>← Back</Btn>
             <div style={{ display:"flex", gap:8 }}>
-              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length===0) return; const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__'); const stripDT=op=>{ const {start:_s,end:_e,team:_t,qty:_q,...rest}=op; return {...rest,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>{const{start:_ss,end:_se,team:_st,...sr}=sub;return{...sr,deps:cleanDeps(sr.deps)};})};  }; const expanded={...ed,scheduledLater:true,subs:(ed.subs||[]).flatMap(op=>{ const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); const cleaned=stripDT(op); if(qty===1)return[cleaned]; return Array.from({length:qty},(_,i)=>({...cleaned,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`})); })}; saveTask(expanded,modal.parentId); closeModal(); }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer", background:T.bg, border:`1.5px solid ${T.accent}`, color:T.accent }}>Schedule Later...</Btn>
+              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length===0) return; const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__'); const stripDT=op=>{ const {start:_s,end:_e,team:_t,qty:_q,...rest}=op; return {...rest,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>{const{start:_ss,end:_se,team:_st,...sr}=sub;return{...sr,deps:cleanDeps(sr.deps)};})};  }; const expanded={...ed,scheduledLater:true,subs:(ed.subs||[]).flatMap(op=>expandQty(op,{uid,cleanDeps}).map(stripDT))}; saveTask(expanded,modal.parentId); closeModal(); }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer", background:T.bg, border:`1.5px solid ${T.accent}`, color:T.accent }}>Schedule Later...</Btn>
               <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); if(!ed.isReschedule) suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>{ed.isReschedule ? "Reassign →" : "Schedule & Assign →"}</Btn>
             </div>
           </>}
@@ -25574,7 +25560,7 @@ ${jobsCtx || "No jobs found."}`;
               // resolution, quantity fan-out, id remapping) is the same work
               // whether or not anybody is assigned, so it is named once rather
               // than pasted into a second handler where the two would drift.
-              const buildExpanded = () => {  const resolvedSubs=(ed.subs||[]).map(panel=>{ const allSubOps=panel.subs||[]; const linkedIds=new Set(); allSubOps.forEach(sub=>{ const realDeps=(sub.deps||[]).filter(d=>d!=='__pending__'&&allSubOps.find(o=>o.id===d)); if(realDeps.length>0){ linkedIds.add(sub.id); realDeps.forEach(d=>linkedIds.add(d)); } }); const resolvedSubOps=allSubOps.map(sub=>{ if(!linkedIds.has(sub.id)) return{...sub,deps:[]}; const myDeps=[...linkedIds].filter(id=>id!==sub.id); return{...sub,deps:myDeps}; }); return{...panel,subs:resolvedSubOps}; }); const expanded={...ed,subs:resolvedSubs.flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [{...rest,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>({...sub,deps:cleanDeps(sub.deps)}))}]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; const subIdMap={}; (rest.subs||[]).forEach(sub => { subIdMap[sub.id]=i===0?sub.id:uid(); }); return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub => ({...sub,id:subIdMap[sub.id],deps:cleanDeps((sub.deps||[]).map(d=>subIdMap[d]||d))}))}; }); })}; return expanded; };
+              const buildExpanded = () => {  const resolvedSubs=(ed.subs||[]).map(panel=>{ const allSubOps=panel.subs||[]; const linkedIds=new Set(); allSubOps.forEach(sub=>{ const realDeps=(sub.deps||[]).filter(d=>d!=='__pending__'&&allSubOps.find(o=>o.id===d)); if(realDeps.length>0){ linkedIds.add(sub.id); realDeps.forEach(d=>linkedIds.add(d)); } }); const resolvedSubOps=allSubOps.map(sub=>{ if(!linkedIds.has(sub.id)) return{...sub,deps:[]}; const myDeps=[...linkedIds].filter(id=>id!==sub.id); return{...sub,deps:myDeps}; }); return{...panel,subs:resolvedSubOps}; }); const expanded={...ed,subs:resolvedSubs.flatMap(op => expandQty(op,{uid,cleanDeps}))}; return expanded; };
               // SKIP ASSIGNEE. Saves the job with nobody on it and no dates, so
               // it lands in the jobs list as work still to be given out rather
               // than on the schedule. The schedule is laid out BY PERSON, so an
