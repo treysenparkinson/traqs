@@ -126,7 +126,7 @@ console.log("\n4. #395 — THE CAPACITY SIGNAL SURVIVES AS A HINT, AND NEVER BLO
 
 console.log("\n5. #398 — TYPING A DATE DOES WHAT DRAGGING TO IT DOES");
 {
-  const body = bodyFrom("const commitDates = (op, next) => {");
+  const body = bodyFrom("const commitDates = (op, next, reason = \"Date typed on the Jobs list\") => {");   // #400 added the reason
   ok("commitDates exists", body.length > 150, true);
   ok("...and goes through the shared refusal chain", /refuseLanding\(/.test(body), true);
   ok("...and commits through the backstop", /commitLanding\(/.test(body), true);
@@ -159,7 +159,7 @@ console.log("\n5. #398 — TYPING A DATE DOES WHAT DRAGGING TO IT DOES");
     /\["moveJobs", "reassign"\]/.test(place), true);
   // A placement changes the crew as well as the dates, and applyDragMove writes
   // `team` ONLY when the mover says it is a reassignment.
-  const cd = bodyFrom("const commitDates = (op, next) => {");
+  const cd = bodyFrom("const commitDates = (op, next, reason = \"Date typed on the Jobs list\") => {");
   ok("commitDates marks a crew change as a reassignment", /reassigned: true/.test(cd), true);
   ok("...derived from the teams, not from the caller", /teamChanged = /.test(cd), true);
 }

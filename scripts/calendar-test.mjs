@@ -125,7 +125,10 @@ const SRC = readFileSync(process.env.CAL_SRC || new URL("../src/TRAQS.jsx", impo
   }
   ok("panel/job moves shift children by working days (#85)", /addD\(op\.start, startDelta\)|addD\(s\.start, startDelta\)/.test(SRC), false);
   ok("grid shading asks isWorkDay, so holidays are shaded (#79)", /!orgSettings\.workDays\.includes\(new Date\([^)]*\)\.getDay\(\)\)/.test(SRC), false);
-  ok("the live settings update repairs an empty work week like the load does", SRC.includes("setOrgSettings(prev => withOrgDefaults({ ...prev, ...s }))"), true);
+  // Since #225 both paths build through orgSettingsFromStored, which repairs the work week and
+  // ends in withOrgDefaults; the rehydrate no longer spreads over what was in memory.
+  ok("the live settings update repairs an empty work week like the load does",
+    SRC.includes("setOrgSettings(() => orgSettingsFromStored(s))") && /const orgSettingsFromStored = [\s\S]{0,1200}merged\.workDays = [\s\S]{0,300}return withOrgDefaults\(merged\);/.test(SRC), true);
   ok("the import's range shift is given the org calendar", SRC.includes("shiftRangeForward(start, end, _floor, orgCal)"), true);
 }
 
