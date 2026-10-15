@@ -13287,6 +13287,14 @@ ${jobsCtx || "No jobs found."}`;
       if (node) return commitDates(node, { [key]: val });
     }
     const patch = { [key]: val };
+    // #480, ruled: a typed estimate is logged as a dragged one is. On an op or panel updTask wrote
+    // none; on a job it took the cascade's "Moved with its parent". Supplying the entry here gives
+    // it its own reason and stops updTask adding that one.
+    if (key === "hpd") {
+      const _node = findTaskNode(id);
+      const _e = _node && placementEntry(_node, { ..._node, hpd: val }, { date: TD, movedBy: loggedInUser?.name || "Admin", reason: "Estimate typed on the Jobs list" });
+      if (_e) patch.moveLog = [...(_node.moveLog || []), _e];
+    }
     if (apprSelectKeys.has(key)) {
       // "—" is the dropdown's own empty option, so choosing it reads as a clear
       // rather than as setting the value to a dash.
