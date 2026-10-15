@@ -1086,9 +1086,14 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   // however much lunch falls inside the span.
   const atCursor = new Set();
   const out = new Map();
-  const list = ops || [];
-  if (!list.length) return { pushes: out, atCursor };
   const { workStartH = 0, totalWorkH = 1, productiveHoursPerDay = 1, diffBD } = cfg || {};
+  // #66. IN ROW ORDER, held here: the walk below takes the first op as the anchor and pushes each
+  // op off the one before it, so unsorted input gives wrong pushes silently. Only the caller used
+  // to sort. Same key as that caller (start date, then start hour) and a stable sort, so sorted
+  // input comes out exactly as it went in. A copy: the caller's array is not reordered.
+  const list = [...(ops || [])].sort((a, b) => String(a.start).localeCompare(String(b.start))
+    || ((a.startHour ?? workStartH) - (b.startHour ?? workStartH)));
+  if (!list.length) return { pushes: out, atCursor };
   if (typeof diffBD !== "function") return { pushes: out, atCursor };
 
   const anchor = list[0].start;
