@@ -239,6 +239,18 @@ const splitGantt = SRC.slice(SRC.indexOf("const renderSplitGantt ="), SRC.indexO
   .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 ok("#128: the split gantt paints a legible bar and takes its ink from it", /legibleBarColor\s*\(/.test(splitGantt) && /barInk\s*\(/.test(splitGantt));
 ok("#128: no hard-coded white on a split-gantt bar", !/color:\s*["']#fff["']|rgba\(255,\s*255,\s*255,\s*0\.\d+\)/.test(splitGantt));
+// #126. Jobs and ops in the split gantt go through the schedule's paint: barFillColor (elColor +
+// legibility), barPaint's finished mute, and a finished bar's fade IN THE FILL via doneBarFill.
+// Element opacity is the thing #95/#96 removed from the schedule and #128 measured failing, so
+// the split gantt must not reintroduce it on a bar.
+ok("#126: split-gantt job/op bars are painted through barFillColor and barPaint",
+  /barPaint\(\s*r\s*,\s*barFillColor\(/.test(splitGantt));
+ok("#126: a finished split-gantt bar fades in the fill (doneBarFill)", /doneBarFill\(/.test(splitGantt));
+ok("#126: and never by element opacity on the bar", !/background:\s*barColor[^}]*opacity:/.test(splitGantt));
+for (const T of THEMES) for (const c of ["#94a3b8", "#3b82f6", "#e3368d", "#f59e0b"]) {
+  const done = doneBarFill(T, barPaint({ status: "Finished" }, legibleBarColor(c)), T.surface);
+  ok(`#126 ${T.key} finished split-gantt bar ${c}: ink ${r2(barInkRatio([done]))}:1 >= ${AA_TEXT}`, barInkRatio([done]) >= AA_TEXT);
+}
 ok("#113: the schedule grid steps by wantsLightText, not hexLum < 0.5",
   /_schedDk\s*=\s*wantsLightText\(/.test(SRC) && !/_schedDk\s*=\s*hexLum\([^)]*\)\s*<\s*0\.5/.test(SRC));
 ok("#311: the overdue chip is count-only (the word lives in the title)", !/\{n\}\s*overdue/.test(SRC));

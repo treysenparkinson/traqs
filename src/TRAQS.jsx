@@ -12877,7 +12877,17 @@ ${jobsCtx || "No jobs found."}`;
               // across the themes, and even the right polarity topped out at 3.16 on the dark ones,
               // because the ground itself moved with the page. Opaque, and stepped if the colour
               // cannot carry a label, the ground is the colour -- and then the ink follows from it.
-              const barColor = legibleBarColor(level === 1 ? (staColorOf(r.status) || jobColor) : jobColor);
+              // #126. Jobs and ops go through the SAME paint as the schedule's bars: elColor (the
+              // System Elements mode) and the legibility step via barFillColor, barPaint's finished
+              // mute, and for a finished one doneBarFill's fade toward the ground — in the FILL, as
+              // the schedule does it since #95/#96, never as element opacity, which composites the
+              // label with its ground and is what #128 measured failing. An op is the same op in
+              // both views, coloured from the same panel, and was painted differently in each.
+              // A PANEL keeps its status colour: deliberate since March, left for a ruling.
+              const _paintedJobColor = barPaint(r, barFillColor(jobColor));
+              const barColor = level === 1
+                ? legibleBarColor(staColorOf(r.status) || jobColor)
+                : (isFinished(r.status) ? doneBarFill(T, _paintedJobColor, T.bg) : _paintedJobColor);
               const barTextInk = barInk([barColor]);
               const itemTeam = (r.team || []).map(id => people.find(p => p.id === id)).filter(Boolean);
               // Bar position — clamp to visible range
