@@ -42,7 +42,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -11417,8 +11417,20 @@ ${jobsCtx || "No jobs found."}`;
           const upd = {};
           if (input.status !== undefined)     upd.status = input.status;
           if (input.priority !== undefined)   upd.pri = input.priority;
-          if (input.start !== undefined)      upd.start = input.start;
-          if (input.end !== undefined)        upd.end = input.end;
+          // #400, ruled: MOVING A JOB MOVES ITS OPERATIONS, keeping their offsets. updTask's job
+          // cascade shifts the children only when start and end move by the SAME delta, so a
+          // start alone moved nothing and the rollup put the dates back. jobMoveWindow turns any
+          // move into one whole-job shift; updTask then moves every dated panel and op and writes
+          // ONE entry on the parent. A job with no dates of its own takes them as given.
+          if (input.start !== undefined || input.end !== undefined) {
+            const _job = tasks.find(t => sameId(t.id, input.job_id));
+            const _win = _job ? jobMoveWindow(_job, { start: input.start, end: input.end }, { diffSigned: (a, b) => diffBDSigned(a, b), add: (d, n) => addBD(d, n) }) : null;
+            if (_win) { upd.start = _win.start; upd.end = _win.end; }
+            else if (!_job?.start || !_job?.end) {
+              if (input.start !== undefined) upd.start = input.start;
+              if (input.end !== undefined)   upd.end = input.end;
+            }
+          }
           if (input.due_date !== undefined)   upd.dueDate = input.due_date || null;
           if (input.job_number !== undefined) upd.jobNumber = input.job_number;
           if (input.notes !== undefined)      upd.notes = input.notes;

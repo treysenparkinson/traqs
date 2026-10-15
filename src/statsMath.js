@@ -2011,3 +2011,16 @@ export function isAutoSchedulable(p) {
 export function autoScheduleFlags(include) {
   return include ? { noAutoSchedule: false, autoSchedule: true } : { noAutoSchedule: true };
 }
+
+// WHERE AN AI JOB MOVE LANDS (#400, ruled): the WHOLE job shifts by one delta — the start's when
+// a start is given, otherwise the end's — so every dated panel and op keeps its offset. A job's
+// dates are a rollup of its ops; moving the parent alone either does nothing or is undone by the
+// rollup. Returns the new { start, end } (both moved by the same delta, which is what updTask's
+// job cascade needs to shift the children), or null when there is nothing to move.
+// `cal` = { diffSigned(a, b), add(day, n) } in working days.
+export function jobMoveWindow(job, { start, end } = {}, cal) {
+  if (!job?.start || !job?.end || (!start && !end)) return null;
+  const delta = start ? cal.diffSigned(job.start, start) : cal.diffSigned(job.end, end);
+  if (!delta) return null;
+  return { start: cal.add(job.start, delta), end: cal.add(job.end, delta) };
+}
