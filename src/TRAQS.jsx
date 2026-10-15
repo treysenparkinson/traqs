@@ -30004,8 +30004,9 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ position: "absolute", top: 2, left: !isAutoSchedulable(person) ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
-                    {/* Clock-In PIN (admin only) */}
-                    {isAdmin && (() => {
+                    {/* Clock-In PIN — manageTeam only (#298): people.js keeps another person's row
+                        verbatim for anyone without it, so the save "succeeded" and changed nothing. */}
+                    {can("manageTeam") && (() => {
                       const draft = pinDrafts[person.id] ?? "";
                       const saving = !!pinSaving[person.id];
                       const savePin = async () => {
@@ -30017,7 +30018,7 @@ ${jobsCtx || "No jobs found."}`;
                           setPeople(updated);
                           toast("PIN saved");
                           setPinDrafts(p => { const n = { ...p }; delete n[person.id]; return n; });
-                        } catch (e) { console.error(e); }
+                        } catch (e) { console.error(e); toast("Couldn't save the PIN — try again"); }
                         finally { setPinSaving(p => ({ ...p, [person.id]: false })); }
                       };
                       return (
