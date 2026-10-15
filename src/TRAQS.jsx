@@ -3206,7 +3206,10 @@ function PersonAvatar({ person, size = 40, ring = null, label = null, style: sx 
   return (
     <div style={{
       width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden",
-      background: img ? T.surface : fill,
+      // backgroundColor, never the `background` shorthand (#373): the shorthand resets
+      // background-image, and React writes only the keys that changed, so a theme or colour
+      // change wrote the shorthand alone and wiped the photo.
+      backgroundColor: img ? T.surface : fill,
       backgroundImage: img ? `url(${img})` : undefined,
       backgroundSize: "cover", backgroundPosition: "center",
       display: "flex", alignItems: "center", justifyContent: "center",
