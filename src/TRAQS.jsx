@@ -14363,9 +14363,12 @@ ${jobsCtx || "No jobs found."}`;
                     trigger={content}
                     options={() => {
                       if (canClearUndated) return [{ value: "__clear", label: "Unassign", color: T.textDim }];
+                      // #396: a CREW. Members are marked, and picking one takes them off.
                       const rows = assignPickerFor(_ad, _panel, _job).map((r, ri) => r.divider
                         ? { divider: true, label: "Others", value: "__div" + ri }
-                        : { value: r.id, label: r.name, sub: r.busy ? `busy — ${r.busyWith.title}` : r.dept, color: r.busy ? T.danger : undefined });
+                        : onTeam(item.team, r.id)
+                          ? { value: r.id, label: `✓ ${r.name}`, sub: "on it — pick to remove", color: T.accent }
+                          : { value: r.id, label: r.name, sub: r.busy ? `busy — ${r.busyWith.title}` : r.dept, color: r.busy ? T.danger : undefined });
                       // Clearing is offered only when there is something to clear.
                       return who.length ? [{ value: "__clear", label: "Unassign", color: T.textDim }, ...rows] : rows;
                     }}
@@ -14375,8 +14378,12 @@ ${jobsCtx || "No jobs found."}`;
                       // REFUSED AT PICK, with the reason, rather than hidden from the list.
                       // Shown-and-refused answers "why can't I pick Caleb"; hiding leaves
                       // "why isn't Caleb here", which is the worse question to be left with.
+                      // #396, ruled: a pick TOGGLES that person — the cell edits a crew, it does not
+                      // replace one with a single name.
+                      const _onCrew = onTeam(item.team, v);
+                      const _nextTeam = _onCrew ? withoutPerson(item.team, v) : withPerson(item.team, v);
                       const picked = assignPickerFor(_ad, _panel, _job).find(r => !r.divider && sameId(r.id, v));
-                      if (picked && picked.busy) {
+                      if (!_onCrew && picked && picked.busy) {
                         showLandingRefusal({ kind: "overlap", title: item.title || "", other: picked.busyWith.other },
                           `${picked.name} is not free then`);
                         return;
@@ -14392,7 +14399,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (commitDates(_node, _patch) === false) setSchedDraft(_draftHere);
                         return;
                       }
-                      commitAssign(item, [v]);
+                      commitAssign(item, _nextTeam);
                     }}
                   />
                 </div>

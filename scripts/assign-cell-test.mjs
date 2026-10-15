@@ -148,7 +148,8 @@ console.log("\n7. The write goes through the permission-gated path");
   // the cell-edit path. commitLanding runs the no-overlap backstop and refuses
   // rather than rearranging; applyDragMove writes the node and appends the
   // shared moveLog entry in one step.
-  ok("it commits through commitAssign", /commitAssign\(item, \[v\]\)/.test(CODE), true);
+  // #396: the cell commits the whole crew (a pick toggles one person), still through commitAssign.
+  ok("it commits through commitAssign", /commitAssign\(item, _nextTeam\)/.test(CODE), true);
   ok("commitAssign has a body to check", COMMIT.length > 80, true);
   ok("...which goes through commitLanding, the drag's backstop",
     /commitLanding\(\(list\) => recalcBounds\(applyDragMove\(list, \[mover\]/.test(COMMIT), true);
@@ -236,10 +237,11 @@ console.log("\n10. Availability — eligible but busy is SHOWN, marked, and refu
 console.log("\n10b. The busy path: refused at pick, and the op never blocks itself");
 {
   // A busy pick must be REFUSED, with the reason, and must not write.
-  ok("a busy pick is refused", /if \(picked && picked\.busy\) \{/.test(CODE), true);
+  // #396: refused when ADDING someone busy; taking a member off is never refused for being busy.
+  ok("a busy pick is refused", /if \(!_onCrew && picked && picked\.busy\) \{/.test(CODE), true);
   ok("...through the shared refusal, naming who is not free",
     /showLandingRefusal\(\{ kind: "overlap", title: item\.title \|\| "", other: picked\.busyWith\.other \}/.test(CODE), true);
-  ok("...and returns before committing", /return;\s*\}\s*commitAssign\(item, \[v\]\)/.test(CODE.replace(/\r?\n\s*/g, "")), true);
+  ok("...and returns before committing", /return;\s*\}\s*commitAssign\(item, _nextTeam\)/.test(CODE.replace(/\r?\n\s*/g, "")), true);
 
   // THE OP MUST LEAVE ITS OWN OBSTACLE SET. Without this a reassignment asks
   // "is Quincy free?" while the op Quincy is being put on is still standing in
