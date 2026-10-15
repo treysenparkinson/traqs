@@ -15,7 +15,7 @@ import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIs
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
-import { applyRosterEdits, SETTINGS_FIELDS } from "./rosterEdits.js";
+import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
 import { planDragMove, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
@@ -27,7 +27,7 @@ import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { applyBarDelete, planBarDelete } from "./barDelete.js";
 import { holdsDateEdit, withDraftValue, overlayDraft, flushPatch, completionPatch } from "./schedDraft.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, deletePerson, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, ensureCompletionGroupAction, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, deletePerson, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, ensureCompletionGroupAction, savePeopleFields, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { LIGHT, DARK } from "./themeTokens.js";
@@ -7366,6 +7366,7 @@ Extraction rules:
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
   const [tsSettingsDraft, setTsSettingsDraft] = useState(null); // local people copy for editing
+  const tsSettingsBaseRef = useRef(null);   // #150: the roster as the modal opened, to diff edits against
   const [showPinIds, setShowPinIds] = useState(new Set()); // person IDs with PIN visible as plaintext
   const [tsSettingsSaving, setTsSettingsSaving] = useState(false);
   const [tsEditEntry, setTsEditEntry] = useState(null); // { id, clockIn, clockOut, personId } | null
@@ -19964,6 +19965,8 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── Time Clock Settings modal ─────────────────────────────────────────────
     const openSettings = () => {
+      // The snapshot the edits are diffed against (#150): only what the admin changed is sent.
+      tsSettingsBaseRef.current = people.map(p => ({ ...p }));
       setTsSettingsDraft(people.map(p => ({ ...p })));
       setTsSettingsOpen(true);
     };
@@ -19987,10 +19990,12 @@ ${jobsCtx || "No jobs found."}`;
       if (!tsSettingsDraft) return;
       setTsSettingsSaving(true);
       try {
-        const _fresh = await fetchPeople(getToken, orgCode);
-        const _next = applyRosterEdits(_fresh, tsSettingsDraft, SETTINGS_FIELDS);
-        await savePeople(_next, getToken, orgCode);
-        setPeople(_next);
+        // #150, ruled: CLOSED, not narrowed. Only the fields the admin changed go up, and the
+        // server applies them inside one conditional write — no roster, so no window in which a
+        // PTO approval can be overwritten.
+        const _edits = fieldEdits(tsSettingsBaseRef.current, tsSettingsDraft, SETTINGS_FIELDS);
+        if (_edits.length) await savePeopleFields(_edits, getToken, orgCode);
+        setPeople(prev => applyFieldEdits(prev, _edits));
         toast("Time clock settings saved");
       } catch (e) { console.error(e); toast("Couldn't save time clock settings"); }
       finally { setTsSettingsSaving(false); closeSettings(); }
@@ -26492,9 +26497,11 @@ ${jobsCtx || "No jobs found."}`;
       } else if (sec === "org-departments") {
         setOrgSettings(s => ({ ...s, roles: [...(settingsDraft.roles || [])] }));
       } else if (sec === "org-permissions") {
-        const updated = (settingsDraft.people || []).map(p => ({ ...p }));
-        await savePeople(updated, getToken, orgCode);
-        setPeople(updated);
+        // #150: only what changed since the section opened, applied field by field on the server.
+        const _base = JSON.parse(settingsPristineRef.current || "{}").people || [];
+        const _edits = fieldEdits(_base, settingsDraft.people || [], PERMISSION_FIELDS);
+        if (_edits.length) await savePeopleFields(_edits, getToken, orgCode);
+        setPeople(prev => applyFieldEdits(prev, _edits));
       } else if (sec === "org-schedule") {
         const dd = settingsDraft || {};
         // #354, ruled: refused at entry, not guarded by every consumer.
@@ -26508,9 +26515,11 @@ ${jobsCtx || "No jobs found."}`;
         // #298: each half is written only by someone allowed to change it.
         if (can("orgSettings")) setOrgSettings(s => ({ ...s, payDates: [...(dd.payDates || [5, 20])], payPeriodHourCap: dd.payPeriodHourCap, iosPayClockEnabled: dd.iosPayClockEnabled, trackLunch: dd.trackLunch, trackBreaks: dd.trackBreaks }));
         if (can("manageTeam")) {
-          const updated = (dd.people || []).map(p => ({ ...p }));
-          await savePeople(updated, getToken, orgCode);
-          setPeople(updated);
+          // #150: only what changed since the section opened, applied field by field on the server.
+          const _base = JSON.parse(settingsPristineRef.current || "{}").people || [];
+          const _edits = fieldEdits(_base, dd.people || [], SETTINGS_FIELDS);
+          if (_edits.length) await savePeopleFields(_edits, getToken, orgCode);
+          setPeople(prev => applyFieldEdits(prev, _edits));
         }
       } else if (sec === "customization") {
         setThemeMode(draftMode);

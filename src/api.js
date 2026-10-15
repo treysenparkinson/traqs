@@ -94,6 +94,15 @@ export async function fetchPeople(getToken, orgCode) {
   return res.json();
 }
 
+// #150: field-level person edits, applied by the server inside one conditional read-modify-write.
+// `edits` is fieldEdits() output: [{ id, fields: { name: value | null } }].
+export async function savePeopleFields(edits, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/people?action=fields`, { method: "POST", headers, body: JSON.stringify({ edits }) });
+  if (!res.ok) throw new Error(`savePeopleFields failed: ${res.status}`);
+  return res.json();
+}
+
 export async function savePeople(people, getToken, orgCode) {
   if (!Array.isArray(people)) {
     console.warn("savePeople blocked — not an array", people);

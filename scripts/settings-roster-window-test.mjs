@@ -105,13 +105,17 @@ console.log("\n4. EDGES THAT MUST NOT THROW OR EMPTY THE ROSTER");
   ok("a null row in either list is skipped", applyRosterEdits([null, ...CUR()], [null, { id: 2, pin: "5" }], SETTINGS_FIELDS).find(p => p?.id === 2).pin, "5");
 }
 
-console.log("\n5. THE MODAL SENDS A FRESH ROSTER, NOT ITS SNAPSHOT");
+// SUPERSEDED BY #150's CLOSURE (2026-10-15): the modal no longer re-reads and POSTs a roster at
+// all — it sends only the fields the admin changed, which the server applies inside one
+// conditional write (people-fields-test). applyRosterEdits above is still the tested merge; the
+// modal's contract is now the one below.
+console.log("\n5. THE MODAL SENDS ONLY ITS EDITS, NEVER A ROSTER");
 {
   const CODE = codeOf(readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8"));
-  ok("saveSettings re-reads the roster before writing",
-    /const _fresh = await fetchPeople\(getToken, orgCode\);/.test(CODE), true);
-  ok("...and merges its two fields onto it",
-    /applyRosterEdits\(_fresh, tsSettingsDraft, SETTINGS_FIELDS\)/.test(CODE), true);
+  ok("saveSettings diffs the draft against the snapshot it opened with",
+    /fieldEdits\(tsSettingsBaseRef\.current, tsSettingsDraft, SETTINGS_FIELDS\)/.test(CODE), true);
+  ok("...and sends only those edits",
+    /savePeopleFields\(_edits, getToken, orgCode\)/.test(CODE), true);
   ok("the snapshot is no longer the payload",
     /savePeople\(tsSettingsDraft, getToken, orgCode\)/.test(CODE), false);
   ok("and local state takes the merged roster, not the draft",

@@ -67,3 +67,40 @@ export function applyRosterEdits(current, draft, fields = SETTINGS_FIELDS) {
     return Object.keys(patch).length ? { ...p, ...patch } : p;
   });
 }
+
+/**
+ * #150, ruled: CLOSING the window, not narrowing it. What the user changed, and nothing else —
+ * the people whose listed `fields` differ between the snapshot the screen opened with (`base`)
+ * and the `draft`, as `[{ id, fields: { name: value } }]`. A field cleared in the draft is sent as
+ * null. The server applies these inside one conditional read-modify-write (POST
+ * /people?action=fields), so no roster ever goes up and a concurrent PTO approval cannot be lost.
+ */
+export function fieldEdits(base, draft, fields) {
+  const before = new Map((Array.isArray(base) ? base : []).filter(p => p && p.id != null).map(p => [String(p.id), p]));
+  const out = [];
+  for (const p of Array.isArray(draft) ? draft : []) {
+    if (!p || p.id == null) continue;
+    const was = before.get(String(p.id)) || {};
+    const changed = {};
+    for (const f of fields) {
+      if (JSON.stringify(p[f] ?? null) !== JSON.stringify(was[f] ?? null)) changed[f] = p[f] ?? null;
+    }
+    if (Object.keys(changed).length) out.push({ id: p.id, fields: changed });
+  }
+  return out;
+}
+
+/** `people` with `fieldEdits` output laid on — what the server just applied, mirrored locally. */
+export function applyFieldEdits(people, edits) {
+  const byId = new Map((edits || []).map(e => [String(e.id), e.fields]));
+  return (people || []).map(p => {
+    const f = p && p.id != null ? byId.get(String(p.id)) : null;
+    if (!f) return p;
+    const np = { ...p };
+    for (const [k, v] of Object.entries(f)) { if (v === null) delete np[k]; else np[k] = v; }
+    return np;
+  });
+}
+
+/** The fields each settings screen edits on a person — and nothing else is sent for them (#150). */
+export const PERMISSION_FIELDS = ["adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule", "pin"];

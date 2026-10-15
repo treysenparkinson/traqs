@@ -35,7 +35,7 @@ ok("#298 Time Clock's org rows show only with orgSettings", /\{_canOrg && sRow\(
 ok("#298 ...its people rows (PINs, pay type) only with manageTeam", /\{_canTeam && sRow\("Clock-in PINs"/.test(tc) && /\{_canTeam && <div className="rv-mside">/.test(tc));
 const save = slice('} else if (sec === "org-timeclock") {', '} else if (sec === "customization")');
 ok("#298 its save writes org settings only with orgSettings", /if \(can\("orgSettings"\)\) setOrgSettings\(/.test(save));
-ok("#298 ...and people only with manageTeam", /if \(can\("manageTeam"\)\) \{[\s\S]*savePeople\(/.test(save));
+ok("#298 ...and people only with manageTeam", /if \(can\("manageTeam"\)\) \{[\s\S]*savePeople(Fields)?\(/.test(save));
 
 // ── the Time Clock Settings modal ──
 const modal = slice("const renderSettingsPanel = () => {", "\n    };");

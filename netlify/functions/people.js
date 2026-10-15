@@ -228,6 +228,51 @@ export async function handler(event) {
     }
   }
 
+  // POST ?action=fields — #150, ruled: the settings screens' edits, applied FIELD BY FIELD inside
+  // one conditional read-modify-write. A roster POST — even re-read first — loses a write landing
+  // between its read and its write, and a PTO approval was the one that bit. Nothing sent here
+  // carries timeOff, so nothing here can take it away. Every listed field is a team edit, so
+  // manageTeam is required for all of them; anything not listed is ignored.
+  if (event.httpMethod === "POST" && event.queryStringParameters?.action === "fields") {
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    if (!can(member, "manageTeam")) return err(403, "Your account does not have permission to add, edit & remove team members");
+    let body;
+    try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
+    const edits = Array.isArray(body?.edits) ? body.edits : null;
+    if (!edits) return err(400, "Missing edits");
+    const ALLOWED = new Set(["payType", "pin", "adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule"]);
+    try {
+      const result = await updateJson(s3Key, (stored) => {
+        const existing = Array.isArray(stored) ? stored : [];
+        const byId = new Map(edits.filter(e => e && e.id != null && e.fields && typeof e.fields === "object").map(e => [String(e.id), e.fields]));
+        const touched = [];
+        const next = existing.map(p => {
+          const f = p && p.id != null ? byId.get(String(p.id)) : null;
+          if (!f || p.deletedAt) return p;
+          let np = { ...p };
+          for (const [k, v] of Object.entries(f)) {
+            if (!ALLOWED.has(k)) continue;
+            if (v === null) delete np[k];
+            else np[k] = k === "pin" ? encryptPin(String(v)) : v;
+          }
+          np.lastModifiedAt = nowIso();
+          touched.push(String(p.id));
+          return np;
+        });
+        if (!touched.length) return { abort: json(200, { ok: true, ids: [] }) };
+        return { value: next, ids: touched };
+      });
+      if (result && "abort" in result) return result.abort;
+      await publishChange(member.orgCode, "people", { ids: result.ids });
+      await sendSilentPush(member.orgCode, { entity: "people" });
+      return json(200, { ok: true, ids: result.ids });
+    } catch (e) {
+      console.error("people POST fields error:", e);
+      return err(e.statusCode || 500, "Failed to save");
+    }
+  }
+
   if (event.httpMethod === "POST") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
