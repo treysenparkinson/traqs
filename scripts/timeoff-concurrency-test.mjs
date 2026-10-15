@@ -169,6 +169,20 @@ console.log("\n4b. #151 — AN EDIT DOES NOT WRITE BACK THE PERSON IT READ AT TH
   }
 }
 
+console.log("\n4c. #411, REVERSE DIRECTION — THE REQUEST'S GROUP USES THE ROSTER'S IDS");
+{
+  // This roster's ids are NUMBERS (1, 9, 42). The group was written with String() on every
+  // member, and the web reads a group's memberIds with a strict `.includes(p.id)` — so on a
+  // numeric roster nobody in the thread was found.
+  reset();
+  globalThis.__AUTH = { orgCode: "TESTORG", personId: 9, isAdmin: false, email: "q@x.com" };
+  globalThis.__S3[K.people][1].email = "q@x.com";
+  const res = await handler({ httpMethod: "POST", headers: {}, body: JSON.stringify({ type: "PTO", start: "2099-11-02", end: "2099-11-03", note: "" }) });
+  ok("the request is created", res.statusCode, 200);
+  const grp = (globalThis.__S3["orgs/TESTORG/groups.json"] || []).slice(-1)[0];
+  ok("...and its group seats the requester and the approver under their roster ids", grp?.memberIds, [9, 1]);
+}
+
 console.log("\n5. NO PLAIN PUT SURVIVES ON EITHER FILE");
 {
   const SRC = readFileSync(new URL("../netlify/functions/timeoff.js", import.meta.url), "utf8");

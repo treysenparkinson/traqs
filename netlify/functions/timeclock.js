@@ -2714,7 +2714,9 @@ export async function handler(event) {
         // The group and its roster: one rule, shared with POST /groups?action=ensure-completion,
         // which is how the web raises a request (#296). See _utils/completion-group.js.
         const rec = reconcileCompletionGroup(groups, messages, {
-          approverIds: adminIds, requesterId: byId,
+          // #411's reverse direction: seated under the ROSTER's own id (number or string), as the
+          // approvers are, not String(personId) — the web reads memberIds with a strict includes.
+          approverIds: adminIds, requesterId: person?.id ?? byId,
           newId: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, at,
         });
         const grp = rec.grp;

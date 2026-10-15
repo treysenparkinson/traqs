@@ -245,7 +245,11 @@ export async function handler(event) {
     // the record so an edit can re-post into the same thread.
     const adminMembers = filterLive(people)
       .filter((p) => personCan(p, "approveTimeOff") && String(p.id) !== String(meId));
-    const memberIds = [String(meId), ...adminMembers.map((a) => String(a.id))];
+    // #411's reverse direction: the group holds the ROSTER's ids (number or string), as the
+    // completion group does. String() on every member made a numeric roster's group find nobody
+    // in the web, which reads memberIds with a strict includes.
+    const _meRec = people.find((p) => String(p.id) === String(meId));
+    const memberIds = [_meRec ? _meRec.id : String(meId), ...adminMembers.map((a) => a.id)];
     const groupId = makeId();
     const hasAdmins = adminMembers.length > 0;
 

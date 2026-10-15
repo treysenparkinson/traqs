@@ -85,6 +85,17 @@ globalThis.__S3[PK] = [{ id: "7", name: "Wendy", userRole: "user" }];
   ok("nobody can approve: no group is made, and the caller is told", [res.statusCode, res.body.noApprover, named().length], [200, true, 0]);
 }
 
+// #411, THE REVERSE DIRECTION. The helper keeps ids "as the roster holds them", and the web
+// reads memberIds with a strict `.includes(p.id)`. The caller passed the requester as
+// String(personId), so on a roster with NUMERIC ids the approvers went in as numbers and the
+// requester as "7" — and the web's member list did not find the person who asked.
+seed(null);
+globalThis.__S3[PK] = [{ id: 1, name: "Ada", userRole: "admin" }, { id: 7, name: "Wendy", userRole: "user" }];
+{
+  await ensure();
+  ok("#411 a numeric-id roster: the requester is seated under the roster's own id", named()[0]?.memberIds, [1, 7]);
+}
+
 // ── the web asks the server and no longer builds the group itself ──────────
 console.log("\nthe web client");
 {

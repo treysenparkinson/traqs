@@ -53,6 +53,11 @@ reset();
   const r = await request();
   ok("it is accepted with a request id", [r.ok, typeof r.requestId], [true, "string"]);
   ok("...and posts exactly one bubble", bubbles("OP"), 1);
+  // #411, the reverse direction: this roster's ids are NUMBERS. The requester used to be seated
+  // as String(personId) beside numeric approvers, so the web's strict memberIds.includes(p.id)
+  // could not find the person who asked.
+  const grp = (globalThis.__S3[K.groups] || []).find(g => g.name === "Completion Requests");
+  ok("#411 ...and seats the requester under the roster's own id", grp?.memberIds, [1, 7]);
 }
 
 console.log("\n2. A SECOND REQUEST FOR THE SAME OP POSTS NOTHING");

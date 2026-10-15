@@ -62,13 +62,18 @@ export async function handler(event) {
       const people = (await readJson(orgKey(event, "people.json"))) ?? [];
       const approverIds = filterLive(Array.isArray(people) ? people : [])
         .filter(p => personCan(p, "approveCompletions")).map(p => p.id);
+      // #411's reverse direction: the requester is seated under the ROSTER's id, as the approvers
+      // are. String(member.personId) put "7" beside numeric approvers, and the web reads
+      // memberIds with a strict includes.
+      const _me = (Array.isArray(people) ? people : []).find(p => p && String(p.id) === String(member.personId));
+      const requesterRosterId = _me ? _me.id : String(member.personId);
       if (approverIds.length === 0) return json(200, { ok: true, noApprover: true });
       const messages = (await readJson(orgKey(event, "messages.json"))) ?? [];
       const at = new Date().toISOString();
       const newId = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const out = await updateJson(s3Key, (stored) => {
         const prev = Array.isArray(stored) ? stored : [];
-        const rec = reconcileCompletionGroup(prev, messages, { approverIds, requesterId: String(member.personId), newId, at });
+        const rec = reconcileCompletionGroup(prev, messages, { approverIds, requesterId: requesterRosterId, newId, at });
         if (!rec.changed) return { abort: { grp: rec.grp, changed: false } };
         return { value: stampArray(rec.groups, prev), grp: rec.grp, changed: true };
       });
