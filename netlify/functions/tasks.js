@@ -71,9 +71,9 @@ export async function handler(event) {
       const tasks = stringifyTeams(isDelta ? (Array.isArray(body.upsert) ? body.upsert : []) : body);
       const deleteIds = isDelta ? (Array.isArray(body.delete) ? body.delete : []) : null;   // applyExplicitWrite compares these as strings already
 
-      // Rule context, read once: who is clocked in (activeClock) and the org's work
-      // week, holidays and timezone (businessDay, past). A read failure disables
-      // those rules for this write rather than failing a save that used to work.
+      // Rule context, read once: who is clocked in (activeClock) and the org's settings
+      // (statuses, and the overlap rule's calendar). A read failure disables those rules
+      // for this write rather than failing a save that used to work.
       const orgCode = orgCodeFromHeader(event);
       const rulesMode = ruleMode("SCHEDULE_RULES_MODE");
       const conflictMode = ruleMode("TASK_CONFLICT_MODE");
@@ -235,13 +235,9 @@ export async function handler(event) {
 
         // ── Schedule rules (src/scheduleRules.js, shared with the web) ─────
         if (rulesMode !== "off") {
-          attempt.violations = scheduleRuleViolations(incoming, prev, {
-            people: rulePeople,
-            workDays: ruleSettings?.workDays,
-            holidays: ruleSettings?.holidays,
-            today: localDay(new Date(), ruleSettings?.timeZone || null),
-            isAdmin: !!member.isAdmin,
-          });
+          // businessDay and past are deleted (#293): they exempted admins, and only admins
+          // hold moveJobs, so they never fired. The rules left need only the roster.
+          attempt.violations = scheduleRuleViolations(incoming, prev, { people: rulePeople });
           if (rulesMode === "enforce" && attempt.violations.length) {
             return { abort: json(422, {
               error: attempt.violations.map(v => v.detail).join("; "),

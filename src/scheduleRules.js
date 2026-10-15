@@ -17,15 +17,8 @@ export const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 
 const SCHEDULE_FIELDS = ["start", "end", "startHour", "endHour", "hpd"];
 
-/** A "YYYY-MM-DD" day is in the org's work week and is not a holiday. */
-export function isWorkingDay(ds, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) {
-  if (typeof ds !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(ds)) return false;
-  const day = ds.slice(0, 10);
-  // UTC noon: the weekday of a calendar date, the same on every machine.
-  const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
-  const days = Array.isArray(workDays) && workDays.length ? workDays : DEFAULT_WORK_DAYS;
-  return days.includes(dow) && !(Array.isArray(holidays) && holidays.includes(day));
-}
+// `isWorkingDay` stood here. Its only caller was the businessDay rule, deleted with the
+// past rule in #293; see scheduleRuleViolations.
 
 // ── The working calendar (SCHEDULE_MAP root cause 6) ─────────────────────────
 // The ONE answer to "is this a working day, and how many working days apart are
@@ -335,7 +328,7 @@ function index(tasks) {
 /**
  * @param nextTasks  the tree being written
  * @param prevTasks  the tree stored before it
- * @param ctx        { people, workDays, holidays, today ("YYYY-MM-DD", org-local), isAdmin }
+ * @param ctx        { people }
  * @returns [{ rule, id, jobId, detail }] — empty when the write breaks nothing
  *
  * Rules:
@@ -346,12 +339,14 @@ function index(tasks) {
  *                 Everyone.
  *   department  — every team member of a leaf with a department holds it,
  *                 checked when the team or the department changes. Everyone.
- *   businessDay — a leaf's changed start/end is a working day. Admins exempt.
- *   past        — a leaf's start is not moved, or created, before today.
- *                 Admins exempt.
+ *
+ * `businessDay` and `past` are DELETED (#293, ruled 2026-10-15: "delete the two scheduling
+ * rules as dead code"). Both exempted admins, and only admins hold moveJobs (`can()`), so
+ * neither could ever fire. The web's own refusal of a move into the past (dragMove.js,
+ * kind "past") is a different mechanism and is untouched.
  */
 export function scheduleRuleViolations(nextTasks, prevTasks, ctx = {}) {
-  const { people = [], workDays, holidays, today, isAdmin = false } = ctx;
+  const { people = [] } = ctx;
   const next = index(nextTasks), prev = index(prevTasks);
   const out = [];
   const add = (rule, id, entry, detail) =>
@@ -409,21 +404,6 @@ export function scheduleRuleViolations(nextTasks, prevTasks, ctx = {}) {
         const outside = n.team.filter(pid => { const p = byId.get(String(pid)); return p && !personDeptMatch(p, depts); });
         if (outside.length) add("department", id, after, `assigned outside ${depts.join(" or ")}: ${outside.join(", ")}`);
       }
-    }
-
-    if (isAdmin) continue;   // business days and the past: admins are exempt
-
-    // businessDay
-    const opts = { workDays, holidays };
-    for (const k of ["start", "end"]) {
-      const v = n[k];
-      if (!v || (!isNew && eq(before.node[k], v))) continue;
-      if (!isWorkingDay(v, opts)) { add("businessDay", id, after, `${k} ${v} is not a working day`); break; }
-    }
-
-    // past
-    if (today && n.start && (isNew || !eq(before.node.start, n.start)) && String(n.start).slice(0, 10) < today) {
-      add("past", id, after, `start ${n.start} is before ${today}`);
     }
   }
   return out;

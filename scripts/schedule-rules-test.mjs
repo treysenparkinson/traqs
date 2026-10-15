@@ -15,10 +15,9 @@
 //                 clocked into, nor removal of its panel or job. Everyone.
 //   department  — every team member of a unit with a requiredDepartment
 //                 (op → panel → job) holds it as primary or secondary. Everyone.
-//   businessDay — a leaf's changed start/end is a working day, not a holiday.
-//                 Admins exempt.
-//   past        — a leaf's start is not moved (or created) before today in the
-//                 org's timezone. Admins exempt.
+//   (businessDay, past) — DELETED 2026-10-15 (#293). Both exempted admins and only
+//                 admins hold moveJobs, so neither could fire. Sections 6 and 7
+//                 now pin the REMOVAL, as section 3 does for lock.
 import { register } from "module";
 register("./timeclock-itest-loader.mjs", import.meta.url);
 
@@ -27,7 +26,7 @@ try {
   rules = await import(new URL("../src/scheduleRules.js", import.meta.url).href);
   tasksFn = (await import(new URL("../netlify/functions/tasks.js", import.meta.url).href)).handler;
 } catch (e) { console.error("could not load the modules under test:", e); process.exit(2); }
-for (const f of ["isWorkingDay", "personDeptMatch", "unitDepartment", "scheduleRuleViolations"]) {
+for (const f of ["personDeptMatch", "unitDepartment", "scheduleRuleViolations"]) {
   if (typeof rules[f] !== "function") { console.error(`src/scheduleRules.js does not export ${f}`); process.exit(2); }
 }
 
@@ -69,10 +68,7 @@ const check = (mut, over) => { const prev = tree(), next = tree(); mut(next, pre
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n1. Helpers");
-ok("Friday is a working day", rules.isWorkingDay("2026-10-02", { workDays: [1, 2, 3, 4, 5] }), true);
-ok("Saturday is not", rules.isWorkingDay("2026-10-03", { workDays: [1, 2, 3, 4, 5] }), false);
-ok("a holiday is not", rules.isWorkingDay("2026-10-06", { workDays: [1, 2, 3, 4, 5], holidays: ["2026-10-06"] }), false);
-ok("default work days are Mon–Fri", [rules.isWorkingDay("2026-10-05"), rules.isWorkingDay("2026-10-04")], [true, false]);
+ok("isWorkingDay is gone with the rule that used it (#293)", "isWorkingDay" in rules, false);
 // RE-POINTED 2026-10-02: departments are a flat SET on both sides and
 // personDeptMatch returns a BOOLEAN. The old "primary"/"secondary" return was a
 // preference order for ranking a backup below a specialist, and it was
@@ -143,17 +139,16 @@ ok("setting a department the team doesn't hold", check(n => { node(n, "FREE").re
 ok("a new op assigned outside its inherited department", check(n => { node(n, "PANEL").subs.push({ id: "NEW", title: "New", start: "2026-10-08", end: "2026-10-08", team: [9] }); }), ["department:NEW"]);
 ok("admins are not exempt", check(n => { node(n, "OP").team = [7, 9]; }, { isAdmin: true }), ["department:OP"]);
 
-console.log("\n6. businessDay");
-ok("moving an end onto a Saturday", check(n => { node(n, "OP").end = "2026-10-03"; }), ["businessDay:OP"]);
-ok("moving a start onto a holiday", check(n => { const o = node(n, "FREE"); o.start = "2026-10-06"; }), ["businessDay:FREE"]);
-ok("spanning a weekend is fine", check(n => { node(n, "OP").end = "2026-10-05"; }), []);
-ok("admins are exempt", check(n => { node(n, "OP").end = "2026-10-03"; }, { isAdmin: true }), []);
+// 6 and 7 were businessDay and past. DELETED (#293): both exempted admins, and only admins
+// hold moveJobs, so they could never fire. What is asserted now is that they are gone — for
+// a non-admin context too, which is the case the rules existed for.
+console.log("\n6. businessDay — REMOVED, and the removal is what is asserted");
+ok("moving an end onto a Saturday is no violation", check(n => { node(n, "OP").end = "2026-10-03"; }), []);
+ok("...nor a start onto a holiday", check(n => { const o = node(n, "FREE"); o.start = "2026-10-06"; }), []);
 
-console.log("\n7. past");
-ok("moving a start before today", check(n => { node(n, "OP").start = "2026-09-30"; }), ["past:OP"]);
-ok("creating an op that starts before today", check(n => { node(n, "PANEL").subs.push({ id: "OLD", title: "Old", start: "2026-09-29", end: "2026-10-01", team: [7] }); }), ["past:OLD"]);
-ok("a start already in the past can stay", check((n, p) => { node(p, "OP").start = "2026-09-28"; node(n, "OP").start = "2026-09-28"; node(n, "OP").end = "2026-10-05"; }), []);
-ok("admins are exempt", check(n => { node(n, "OP").start = "2026-09-30"; }, { isAdmin: true }), []);
+console.log("\n7. past — REMOVED, and the removal is what is asserted");
+ok("moving a start before today is no violation", check(n => { node(n, "OP").start = "2026-09-30"; }), []);
+ok("...nor creating an op that starts before today", check(n => { node(n, "PANEL").subs.push({ id: "OLD", title: "Old", start: "2026-09-29", end: "2026-10-01", team: [7] }); }), []);
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n8. tasks.js, by SCHEDULE_RULES_MODE");
