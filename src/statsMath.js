@@ -1458,7 +1458,15 @@ export const buildDayWindows = (workStartH, workEndH, breaks, lunch) => {
 // the final day, and total width in day-column units (the same axis the bar's left
 // offset uses, so offset + width closes exactly on the day boundary).
 export const walkProductiveHours = (startH, prodHours, cfg) => {
-  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  const { workStartH, workEndH } = cfg;
+  // #83. IN ORDER, OR DEAD TIME IS DROPPED: the loop skips any window that ends before the clock,
+  // so a later window read first carries the clock past an earlier one. buildDayWindows returns
+  // them ascending, but this walk now holds that itself, as the backward walk below always has —
+  // and sorts only when it has to, because it runs per bar per render.
+  const given = cfg.deadWindows || [];
+  let inOrder = true;
+  for (let i = 1; i < given.length; i++) if (given[i].start < given[i - 1].start) { inOrder = false; break; }
+  const deadWindows = inOrder ? given : [...given].sort((a, b) => a.start - b.start);
   const dayLen = Math.max(0.0001, workEndH - workStartH);
   let clock = Math.min(Math.max(startH, workStartH), workEndH);
   const firstStart = clock;
