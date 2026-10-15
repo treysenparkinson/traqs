@@ -1768,7 +1768,12 @@ export function dayGridHours(workStartH, workEndH) {
 }
 
 /** Productive hours between two clock times on one day (dead windows removed). */
+// Clipped to the working day first (#359), exactly as WorkDayClock.productiveHours does: a span
+// reaching before work start or past work end counts only its working part. The two sides used
+// to agree only inside the day.
 export function productiveClockHours(a, b, cfg) {
+  a = Math.max(a, cfg?.workStartH ?? -Infinity);
+  b = Math.min(b, cfg?.workEndH ?? Infinity);
   let h = Math.max(0, b - a);
   for (const w of cfg.deadWindows || []) {
     const s = Math.max(a, w.start), e = Math.min(b, w.start + w.dur);

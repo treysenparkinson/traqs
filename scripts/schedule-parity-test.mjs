@@ -92,10 +92,13 @@ function compute() {
         walks.push({ org: oi, startH, hours, days: w.days, endHour: w.endHour, columns: w.columns });
       }
     }
-    // Inside the working day only: that is the domain opDaySegments calls it on. Outside it
-    // the two sides differ (the JS does not clip to the day; WorkDayClock does) — logged.
+    // Inside the working day AND outside it. The JS used to skip clipping to the day while
+    // WorkDayClock clipped, so only in-day pairs were here; both clip now (#359), and the
+    // out-of-day pairs hold the Swift side to the same answer.
     for (const [a, b] of [[cfg.workStartH, cfg.workEndH], [cfg.workStartH, cfg.workStartH + 2.5],
-      [Math.max(cfg.workStartH, 9), 11], [11.5, 13], [12, 12.5], [14, 10], [cfg.workEndH - 1, cfg.workEndH]]) {
+      [Math.max(cfg.workStartH, 9), 11], [11.5, 13], [12, 12.5], [14, 10], [cfg.workEndH - 1, cfg.workEndH],
+      [cfg.workStartH - 2, cfg.workStartH + 1.5], [cfg.workEndH - 1.5, cfg.workEndH + 3], [cfg.workStartH - 3, cfg.workEndH + 2],
+      [cfg.workEndH + 1, cfg.workEndH + 4]]) {
       clockHours.push({ org: oi, from: a, to: b, hours: productiveClockHours(a, b, cfg) });
     }
     for (const day of DAYS) calendar.push({ org: oi, day, isWorkDay: cal.isWorkDay(day) });
