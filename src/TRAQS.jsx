@@ -7601,7 +7601,8 @@ Extraction rules:
         const match = auth0User?.email
           ? np.find(p => p.email && p.email.toLowerCase() === auth0User.email.toLowerCase())
           : null;
-        setLoggedInUser(prev => prev || match || np[0] || null);
+        // #217. No match is NOBODY, not the first person on the roster (often the founding admin).
+        setLoggedInUser(prev => prev || match || null);
         setDataLoading(false); // render immediately; the server load below reconciles
       } catch (e) { console.warn("[cold-hydrate] skipped:", e?.message || e); }
     })();
@@ -7635,10 +7636,11 @@ Extraction rules:
           const match = resolvedPeople.find(
             person => person.email && person.email.toLowerCase() === auth0User.email.toLowerCase()
           );
-          const resolvedUser = match || resolvedPeople[0] || null;
-          setLoggedInUser(resolvedUser);
+          // #217: an unmatched sign-in resolves to null — the state an empty roster already
+          // produced — rather than to whoever happens to be first.
+          setLoggedInUser(match || null);
         } else {
-          setLoggedInUser(resolvedPeople[0] || null);
+          setLoggedInUser(null);
         }
         // Only flip the gate AFTER state has been hydrated from S3.
         dataLoadedRef.current = true;
