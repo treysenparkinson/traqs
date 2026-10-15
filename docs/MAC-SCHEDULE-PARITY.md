@@ -1,5 +1,14 @@
 # macOS Schedule page — parity map and worklog
 
+> **ABANDONED — THIS PORT WILL NOT BE BUILT (SCHEDULE_MAP #235, #277; ruled 2026-10-15).**
+> "macOS: scrapped. The Mac is a webview wrapper for everything else and the Schedule can
+> stay that way." #235 was dropped, not deferred, so nothing below is a plan any more.
+>
+> It is also stale as a description (#277): the `renderTeam` line numbers are from
+> September; `personStatus` values and the Swift names in the table below do not match the
+> code. Do not use it to size or locate anything. The web's schedule is described, current,
+> in SCHEDULE_MAP.md; the Mac's Jobs page, which WAS ported, is MAC-JOBS-PARITY.md.
+
 **Source of truth:** `src/TRAQS.jsx`, `renderTeam()` @ **13902–16314** — 2,412
 lines, the largest single view in the app and roughly three times the Jobs list.
 Reached from the sidebar's second entry and from the Jobs row menu's "Take me to
