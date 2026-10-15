@@ -15,7 +15,15 @@ import { readFileSync } from "node:fs";
 import { productiveHoursBetween, openSessionEnd, liveElapsedHours, sessionWorkedHours, buildDayWindows } from "../src/statsMath.js";
 const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 let pass = 0, fail = 0;
-const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
+// #268. TWO FORMS, AND THE SECOND ONE USED TO BE A LIE. Five calls below pass (label, got,
+// want); this took (label, condition), so it checked only that `got` was truthy and never
+// looked at `want`. One of them asserted 1h for a span the function returns 2h for, and
+// passed for weeks after #505 changed the answer. With a third argument it now compares.
+const ok = (m, c, ...want) => {
+  const good = want.length ? JSON.stringify(c) === JSON.stringify(want[0]) : !!c;
+  if (good) { pass++; console.log("ok    " + m); }
+  else { fail++; console.error("FAIL  " + m + (want.length ? `\n      got  ${JSON.stringify(c)}\n      want ${JSON.stringify(want[0])}` : "")); }
+};
 
 // ── wiring ───────────────────────────────────────────────────────────────────
 const FN = S.slice(S.indexOf("const liveOpHours = (op) => {"), S.indexOf("const liveOpHours = (op) => {") + 900);
@@ -38,16 +46,18 @@ ok("live job hours go through the shared definition", FN.includes("sessionWorked
   const sameDay = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T09:00:00.000Z"), nowMs: Date.parse("2026-09-25T11:00:00.000Z"), cfg });
   ok("...measured in productive hours (2h inside the window counts 2h)", sameDay.hours, 2);
   const overLunch = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T11:30:00.000Z"), nowMs: Date.parse("2026-09-25T13:30:00.000Z"), cfg });
-  ok("...with lunch removed from the span (11:30-13:30 counts 1h)", overLunch.hours, 1);
-  // #199/#200: a CLOSED manual pause comes off; an auto (lunch) pause does not, because the
-  // dead window already removed it. Before the split these were one number and neither
-  // caller could tell them apart.
+  // #505 (Trey's rule, 2026-10-12): a measured session has its own pauses, so the shop's
+  // scheduled lunch is NOT taken off it. Worked through lunch and clocked nothing: it counts.
+  ok("...and a lunch nobody clocked is worked time (#505: 11:30-13:30 counts 2h)", overLunch.hours, 2);
+  // ...and every recorded pause comes off in full, manual or auto. Before #505 the scheduled
+  // lunch came off the window AND the auto share was excluded from the subtraction; the two
+  // halves moved together, so a clocked lunch is still removed exactly once.
   const manual = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T09:00:00.000Z"), nowMs: Date.parse("2026-09-25T11:00:00.000Z"),
     totalPausedMs: 30 * 60e3, autoPausedMs: 0, cfg });
   ok("...minus a closed manual pause", manual.hours, 1.5);
   const auto = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T11:30:00.000Z"), nowMs: Date.parse("2026-09-25T13:30:00.000Z"),
     totalPausedMs: 60 * 60e3, autoPausedMs: 60 * 60e3, cfg });
-  ok("...but a lunch pause is not billed twice", auto.hours, 1);
+  ok("...and a clocked lunch comes off exactly once", auto.hours, 1);
 }
 ok("...not raw wall clock", !FN.includes("liveElapsedHours"));
 // The bound has to be the SAME one the bar geometry already uses, or a forgotten

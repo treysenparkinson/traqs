@@ -94,10 +94,10 @@ console.log(`  per column, by scan : ${before.ms.toFixed(1)}ms  ${before.ops.toL
 console.log(`  per row, by map     : ${after.ms.toFixed(1)}ms  ${after.ops.toLocaleString()} ops`);
 console.log(`  ${(before.ops / after.ops).toFixed(0)}x less work\n`);
 
-ok("hoisting and keying cuts the work by at least 20x", before.ops / after.ops >= 20);
-// A 60fps frame is 16.6ms, and this is only the prelude.
-ok("...and the old shape really did eat most of a frame on its own", before.ms > 5);
-ok("...while the new one leaves the frame to React", after.ms < 5);
+// #268. ILLUSTRATION, NOT A TEST. `scanRow` and `mapRow` are written in this file, not taken
+// from the app — renderStdCell and stdCellCtx live inside the component. Three assertions
+// stood here (a 20x ratio and two wall-clock timings) and measured these copies, so they held
+// whatever the app did. The app's shape is pinned by the wiring assertions above.
 
 // ── sorting the Jobs list ────────────────────────────────────────────────────
 // Every sort key used to be computed inside the comparator, so sorting by Hrs,
@@ -110,7 +110,9 @@ ok("no rollup is called from inside the comparator",
   !/sort\(\(a, b\) => \{[\s\S]{0,1400}_job(Hrs|Pct)\(a\)/.test(S));
 
 {
-  // The old shape and the new one, on the same rows, must agree exactly.
+  // #268. ILLUSTRATION, NOT A TEST: both comparators below are written here, so three
+  // assertions that they agreed proved a property of this file, not of the Jobs list. The
+  // app's comparator is pinned by the source assertions above.
   const rows = Array.from({ length: 200 }, (_, i) => ({
     id: i, title: `Job ${(i * 7) % 200}`, jobNumber: String((i * 13) % 200),
     hrs: (i * 31) % 97, pct: (i * 17) % 53,
@@ -121,16 +123,14 @@ ok("no rollup is called from inside the comparator",
     const oldWay = [...rows].sort((a, b) => mul * (keyOf(a) - keyOf(b)));
     const dec = rows.map((t, i) => ({ t, i, k: keyOf(t) }));
     dec.sort((x, y) => (mul * (x.k - y.k)) || (x.i - y.i));
-    ok(`a numeric sort matches the old comparator (${dir})`,
-      dec.map(d => d.t.id).join() === oldWay.map(t => t.id).join());
+    if (dec.map(d => d.t.id).join() !== oldWay.map(t => t.id).join()) console.log(`  illustration: decorated sort differs (${dir})`);
   }
   // Ties are where a decorated sort could diverge, so they are the case to prove.
   const tied = Array.from({ length: 50 }, (_, i) => ({ id: i, k: i % 3 }));
   const oldTies = [...tied].sort((a, b) => a.k - b.k);
   const decTies = tied.map((t, i) => ({ t, i, k: t.k }));
   decTies.sort((x, y) => (x.k - y.k) || (x.i - y.i));
-  ok("...and equal keys come out in the same order as before",
-    decTies.map(d => d.t.id).join() === oldTies.map(t => t.id).join());
+  if (decTies.map(d => d.t.id).join() !== oldTies.map(t => t.id).join()) console.log("  illustration: decorated ties differ");
 }
 
 // ── the Schedule ─────────────────────────────────────────────────────────────
@@ -176,9 +176,11 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   console.log(`  roster scan per node : ${scanMs.toFixed(1)}ms  ${scanOps.toLocaleString()} ops`);
   console.log(`  id set per node      : ${setMs.toFixed(1)}ms  ${setOps.toLocaleString()} ops`);
   console.log(`  ${(scanOps / setOps).toFixed(0)}x less work\n`);
-  ok("the schedule's live check stops being quadratic in the roster", scanOps / setOps >= 10);
-  // Both answer the same question about the same nodes.
-  ok("...and still answers identically", scanLive("j3p1o2") === setLive("j3p1o2") && scanLive("nope") === setLive("nope"));
+  // #268. ILLUSTRATION, NOT A TEST. `scanLive` and `setLive` are written in this file; neither
+  // is the app's `isLiveOpId`, which lives in a useMemo inside the component where nothing
+  // outside can call it. Two assertions stood here and passed on these copies whatever the app
+  // did. The real code is pinned by the wiring assertions above (the id set exists, all three
+  // walk sites use it, no roster scan is left); this block only prints what the change costs.
 }
 
 
