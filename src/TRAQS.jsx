@@ -41,7 +41,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -9340,7 +9340,7 @@ Extraction rules:
       for (const op of (panel.subs || [])) if (sel.has(String(op.id))) ops.push({ op, panel });
     }
     if (ops.length === 0) return null;
-    const crew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule && !p.deletedAt);
+    const crew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && isAutoSchedulable(p) && !p.deletedAt);
     const avail = schedulerAvailability(tasks, overlapCtx, { excludeOpIds: rescheduleSelection, people });
     const base = ed._rescheduleStartDate || TD;
     return previewOutcomes(ops.map(x => x.op), crew, {
@@ -24313,7 +24313,7 @@ ${jobsCtx || "No jobs found."}`;
           // Treat all assignable units as a flat sequence — no replication across numPanels
           const numPanels = 1;
           const opsPerPanel = rawOps.length;
-          const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
+          const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && isAutoSchedulable(p));
           // RETIRED onto the engine (1 of 4). This was the job wizard's own copy
           // of "who may take this op" — manual assignment, then departments, then
           // a fallback to all crew. The fallback is deliberately NOT carried over:
@@ -24437,7 +24437,7 @@ ${jobsCtx || "No jobs found."}`;
         setOverrideError(prev => ({ ...prev, [panelId]: null }));
         setOverrideReport(prev => ({ ...prev, [panelId]: null }));
         setTimeout(() => {
-          const allCrew = people.filter(pp => (pp.userRole === "user" || pp.userRole === "admin") && !pp.noAutoSchedule);
+          const allCrew = people.filter(pp => (pp.userRole === "user" || pp.userRole === "admin") && isAutoSchedulable(pp));
           const inSession = [];
           // The shared overlap rule, counting this run's own placements (booked below) — the
           // whole-day check here ignored the job being scheduled and double-booked people.
@@ -25092,7 +25092,7 @@ ${jobsCtx || "No jobs found."}`;
                     e.stopPropagation();
                     setEd(p => {
                       const updated={...p};
-                      const allCrew=people.filter(pp => (pp.userRole==="user" || pp.userRole==="admin") && !pp.noAutoSchedule);
+                      const allCrew=people.filter(pp => (pp.userRole==="user" || pp.userRole==="admin") && isAutoSchedulable(pp));
                       // The shared overlap rule, counting this run's own placements (booked below).
                       // Re-planning a SELECTION: only the selected ops come out of
                       // the obstacle set. The job's own unselected ops stay put and
@@ -26829,7 +26829,7 @@ ${jobsCtx || "No jobs found."}`;
     const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
     const sorted = [...dp].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     const person = sorted.find(p => p.id === settingsUser) || sorted[0];
-    const rolesOf = p => [p.userRole === "admin" && "Admin", p.canSignOff && "Approver", p.noAutoSchedule && "No auto"].filter(Boolean);
+    const rolesOf = p => [p.userRole === "admin" && "Admin", p.canSignOff && "Approver", !isAutoSchedulable(p) && "No auto"].filter(Boolean);
     let detail = <div className="rv-wdet"><div className="rv-mute">No team members yet.</div></div>;
     if (person) {
       const isAdm = person.userRole === "admin";
@@ -26842,7 +26842,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ flex: 1 }} />
             {isAdm && <span className="rv-chip b">Admin</span>}
             {person.canSignOff && <span className="rv-chip b">Approver</span>}
-            {person.noAutoSchedule && <span className="rv-chip y">No auto</span>}
+            {!isAutoSchedulable(person) && <span className="rv-chip y">No auto</span>}
           </div>
           {sRow("Admin capabilities", "Grant only what this person needs.", <>
             <div className="rv-ctl" style={{ paddingTop: 0 }}>
@@ -26869,7 +26869,7 @@ ${jobsCtx || "No jobs found."}`;
           {sRow("Approval queue", "Can sign off steps in approval templates.",
             <div className="rv-ctl flat"><span>Approval queue access</span>{sTog(person.canSignOff, () => updDraftPerson(person.id, { canSignOff: !person.canSignOff }))}</div>)}
           {sRow("Scheduling", "Auto-scheduling will skip this person.",
-            <div className="rv-ctl flat"><span>Exclude from auto-scheduling</span>{sTog(person.noAutoSchedule, () => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule }), "y")}</div>)}
+            <div className="rv-ctl flat"><span>Exclude from auto-scheduling</span>{sTog(!isAutoSchedulable(person), () => updDraftPerson(person.id, autoScheduleFlags(!isAutoSchedulable(person))), "y")}</div>)}
           {sRow("Clock-in PIN", "Entered at the shop clock to clock in.",
             <div className="rv-ctl flat"><span>PIN</span>{sPin(person, updDraftPerson)}</div>)}
         </div>
@@ -29931,7 +29931,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                       {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
                       {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>{(orgSettings.approverLabel || "Approver").slice(0, 3)}</span>}
-                      {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                      {!isAutoSchedulable(person) && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
@@ -29984,13 +29984,13 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>
                     {/* No Auto-Schedule toggle */}
-                    <div onClick={() => isAdmin && updPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
-                      <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
+                    <div onClick={() => isAdmin && updPerson(person.id, autoScheduleFlags(!isAutoSchedulable(person)))} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${!isAutoSchedulable(person) ? "#f59e0b44" : T.border}`, background: !isAutoSchedulable(person) ? "#f59e0b08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
+                      <span style={{ lineHeight: 0, color: !isAutoSchedulable(person) ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
                       </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 16, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                        <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      <div style={{ width: 36, height: 20, borderRadius: 16, background: !isAutoSchedulable(person) ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                        <div style={{ position: "absolute", top: 2, left: !isAutoSchedulable(person) ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
                     {/* Clock-In PIN (admin only) */}

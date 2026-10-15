@@ -1999,3 +1999,15 @@ export function chipSpanPct({ start, end }, days) {
 export function durationDays(hpd, teamSize, ppd) {
   return Math.max(1, Math.ceil(personShareHours(hpd, teamSize, ppd) / ppd));
 }
+
+// WHETHER THE SCHEDULER MAY PICK THIS PERSON (#229). Two fields carry the one fact — the web's
+// `noAutoSchedule` and the phones' `autoSchedule: false` — and this is iOS's exact rule
+// (`isAutoSchedulable` in Models.swift): either exclusion excludes.
+export function isAutoSchedulable(p) {
+  return !(p?.noAutoSchedule ?? false) && (p?.autoSchedule ?? true) !== false;
+}
+// What a toggle writes. Including someone clears BOTH fields, so an exclusion set on a phone
+// cannot survive the web's toggle reading "included".
+export function autoScheduleFlags(include) {
+  return include ? { noAutoSchedule: false, autoSchedule: true } : { noAutoSchedule: true };
+}
