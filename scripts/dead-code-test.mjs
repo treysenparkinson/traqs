@@ -79,12 +79,11 @@ for (const [id, sym] of GONE) {
 // Each of these is why the code above was unreachable. If one becomes possible again, the
 // branch behind it is live code and has to be written as such, not revived by accident.
 
-// #132/#319: taskSubView only ever holds "list". The cards branch (#319) is still in the
-// file deliberately — it is held, not deleted — so this asserts the STATE, not the branch.
-const setters = SRC.match(/setTaskSubView\((["'])([a-z]+)\1\)/g) || [];
-ok(`#132/#319 taskSubView is only ever set to "list" (${setters.length} setter call${setters.length === 1 ? "" : "s"})`,
-  setters.length > 0 && setters.every(s => /"list"|'list'/.test(s)));
-ok("#132/#319 ...and it is initialised to \"list\"", /useState\(["']list["']\)[^\n]*taskSubView|const \[taskSubView, setTaskSubView\] = useState\(["']list["']\)/.test(SRC));
+// #132/#319: the cards sub-view is DELETED (ruled 2026-10-15: "delete the cards sub-view. 250
+// lines nothing can reach"), and with it the taskSubView state that only ever held "list". Asserted
+// as absence now: neither the state nor a "cards" branch may come back.
+ok("#319 the taskSubView state is gone", !/\btaskSubView\b/.test(SRC.replace(/^\s*\/\/.*$/gm, "")));
+ok("#319 ...and no \"cards\" sub-view branch remains", !/=== "cards"/.test(SRC));
 
 // #133: no row is ever typed "subtask", so the branch that rendered one is unreachable.
 ok("#133 no schedule row is given type \"subtask\"", !/type:\s*["']subtask["']/.test(SRC));

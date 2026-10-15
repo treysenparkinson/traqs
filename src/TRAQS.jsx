@@ -4608,7 +4608,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     setJobSelectMode(false);    setSelJobs(new Set());
     setClientSelectMode(false); setSelClients(new Set());
     setTeamSelectMode(false);   setSelPeople(new Set());
-    if (v !== "tasks") setTaskSubView("list");
   };
 
   // ─── Fast TRAQS: unified AI import ────────────────────────────────────────
@@ -5157,7 +5156,6 @@ Extraction rules:
     return () => window.removeEventListener("beforeunload", h);
   }, [settingsMode, settingsSection, settingsDraft, draftMode, draftCustom]); // eslint-disable-line react-hooks/exhaustive-deps
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
-  const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [tasks, _setTasks] = useState([]);
   const [people, _setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
@@ -8831,9 +8829,8 @@ Extraction rules:
         if (typeof remote.jobsView === "string") setJobsView(remote.jobsView);
         if (typeof remote.showCompleted === "boolean") setShowCompleted(remote.showCompleted);
         if (typeof remote.adminFilter === "string") setAdminFilter(remote.adminFilter);
-        // #429. Three view modes, the same way. Not taskSubView: it only ever holds "list"
-        // (#132/#319), and reading it from the blob would let a stored "cards" reopen the
-        // branch that is deliberately held.
+        // #429. Three view modes, the same way. (The Jobs page's old "cards" sub-view and its
+        // taskSubView state were deleted in #319, so there is nothing of that kind to restore.)
         if (typeof remote.tMode === "string") setTMode(remote.tMode);
         if (typeof remote.scheduleTeamMode === "string") setScheduleTeamMode(remote.scheduleTeamMode);
         if (typeof remote.tsAdminTab === "string") setTsAdminTab(remote.tsAdminTab);
@@ -13730,7 +13727,7 @@ ${jobsCtx || "No jobs found."}`;
         : { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)", alignItems: "center", columnGap: 12, minHeight: 50 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}><h1 style={pageTitle()}>Jobs</h1>{titleActions}</span>
-        {taskSubView === "list" && <>
+        {<>
           {/* Select */}
           {can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</button>}
             <style>{SUBTLE_ALL_BTN_CSS}</style>
@@ -13747,16 +13744,16 @@ ${jobsCtx || "No jobs found."}`;
             </div>
         </>}
         </div>
-        {taskSubView === "list" ? <div style={{ display: "flex", justifyContent: "center" }}>
+        {<div style={{ display: "flex", justifyContent: "center" }}>
           {/* Search — always open, as in the design */}
           <label className="rv-pill" style={{ width: 240, cursor: "text", color: taskSearchQ ? "var(--tq-accent)" : "var(--rv-mute)" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></svg>
             <input className="tq-bare" id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs, #, client…" style={{ flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none", background: "transparent", color: "var(--rv-ink)", fontSize: 11.5, fontFamily: "inherit" }} />
             {taskSearchQ && <span role="button" onClick={e => { e.preventDefault(); setTaskSearchQ(""); }} style={{ cursor: "pointer", fontSize: 14, lineHeight: 1, color: "var(--rv-mute)" }}>×</span>}
           </label>
-        </div> : <div />}
+        </div>}
         <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end", minWidth: 0, flexWrap: "wrap" }}>
-        {taskSubView === "list" && <>
+        {<>
           {/* Filter */}
           <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
             <button className={activeFilterCount > 0 ? "rv-pill ic on" : "rv-pill ic"} onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter">
@@ -13821,256 +13818,9 @@ ${jobsCtx || "No jobs found."}`;
         {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
         </div>
       </div>
-      {/* ── Cards View ── */}
-      {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
-        {/* Job list sidebar */}
-        <div style={{ minWidth: 300, maxWidth: 300, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
-              {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
-              {jobSelectMode && <button onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 14px", fontSize: 13, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", outline: "none", color: T.accentText, whiteSpace: "nowrap", flexShrink: 0 }}>{selJobs.size === activeTasks.length ? "None" : "All"}</button>}
-              <Tip label="Filter">
-              <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
-              </button>
-              </Tip>
-              <FadeOnClose open={taskFilterOpen}>{taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Filter Status</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Client</div>
-                  <SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : T.surface, color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                    {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                    {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
-                  </div>
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <div onClick={() => setFDeptEqTitle(v => !v)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 0" }}>
-                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${fDeptEqTitle ? T.accent : T.border}`, background: fDeptEqTitle ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                      {fDeptEqTitle && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: fDeptEqTitle ? 600 : 400, color: fDeptEqTitle ? T.accent : T.text }}>Department matches the op title</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 24, lineHeight: 1.45 }}>
-                    Likely set by the old title rule rather than chosen. Usually the fix is to widen it, not clear it.
-                  </div>
-                </div>
-                {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusPill, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-              </div>}</FadeOnClose>
-            </div>
-          </div>
-          <div style={{ position: "relative", marginBottom: 8 }}>
-            <svg style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-            {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
-          </div>
-          <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-            {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
-              <div style={{ opacity: 0.35 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No jobs yet</h3>
-              <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
-              {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Job</Btn>}
-            </div>}
-            {activeTasks.map(t => {
-              const isSel = selTask === t.id;
-              const client = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
-              const health = healthOf(t);
-              const healthColor = HEALTH_DOT[health];
-              return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
-                style={{ background: isSel ? T.accent + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? T.accent + "66" : T.border}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${T.accent}15` : "none" }}
-                onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "44"; } }}
-                onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-                  {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
-                  {!jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />}
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
-                  {client && <span style={{ fontSize: 11, color: elColor(client.color), fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: elColor(client.color), display: "inline-block" }} />{client.name}</span>}
-                  {t.projectManagerId && (() => { const pm = people.find(p => sameId(p.id, t.projectManagerId)); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><PersonAvatar person={pm} size={10} />{pm.name.split(" ")[0]}</span> : null; })()}
-                  {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
-                </div>
-              </div>;
-            })}
-            {finishedTasks.length > 0 && <>
-              <div style={{ margin: "10px 0 6px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
-                <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 8, fontSize: 10, color: hexA(T.bgText, 0.65), fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Finished</span>
-              </div>
-              {finishedTasks.map(t => {
-                const isSel = selTask === t.id;
-                const client = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
-                return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
-                  style={{ background: isSel ? "#10b98118" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? "#10b98166" : T.border}`, borderLeft: "4px solid #10b981", padding: "9px 12px", cursor: "pointer", opacity: isSel ? 1 : 0.65, transition: "all 0.15s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
-                  onMouseLeave={e => { if (!isSel) { e.currentTarget.style.opacity = "0.65"; e.currentTarget.style.borderColor = T.border; } }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                    {client && <span style={{ fontSize: 10, color: elColor(client.color), fontWeight: 600 }}>{client.name}</span>}
-                    {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>}
-                  </div>
-                </div>;
-              })}
-            </>}
-          </div>
-        </div>
-        {/* Job detail panel */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          {can("editJobs") && fresh && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
-            <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>
-          </div>}
-          <div style={{ flex: 1, overflow: "auto" }}>
-          {!fresh ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
-              <div style={{ opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/></svg></div>
-              <div style={{ fontSize: 16, color: T.textDim }}>Select a job to view details</div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <HealthIcon health={healthOf(fresh)} size={22} style={{ flexShrink: 0 }} />
-                  <div>
-                    <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
-                    {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                      {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
-                      {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                      {fresh.projectManagerId && (() => { const pm = people.find(p => sameId(p.id, fresh.projectManagerId)); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
-                    </div>}
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-                {fresh.clientId && <Badge t={clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
-                <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
-                </span>
-                <ColorSlidingPill options={STATUSES.map(s => ({ value: s, label: s, color: staColorOf(s) }))} value={fresh.status || "Not Started"} onChange={v => updTask(fresh.id, { status: v })} />
-                <ColorSlidingPill options={PRIORITIES.map(p => ({ value: p, label: p, color: priColorOf(p) }))} value={fresh.pri || "Medium"} onChange={v => updTask(fresh.id, { pri: v })} />
-              </div>
-              {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}>
-                <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>
-                {fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}
-              </div>}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Notes</div>
-                <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
-              </div>
-              {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Custom Fields</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {customCols.filter(c => !c.fieldKey).map(col => {
-                    const key = "_cc_" + col.id;
-                    const val = fresh[key] || "";
-                    return <div key={col.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600, minWidth: 90, flexShrink: 0 }}>{col.label}</span>
-                      {col.type === "select" && (col.options || []).length > 0
-                        ? <div style={{ flex: 1 }}><SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => commitCellEdit(fresh.id, key, v)} /></div>
-                        : col.type === "date"
-                        ? <DateField square compact portal value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => commitCellEdit(fresh.id, key, v)} />
-                        : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
-                    </div>;
-                  })}
-                </div>
-              </div>}
-              {parent && (parent.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
-                <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({parent.subs.length})</h4>
-                {parent.subs.map(panel => {
-                  const hasEng = panel.engineering !== undefined;
-                  const pEng = panel.engineering || {};
-                  const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
-                  const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-                  return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusLg, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 16, marginBottom: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <HealthIcon health={healthOf(panel)} size={14} />
-                      <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
-                      {panel.dateOverridden && <span title={`Original start: ${fm(panel.dateOverridden.originalStart)} · Overridden by ${panel.dateOverridden.overriddenBy} on ${fm(panel.dateOverridden.overriddenAt)}`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b33", cursor: "help", flexShrink: 0 }}>Date Overridden</span>}
-                      <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
-                    </div>
-                    {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>{approverLabel.slice(0, 3).toUpperCase()}:</span>
-                      {approvalSteps.map(step => {
-                        const done = !!pEng[step.key];
-                        const isActive = step.key === pActiveStep;
-                        if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                        if (isActive && canEngineer) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                        if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
-                        return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
-                      })}
-                      {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
-                    </div>}
-                    {!hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: { designed: null, verified: null, sentToPerforex: null } }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 8, transition: "all 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
-                      <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600 }}>+ Require {approverLabel} sign-off</span>
-                    </div>}
-                    {hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: undefined }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 12, border: `1px solid ${T.accent}44`, marginBottom: 8, background: T.accent + "08", transition: "all 0.15s" }}>
-                      <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>✓ {approverLabel} sign-off enabled. Remove?</span>
-                    </div>}
-                    {(panel.subs || []).length > 0 && <div>
-                      {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
-                        return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: panel.id, grandPid: parent.id, level: 2, panelTitle: panel.title }, "job-detail")}>
-                          <HealthIcon health={healthOf(op)} size={12} />
-                          <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
-                          <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><PersonAvatar person={person} size={16} />{person.name}</span>}
-                          {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
-                        </div>; })}
-                    </div>}
-                  </div>;
-                })}
-              </div>}
-              {(!parent || (parent.subs || []).length === 0) && (fresh.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
-                <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Subtasks ({fresh.subs.length})</h4>
-                {fresh.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: T.radiusSm, marginBottom: 6, background: T.surface, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...s, isSub: true, pid: fresh.id, level: 1 }, "job-detail")}>
-                  <HealthIcon health={healthOf(s)} size={13} />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text }}>{s.title}</span>
-                  <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(s.start)} → {fm(s.end)}</span>
-                </div>)}
-              </div>}
-              {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Team</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {(fresh.team || []).map(id => { const p = people.find(x => x.id === id); if (!p) return null; const jc = fresh.color || T.accent; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: jc + "15", border: `1px solid ${jc}44` }}>
-                    <PersonAvatar person={p} size={24} />
-                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
-                    <span style={{ fontSize: 11, color: T.textDim }}>{p.department}</span>
-                  </div>; })}
-                </div>
-              </div>}
-            </div>
-          )}
-          </div>
-        </div>
-      </div>}
-
       {/* ── List View (Grid) ── */}
       {/* The views + clients column sits on the RIGHT of the table. */}
-      {taskSubView === "list" && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 200px", gridTemplateRows: "minmax(0, 1fr)", gap: "0 32px", flex: 1, minHeight: 0 }}>
+      {<div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) 200px", gridTemplateRows: "minmax(0, 1fr)", gap: "0 32px", flex: 1, minHeight: 0 }}>
       {(() => {
         const orderedStdCols = visibleColOrder(colOrder, hiddenCols).map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
         const showAssigneeCol = orderedStdCols.some(c => c.id === "assignee");
