@@ -15705,6 +15705,14 @@ ${jobsCtx || "No jobs found."}`;
       return [lo || tStart, hi || tEnd];
     })();
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
+    // NOW, ONCE (#74): one position for every bar's cursor and for the today line, at the
+    // render's instant (#75), by the rule the split gantt uses (nowColumnFrac). The bars and the
+    // line each had their own formula, and the line read the clock afresh. Outside the window it
+    // deliberately falls beyond 0..100: a bar left of a past cursor must read as fully behind it.
+    const _nowDayR = shopDay(_renderNowMs);
+    const _nowFracR = nowColumnFrac({ nowHour: shopHour(_renderNowMs), workStartH, totalWorkH });
+    const _nowIdxR = days.indexOf(_nowDayR);
+    const _nowGridPctR = _nowIdxR >= 0 ? ((_nowIdxR + _nowFracR) / days.length) * 100 : (_nowDayR < days[0] ? -1 : 101);
     // Left column width. It was a fixed 260, sized for the utilization number the clock
     // pill replaced — a pill naming a job needs far more, so names wrapped and the pill
     // sat on top of them. Widen to fit the longest job title actually on the clock right
@@ -16383,8 +16391,9 @@ ${jobsCtx || "No jobs found."}`;
         // #7. Was `HS = 5, HE = 21` — 05:00–21:00 regardless of the org. See dayGrid.
         const { HS, HE, NH, hours, dead: deadHours } = dayGrid;
         const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
-        const nowH = shopHour();
-        const isToday = tStart === TD;
+        // An HOURLY axis, so its own position — but the same instant as everything else (#74, #75).
+        const nowH = shopHour(_renderNowMs);
+        const isToday = tStart === _nowDayR;
         return (
           <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{width:"100%"}}>
             <div style={{overflow:"hidden", border:"1px solid var(--rv-line)", borderRadius:18, background:T.surface}}>
@@ -16941,13 +16950,7 @@ ${jobsCtx || "No jobs found."}`;
                   // Outside the visible window it deliberately falls beyond 0..100 rather than
                   // clamping here: a bar left of a past cursor must read as fully behind it, and
                   // the fill clamps for paint at the point where it draws.
-                  const _nowD = new Date(_renderNowMs);
-                  const _nowIdx = days.indexOf(shopDay(_nowD.getTime()));
-                  const _nowHourFrac = totalWorkH > 0
-                    ? (shopHour(_nowD.getTime()) - workStartH) / totalWorkH : 0;
-                  const _nowGridPct = _nowIdx >= 0
-                    ? ((_nowIdx + Math.min(1, Math.max(0, _nowHourFrac))) / nDays) * 100
-                    : (shopDay(_nowD.getTime()) < days[0] ? -1 : 101);
+                  const _nowGridPct = _nowGridPctR;
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
                   // Worked state for this bar — the bar's own geometry depends on it
@@ -18354,11 +18357,9 @@ ${jobsCtx || "No jobs found."}`;
           {/* Today line — hour-precise (Bug A fix), moves within the day instead of sitting
               pinned to the column center. Re-evaluates on every render, including the
               unconditional schedule tick above. */}
-          {TD >= tStart && TD <= tEnd && (() => {
-            const _tlH = shopHour();
-            const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
-            const _tlDayIdx = diffD(tStart, TD);
-            const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`;
+          {_nowIdxR >= 0 && (() => {
+            // The one now-position (#74), not a formula and a clock read of its own.
+            const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_nowIdxR + _nowFracR) / days.length})`;
             return <>
               <div key="today-dot" style={{ position: "absolute", top: -3, left: `calc(${_tlLeft} - 3px)`, width: 6, height: 6, borderRadius: "50%", background: T.accent, boxShadow: `0 0 4px ${T.accent}aa`, zIndex: 13, pointerEvents: "none" }} />
               <div key="today-line" style={{ position: "absolute", top: 0, bottom: 0, left: _tlLeft, width: 2, background: T.accent + "99", boxShadow: `0 0 6px ${T.accent}44`, zIndex: 12, pointerEvents: "none" }} />
