@@ -8,7 +8,7 @@ import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRu
 // that UI lands. Until then it is this constant rather than a piece of state
 // nothing sets — an unset switch is the never-executes shape all over again.
 const SCHEDULE_OBJECTIVE = "even";
-import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
+import { workWindowError, invalidWorkWindow, DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { movePersonRow } from "./personRowDrag.js";
 import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIso } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
@@ -7681,11 +7681,19 @@ Extraction rules:
   // migration below has to wait for it: firing against the local cache alone would
   // read "the org has no list yet" from a copy that simply had not loaded.
   const orgSettingsLoadedRef = useRef(false);
+  // #354: the stored work window that did not take, and whether it has been shown this load.
+  const [workWindowNotice, setWorkWindowNotice] = useState(null);
+  const workWindowNoticeShownRef = useRef(false);
   useEffect(() => {
     if (!orgCode) return;
     fetchOrgSettings(getToken, orgCode)
       .then(server => {
         if (!server || Object.keys(server).length === 0) return;
+        // #354, ruled: an invalid stored window falls back to the default (withOrgDefaults,
+        // below) and is SURFACED, not silently repaired — someone chose those numbers. Shown
+        // once, to whoever can change org settings, by the effect below. Nothing is written back.
+        const _badWin = invalidWorkWindow(server);
+        if (_badWin) setWorkWindowNotice(_badWin);
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
           const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } };
@@ -9486,6 +9494,21 @@ Extraction rules:
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
+  // #354, ruled: a stored work window that closes at or before it opens did not take. Said ONCE
+  // per load, and only to someone who can fix it — the schedule is already running on the
+  // default, so everyone else has nothing to act on.
+  const canFixOrgSettings = can("orgSettings");
+  useEffect(() => {
+    if (!workWindowNotice || workWindowNoticeShownRef.current || !canFixOrgSettings) return;
+    workWindowNoticeShownRef.current = true;
+    const d = DEFAULT_ORG_SETTINGS;
+    setConfirmMove({
+      ackOnly: true, confirmLabel: "OK",
+      title: "Your work hours didn't take",
+      message: `The saved work hours open at ${workWindowNotice.workStart} and close at ${workWindowNotice.workEnd}, which is at or before they open. TRAQS is using the default ${d.workStart}–${d.workEnd} until they are set again in Settings → Schedule.`,
+      onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null),
+    });
+  }, [workWindowNotice, canFixOrgSettings]);
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
@@ -26433,6 +26456,9 @@ ${jobsCtx || "No jobs found."}`;
         setPeople(updated);
       } else if (sec === "org-schedule") {
         const dd = settingsDraft || {};
+        // #354, ruled: refused at entry, not guarded by every consumer.
+        const _winErr = workWindowError(dd.workStart, dd.workEnd);
+        if (_winErr) throw new Error(_winErr);
         setOrgSettings(s => ({ ...s, timeZone: dd.timeZone || null, workStart: dd.workStart, workEnd: dd.workEnd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
       } else if (sec === "org-approval-templates") {
         setOrgSettings(s => ({ ...s, signOffTemplates: (settingsDraft.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) }));
@@ -29380,6 +29406,9 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
                 <input type="time" value={orgSettings.workStart || "07:00"} onChange={e => {
                   const newStart = e.target.value;
+                  // #354: an invalid window is refused here, at entry.
+                  const _err = workWindowError(newStart, orgSettings.workEnd);
+                  if (_err) { toast(_err); return; }
                   setOrgSettings(s => ({ ...s, workStart: newStart }));
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
@@ -29387,6 +29416,8 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
                 <input type="time" value={orgSettings.workEnd || "15:00"} onChange={e => {
                   const newEnd = e.target.value;
+                  const _err = workWindowError(orgSettings.workStart, newEnd);
+                  if (_err) { toast(_err); return; }
                   setOrgSettings(s => ({ ...s, workEnd: newEnd }));
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>

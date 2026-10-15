@@ -19,6 +19,23 @@ export const DEFAULT_ORG_SETTINGS = Object.freeze({
 
 const HHMM = /^\d{1,2}:\d{2}$/;
 const unset = (v) => v === undefined || v === null || v === "";
+const hourOf = (t) => { const [h, m] = String(t).split(":").map(Number); return h + (m || 0) / 60; };
+
+/**
+ * #354, ruled: a working window that closes at or before it opens is INVALID INPUT, not a
+ * preference. The message an editor shows when refusing one, or null when the pair is fine.
+ * A missing or malformed value is not this rule's business — withOrgDefaults fills those.
+ */
+export function workWindowError(workStart, workEnd) {
+  if (unset(workStart) || unset(workEnd) || !HHMM.test(String(workStart)) || !HHMM.test(String(workEnd))) return null;
+  return hourOf(workEnd) > hourOf(workStart) ? null : `Work hours must close after they open (opens ${workStart}, closes ${workEnd}).`;
+}
+
+/** The stored window as chosen, when it is invalid (#354) — so it can be reported, not just replaced. */
+export function invalidWorkWindow(settings) {
+  const s = settings && typeof settings === "object" ? settings : {};
+  return workWindowError(s.workStart, s.workEnd) ? { workStart: s.workStart, workEnd: s.workEnd } : null;
+}
 
 /**
  * `settings` with every work-schedule field filled from the defaults when it is
@@ -37,10 +54,13 @@ export function withOrgDefaults(settings) {
     ? (lunchTimeOk && lunchDurOk ? s.lunch
       : { ...s.lunch, time: lunchTimeOk ? s.lunch.time : d.lunch.time, durationMinutes: lunchDurOk ? Number(s.lunch.durationMinutes) : d.lunch.durationMinutes })
     : { ...d.lunch };
+  // An invalid window (#354) falls back as a PAIR: a default close after a chosen open could
+  // itself be invalid, and half of a window someone got wrong is not what they chose either.
+  const badWindow = !!invalidWorkWindow(s);
   return {
     ...s,
-    workStart: !unset(s.workStart) && HHMM.test(String(s.workStart)) ? s.workStart : d.workStart,
-    workEnd: !unset(s.workEnd) && HHMM.test(String(s.workEnd)) ? s.workEnd : d.workEnd,
+    workStart: !badWindow && !unset(s.workStart) && HHMM.test(String(s.workStart)) ? s.workStart : d.workStart,
+    workEnd: !badWindow && !unset(s.workEnd) && HHMM.test(String(s.workEnd)) ? s.workEnd : d.workEnd,
     lunch,
     breaks: Array.isArray(s.breaks) ? s.breaks : d.breaks.map(b => ({ ...b })),
     workDays: validDays.length ? validDays : [...d.workDays],
