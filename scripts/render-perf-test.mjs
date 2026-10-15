@@ -279,5 +279,23 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   ok("...it swaps one CSS rule instead", /hoverDim/.test(team));
 }
 
+// ── #75: the schedule reads the clock once per render ────────────────────────
+// Every bar read Date.now() for itself, about eight times, so the push, the cursor, the
+// hatch and the shrink in one paint were measured at different instants. Scoped to the
+// renderTeam body with comments stripped (R4: comments here quote the old code). The only
+// zero-argument clock reads allowed are the one capture and the 403 stamp inside the drop
+// handler, which runs after the render and wants real time.
+{
+  const a = S.indexOf("  const renderTeam = () => {\n");
+  const b = S.indexOf("\n  const renderAnalytics = () => {");
+  ok("#75 renderTeam is found exactly once", a > 0 && b > a && S.indexOf("  const renderTeam = () => {\n", a + 1) < 0);
+  const code = S.slice(a, b).replace(/^\s*\/\/.*$/gm, "");
+  const reads = [...code.matchAll(/Date\.now\(\)|new Date\(\)/g)].map(m => code.slice(Math.max(0, m.index - 30), m.index + 12).replace(/\s+/g, " "));
+  ok("#75 the render captures now once", (code.match(/const _renderNowMs = Date\.now\(\);/g) || []).length === 1);
+  ok(`#75 no other render-time clock read (found ${reads.length}: ${JSON.stringify(reads)})`,
+    reads.length === 2 && reads.filter(r => /const _renderNowMs = Date\.now\(\)/.test(r)).length === 1 && reads.filter(r => /at: Date\.now\(\)/.test(r)).length === 1);
+  ok("#75 the bars read the captured instant", (code.match(/_renderNowMs/g) || []).length >= 12);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

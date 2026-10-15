@@ -15640,6 +15640,12 @@ ${jobsCtx || "No jobs found."}`;
     else { const d = new Date(TD + "T12:00:00"); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
   };
   const renderTeam = () => {
+    // ONE INSTANT PER RENDER (#75). Every bar used to read the clock for itself — about eight
+    // reads per bar — so the push, the cursor, the hatch and the shrink in one paint were each
+    // measured at a slightly different "now", and a bar could be pushed by one instant and
+    // drawn against another. Everything below reads this. Event handlers do not: a drop or an
+    // error stamp happens later than the render and wants the real time.
+    const _renderNowMs = Date.now();
     // The range in view, as the toolbar shows it (display only).
     const _rl = (ds, o) => new Date(ds + "T12:00:00").toLocaleDateString(DATE_LOCALE, o);
     // How far the left group has grown, so the centre group can slide clear of it.
@@ -15910,7 +15916,7 @@ ${jobsCtx || "No jobs found."}`;
         const a = Date.parse(_selfJc.clockIn);
         // Same Q7b bound as the op's own bar. Two places end an open clock and they must agree,
         // or a forgotten session would freeze on one row and keep growing on the other.
-        const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: _selfJc.pausedAt, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: liveJobCfg });
+        const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: _selfJc.pausedAt, frozenAtMs: _selfJc.frozenAtMs, nowMs: _renderNowMs, cfg: liveJobCfg });
         if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
       }
       // Closed sessions from the memo, merged with this person's open clock if they have one.
@@ -15947,7 +15953,7 @@ ${jobsCtx || "No jobs found."}`;
           // and time elapsed are different quantities and one was standing in for the other.
           //
           // Clamped at now as a floor: a record of work cannot extend into the future.
-          hpd: Math.max(0.25, productiveHoursBetween(xS, Math.min(xE, Date.now()), { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays })),
+          hpd: Math.max(0.25, productiveHoursBetween(xS, Math.min(xE, _renderNowMs), { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays })),
           // Team is this person alone: the bar is their record of the work, and a team size
           // borrowed from the op would divide its length by people who were not on it.
           team: [pid],
@@ -16764,7 +16770,7 @@ ${jobsCtx || "No jobs found."}`;
               // satisfying the divider rule on paper while leaving the bar exactly where it was.
               // Locked ops are pinned but still occupy their slot, so a lock stops that bar
               // without exempting the row behind it.
-              const _nowD = new Date();
+              const _nowD = new Date(_renderNowMs);
               const _rowPush = rowPushHours({
                 ops: ordered.map(b => ({
                   id: b.id, start: b.start, end: b.task?.end ?? b.end, startHour: b.task?.startHour ?? workStartH,
@@ -16911,7 +16917,7 @@ ${jobsCtx || "No jobs found."}`;
                   // Outside the visible window it deliberately falls beyond 0..100 rather than
                   // clamping here: a bar left of a past cursor must read as fully behind it, and
                   // the fill clamps for paint at the point where it draws.
-                  const _nowD = new Date();
+                  const _nowD = new Date(_renderNowMs);
                   const _nowIdx = days.indexOf(shopDay(_nowD.getTime()));
                   const _nowHourFrac = totalWorkH > 0
                     ? (shopHour(_nowD.getTime()) - workStartH) / totalWorkH : 0;
@@ -16958,7 +16964,7 @@ ${jobsCtx || "No jobs found."}`;
                   // truthfully and a record being edited are different things.
                   const _doneEndMs = isFinished(bar.task?.status) ? (() => {
                     const stamped = Date.parse(bar.task.finishedAt);
-                    return Math.min(Date.now(), Number.isFinite(stamped) ? stamped : Date.now());
+                    return Math.min(_renderNowMs, Number.isFinite(stamped) ? stamped : _renderNowMs);
                   })() : null;
                   const _doneSpanH = _doneEndMs == null ? null : productiveHoursBetween(
                     hourTs(bar.start, bar.task?.startHour ?? workStartH), _doneEndMs,
@@ -16978,7 +16984,7 @@ ${jobsCtx || "No jobs found."}`;
                   // PTO, which is a calendar range rather than an hours budget. Null means the classic block.
                   const _elapsedRaw = (bar.type === "task" && bar.task && bar.start && !bar.crossRow)
                     ? (cursorAnchored[bar.id] ? 0 : Math.max(0, productiveHoursBetween(
-                        hourTs(bar.start, bar.task.startHour ?? workStartH), Date.now(),
+                        hourTs(bar.start, bar.task.startHour ?? workStartH), _renderNowMs,
                         { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays },
                       ) - (overrunPushH[bar.id] || 0)))
                   : null;
@@ -17069,13 +17075,13 @@ ${jobsCtx || "No jobs found."}`;
                   // FILL needs: has the cursor gone past where this bar starts, which together with an
                   // empty span list means this row has no claim on the work and the bar paints plain.
                   const _cursorPastStart = !!bar.task && !!bar.start
-                    && hourTs(bar.start, bar.task.startHour ?? workStartH) < Date.now();
+                    && hourTs(bar.start, bar.task.startHour ?? workStartH) < _renderNowMs;
                   // Placement comes from the push pass alone. A draw-time clamp used to force a bar
                   // here as well, which put two bars on one row at the same instant with nothing to
                   // separate them -- a move made at paint time cannot cascade. The push keys on this
                   // row's own work now, so it covers that case and packs the result.
                   const _atCursor = bar.type === "task" && !!cursorAnchored[bar.id];
-                  const _nowForBar = new Date();
+                  const _nowForBar = new Date(_renderNowMs);
                   // #383/#392. THE ANCHOR MAY NEVER PAINT A BAR EARLIER THAN ITS DATA.
                   // This block used to set `_layoutStart = TD` and the hour below to
                   // `shopHour(now)` UNCONDITIONALLY for an anchored bar, so an op
@@ -17956,7 +17962,7 @@ ${jobsCtx || "No jobs found."}`;
                   // Tail widths from the same geometry, now that the end hour is known.
                   const _geoTail = barSegmentsPct({ ..._geoArgs, endHour: _barEndHour, firstWantedPct: _wWanted });
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
-                  const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
+                  const isNew = !isPto && bar.jobCreatedAt && (_renderNowMs - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   // Someone is clocked into this operation right now. sameId, not === :
                   // op ids are mixed string/number, so a strict compare misses live work.
                   // Who is on the clock against what this bar represents. For an op's own bar that
@@ -17991,7 +17997,7 @@ ${jobsCtx || "No jobs found."}`;
                   // UNCLAMPED: past 100 means now is past the planned end, which IS the overrun
                   // condition in time terms and is exactly what Q7a says the bar must keep showing.
                   const [_plannedS, _plannedE] = (!isPto && bar.task) ? opHourRange(bar.task) : [0, 0];
-                  const _barCursorPct = _plannedE > _plannedS ? ((Date.now() - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
+                  const _barCursorPct = _plannedE > _plannedS ? ((_renderNowMs - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
                   // The bar's state describes the OP, and every term comes from the people actually
                   // clocked into it. It previously mixed two fields that are not the same claim:
                   // `isLive` reads `activeJobClock.opId` (what someone is working), while
@@ -18009,7 +18015,7 @@ ${jobsCtx || "No jobs found."}`;
                   // a list.
                   const _barSpansAbs = (() => {
                     if (isPto || !bar.task) return [];
-                    const _nowMs = Date.now();
+                    const _nowMs = _renderNowMs;
                     // This row's own clock, if it is on this op. HATCH FOLLOWS THE WORKER, so a
                     // colleague's running session belongs on THEIR row and not here — the same
                     // rule the closed sessions below follow, applied to the open one.
@@ -18093,7 +18099,7 @@ ${jobsCtx || "No jobs found."}`;
                   // An open clock past its day's close. Emitted rather than persisted: the resolve
                   // queue needs to find these, and the durable flag belongs on the session record
                   // via updateJobSession, which is a server change and not this pass.
-                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: liveJobCfg }).unclosed);
+                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: _renderNowMs, cfg: liveJobCfg }).unclosed);
                   const _barState = isPto ? "pto"
                     : isFinished(bar.task?.status) ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"

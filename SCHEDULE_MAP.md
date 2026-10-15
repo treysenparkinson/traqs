@@ -1644,7 +1644,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 72. `TD`/`NOW` are frozen at module load (J:474).
 73. The drawn now line uses `TD` while bar dividers use `new Date()` (J:19490 vs J:17772).
 74. The schedule has three separate now-cursor formulas (J:17776, 19493, 19231).
-75. `Date.now()` is read about 8 times per bar within one render (J:17772–19333).
+75. FIXED 2026-10-15 — `renderTeam` captures `_renderNowMs` once at its top and every render-time read of the clock uses it (14 zero-argument `Date.now()`/`new Date()` reads before, counted in the body with comments stripped). The push, the cursor, the hatch, the shrink, the "new" badge and the live-session ends in one paint now agree on one instant. The one read left is the 403 stamp inside the drop handler, which runs after the render and wants real time. Held by render-perf-test ("#75", four assertions, red on the pre-fix source: 14 reads found); mutant (one site back to `new Date()`) caught. WAS: `Date.now()` is read about 8 times per bar within one render (J:17772–19333).
 76. The org timezone is ignored by all schedule geometry; everything is browser-local.
 77. `productiveHoursBetween` is off by one hour on DST days relative to `getHours()` (S:442) [inferred].
 78. VERIFIED STALE 2026-10-12 — same cause as #38: all three go through `calOf`, which defaults to the org's holidays. WAS: `weekdaySegments`, `countWorkingDays` and `addWorkingDays` never skip holidays (J:578–620).
