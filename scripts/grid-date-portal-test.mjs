@@ -80,8 +80,8 @@ console.log("\n4. #459 — THE TWO SITES THIS ENTRY LEFT UNMEASURED");
   // escapes it through `placePopover` while the date cell rendered inline.
   ok("the grid custom-column date cell portals",
     /<div onClick=\{e => e\.stopPropagation\(\)\}><DateField square compact portal/.test(SRC), true);
-  ok("the job-detail custom-field date picker portals",
-    /<DateField square compact portal value=\{val \|\| ""\} placeholder="—"/.test(SRC), true);
+  // The "job-detail custom-field date picker" this also held lived ONLY inside the Jobs "cards"
+  // sub-view, which #319 deleted as unreachable; it has no successor to check.
   ok("no square DateField is left unportaled", /<DateField square compact value=/.test(SRC), false);
   // The select cell's own escape route must stay — the inconsistency between
   // the two is what made this visible at all.

@@ -92,8 +92,9 @@ console.log("\n3. The stamped-department filter");
 {
   ok("there is a filter flag", /const \[fDeptEqTitle, setFDeptEqTitle\]/.test(J), true);
   ok("...it counts as an active filter", /\(fDeptEqTitle \? 1 : 0\)/.test(J), true);
-  ok("...and appears in BOTH filter panels",
-    (J.match(/Department matches the op title/g) || []).length, 2);
+  // #319 deleted the cards view, which had the second filter panel; the list's is the one left.
+  ok("...and appears in the filter panel",
+    (J.match(/Department matches the op title/g) || []).length, 1);
   // Modelled: the predicate must read the op's OWN department, not an inherited
   // one. A panel saying "Wire" over an op titled "Wire" is one deliberate
   // statement, not a stamp, and flagging it would bury the real ones.

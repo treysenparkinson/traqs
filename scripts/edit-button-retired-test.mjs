@@ -97,7 +97,9 @@ console.log("\n4. THE EDIT BUTTON IS GONE — BUT THE MODAL IS NOT, AND CANNOT B
   // instruction mid-build — it opened the same modal the retired button did.
   // The Jobs "cards" sub-view, the Clients page and the mobile job view remain.
   // (The fourth match is a comment naming the function, which codeOf strips.)
-  ok("...and there are exactly three callers left", (CODE.match(/openEdit\(/g) || []).length, 3);
+  // #319 deleted the Jobs "cards" sub-view, one of the three; the Clients page and the mobile
+  // job view remain.
+  ok("...and there are exactly two callers left", (CODE.match(/openEdit\(/g) || []).length, 2);
   ok("the context menu has no Edit pencil",
     /<Tip label="Edit"><button onClick=\{\(\) => \{ setCtxMenu\(null\); openEdit/.test(CODE), false);
   ok("the modal itself survives", /const \[editJobModal, setEditJobModal\]/.test(CODE), true);

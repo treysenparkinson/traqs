@@ -195,7 +195,9 @@ console.log("\n5. #440 — the two paths collapse BY CONSTRUCTION");
   ok("no call site passes a bare node any more", /<HealthIcon t=\{/.test(CODE), false);
   const sites = (CODE.match(/<HealthIcon /g) || []).length;
   ok("every call site passes health=", (CODE.match(/<HealthIcon health=\{/g) || []).length, sites);
-  ok("...and there are still as many as before", sites >= 10, true);
+  // #319 deleted the unreachable Jobs "cards" view, which held some of the call sites; the floor
+  // is the eight live ones, so losing a live site still goes red.
+  ok("...and there are still as many as before", sites >= 8, true);
 }
 
 console.log("\n6. #440 — the KPIs stop counting unstarted work as on time");

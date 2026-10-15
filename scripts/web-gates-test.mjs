@@ -82,7 +82,8 @@ check("Engineering buttons show for admin or engineer", SRC, { not: ["isActive &
 check("Status → Finished needs approveCompletions", SRC, { has: ['if (isFinished(s) && !can("approveCompletions")) return'], not: ['if (s === "Finished" && !isAdmin) return;', 'if (s === "Finished" && !can("approveCompletions"))'] });
 check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <button className={barSelectMode ? "rv-pill pri" : "rv-pill"}'],
   not: ['{isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'] });
-check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
+// #319 deleted the cards view and its Select button; the list's is the one left.
+check("Jobs bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <button className={jobSelectMode ? "rv-pill pri" : "rv-pill"}'] });
 // #478 prefixed the editor's item with `!fromJobsList` — it left the Jobs list
 // menu and stayed on the schedule. The permission is unchanged and still pinned
 // to the same item; only the text in front of it moved.

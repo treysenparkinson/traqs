@@ -118,7 +118,8 @@ console.log("\n6. THE REASON THIS IS SAFE — AND THE ASSERTION THAT KEEPS IT SA
   // cross-row bar refuses BOTH drag paths. If somebody later makes them
   // draggable, this must go red rather than reproducing #389 quietly.
   ok("the schedule blocks dragging a cross-row bar",
-    /const _dragBlocked = !isPto && \(_isOverrunning \|\| bar\.crossRow\);/.test(CODE), true);
+    // #102 dropped _isOverrunning from the block; the cross-row half this guards stays.
+    /const _dragBlocked = !isPto && [^;]*\bbar\.crossRow\b[^;]*;/.test(CODE), true);
   const DM = readFileSync(new URL("../src/dragMove.js", import.meta.url), "utf8");
   ok("...and the shared landing refuses any record member",
     /if \(m\.isRecord\) return \{ kind: "record", id: m\.id, title: title\(m\) \};/.test(DM), true);

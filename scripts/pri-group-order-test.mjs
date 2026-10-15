@@ -13,7 +13,7 @@
 
 import { readFileSync } from "node:fs";
 
-const J = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const J = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 let pass = 0, fail = 0;
 const ok = (label, got, want = true) => {
   if (JSON.stringify(got) === JSON.stringify(want)) { pass++; console.log(`  PASS  ${label}`); return true; }
@@ -63,7 +63,7 @@ console.log("\n3. Status grouping is untouched (sanity: the slice is the real fu
 // column sort already did — it keys on PRI_ORDER, which IS the org's PRIORITIES (priOpts order).
 // Held here so the sort and the grouping cannot drift onto different orders again.
 {
-  const Jn = J.replace(/\r\n/g, "\n");
+  const Jn = J;
   ok("#471 the Jobs-list priority sort uses the org's own order", /const PRI_ORDER = PRIORITIES;/.test(Jn) && /pri:\s*t => PRI_ORDER\.indexOf\(/.test(Jn), true);
   ok("#471 ...which is the org's priOpts list", /const PRIORITIES = useMemo\(\(\) => priOpts\.map\(o => o\.name\)/.test(Jn), true);
 }
