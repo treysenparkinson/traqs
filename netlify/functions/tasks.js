@@ -18,6 +18,7 @@ import { scheduleRuleViolations } from "../../src/scheduleRules.js";
 import { overlapContext, overlapViolations } from "../../src/overlapRules.js";
 import { localDay } from "../../src/localDay.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
+import { stringifyTeams } from "./_utils/normalize-ids.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -65,8 +66,10 @@ export async function handler(event) {
       const isDelta = !!body && !Array.isArray(body) && typeof body === "object"
         && (Array.isArray(body.upsert) || Array.isArray(body.delete));
       if (!Array.isArray(body) && !isDelta) return err(400, "Invalid tasks data");
-      const tasks = isDelta ? (Array.isArray(body.upsert) ? body.upsert : []) : body;
-      const deleteIds = isDelta ? (Array.isArray(body.delete) ? body.delete : []) : null;
+      // Team members are strings in the store, whoever sent them (#411), at every level.
+      // Membership only — see _utils/normalize-ids.js for why node and person ids are not.
+      const tasks = stringifyTeams(isDelta ? (Array.isArray(body.upsert) ? body.upsert : []) : body);
+      const deleteIds = isDelta ? (Array.isArray(body.delete) ? body.delete : []) : null;   // applyExplicitWrite compares these as strings already
 
       // Rule context, read once: who is clocked in (activeClock) and the org's work
       // week, holidays and timezone (businessDay, past). A read failure disables
