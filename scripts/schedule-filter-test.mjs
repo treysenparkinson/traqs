@@ -51,7 +51,7 @@ ok("#106 the status filter does not apply to a chip, which is not an operation",
 }
 
 // ── the render uses it, and the chip carries what it needs ─────────────────
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const a = S.indexOf("  const renderTeam = () => {\n");
 const b = S.indexOf("\n  const renderAnalytics = () => {");
 const code = S.slice(a, b).replace(/^\s*\/\/.*$/gm, "");

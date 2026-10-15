@@ -26,7 +26,7 @@ ok("#129 a missing hour does not produce NaN", near(nowColumnFrac({ nowHour: NaN
 ok("#129 a zero-length day does not divide by zero", near(nowColumnFrac({ nowHour: 10, workStartH: 8, totalWorkH: 0 }), 0));
 
 // The split gantt reads it (comments stripped, R4), and the fixed half-column is gone.
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const g = S.slice(S.indexOf("const renderSplitGantt ="), S.indexOf("const renderAdmin =")).replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 ok("#129 the split gantt's today line is placed by nowColumnFrac", /dToX\(TD\)\s*\+\s*cW\s*\*\s*nowColumnFrac\(/.test(g));
 ok("#129 ...not at a fixed half column", !/dToX\(TD\)\s*\+\s*cW\s*\/\s*2/.test(g));

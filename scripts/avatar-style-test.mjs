@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const at = S.indexOf("function PersonAvatar(");
 ok("PersonAvatar is found exactly once", at > 0 && S.indexOf("function PersonAvatar(", at + 1) < 0);
 const body = S.slice(at, S.indexOf("\n}\n", at)).replace(/^\s*\/\/.*$/gm, "");

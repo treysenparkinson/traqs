@@ -10,7 +10,7 @@
 //
 //   node scripts/render-perf-test.mjs
 import { readFileSync } from "node:fs";
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
 

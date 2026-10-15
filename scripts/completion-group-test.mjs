@@ -88,7 +88,7 @@ globalThis.__S3[PK] = [{ id: "7", name: "Wendy", userRole: "user" }];
 // ── the web asks the server and no longer builds the group itself ──────────
 console.log("\nthe web client");
 {
-  const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const at = S.indexOf("const ensureCompletionGroup = async () => {");
   const fn = S.slice(at, S.indexOf("const requestFinishApproval", at)).replace(/^\s*\/\/.*$/gm, "");
   ok("#296 ensureCompletionGroup asks the server", /ensureCompletionGroupAction\(/.test(fn), true);

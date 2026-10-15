@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 // The tray's job list: from the parked-jobs filter to the end of the item's click handler.
 const listAt = S.indexOf("const laterJobs = tasks.filter(t => t.scheduledLater);");

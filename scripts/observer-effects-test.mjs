@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 // The text of the call's arguments, from the "(" after useEffect to its matching ")", and how
 // many top-level arguments it has.

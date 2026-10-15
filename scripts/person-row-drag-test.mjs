@@ -64,7 +64,7 @@ const PEOPLE = [
 }
 
 // ── the render uses it, and #146: only manageTeam gets the handle ───────────
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const at = S.indexOf("const startRowDrag = (e, personId) => {");
 const handler = S.slice(at, S.indexOf("const updTimeOff =", at)).replace(/^\s*\/\/.*$/gm, "");
 ok("the drop goes through movePersonRow", /movePersonRow\(/.test(handler));

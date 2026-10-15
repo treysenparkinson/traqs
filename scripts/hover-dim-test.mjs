@@ -40,7 +40,7 @@ eq("ids are compared as strings (sameId's rule)", hoverJobKey({ type: "task", ta
 // ── every site goes through it ──────────────────────────────────────────────
 // Scoped to renderTeam with comments stripped (R4). A raw `task?.pid` feeding the key is
 // exactly the old bug, so none may remain; and the chip must opt in to dimming.
-const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const a = S.indexOf("  const renderTeam = () => {\n");
 const b = S.indexOf("\n  const renderAnalytics = () => {");
 ok("renderTeam is found", a > 0 && b > a);
