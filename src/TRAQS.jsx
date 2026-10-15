@@ -11328,7 +11328,7 @@ ${jobsCtx || "No jobs found."}`;
         return `Update ${jobLabel}: ${changes.join(", ") || "no changes"}`;
       }
       case "create_job": return `Create job "${input.title}" (${input.start} – ${input.end})`;
-      case "delete_job": return `🗑 Delete job ${jobLabel}`;
+      case "delete_job": return `Delete job ${jobLabel}`;
       case "assign_person_to_job": return `Add ${personLabel} to ${jobLabel}`;
       case "remove_person_from_job": return `Remove ${personLabel} from ${jobLabel}`;
       case "update_operation": {
@@ -13874,7 +13874,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-                {fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
+                {fresh.clientId && <Badge t={clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
                 <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
                 </span>
@@ -22874,7 +22874,6 @@ ${jobsCtx || "No jobs found."}`;
         {/* Legacy Engineering Queue (mobile) */}
         {canApprove && engQueueItems.length > 0 && <div style={{ marginBottom: 12 }}>
           <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
-            <span style={{ fontSize: 14 }}>🔧</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>{queueLabel}</span>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 16, padding: "1px 8px" }}>{engQueueItems.length}</span>
             <span style={{ fontSize: 11, color: T.textDim, marginLeft: 4 }}>{mobileEngOpen ? "▲" : "▼"}</span>
@@ -22942,9 +22941,9 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ fontSize: 12, color: T.textDim }}>{isExp ? "▲" : "▼"}</span>
           </div>
           {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "12px 14px" }}>
-            {c.contact && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>👤 {c.contact}</div>}
+            {c.contact && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>{c.contact}</div>}
             {c.email && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>✉ {c.email}</div>}
-            {c.phone && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8 }}>📞 {c.phone}</div>}
+            {c.phone && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8 }}>{c.phone}</div>}
             {can("manageClients") && <button onClick={() => openClientEdit({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
@@ -23987,7 +23986,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             ) : (
               <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>
-                👁 View only — you're not a participant in this thread
+                View only — you're not a participant in this thread
               </div>
             )}
           </div>
@@ -24610,7 +24609,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => setScheduleTeamMode(m => m==="one"?"team":"one")}
                   title={scheduleTeamMode==="one"?"Switch to: Full Team per Op":"Switch to: 1 Person per Op"}
                   style={{ padding:"5px 12px", borderRadius:T.radiusPill, border:`1px solid ${scheduleTeamMode==="team"?T.accent:T.textDim}55`, background:scheduleTeamMode==="team"?T.accent+"18":"transparent", color:scheduleTeamMode==="team"?T.accent:T.textDim, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap" }}>
-                  {scheduleTeamMode==="one"?"👤 1 Person/Op":"👥 Full Team/Op"}
+                  {scheduleTeamMode==="one"?"1 Person/Op":"Full Team/Op"}
                 </button>
                 <TemplateDrop templates={templates} onLoad={loadTemplate} onDeleteRequest={tpl => setTemplateDeleteConfirm(tpl)} />
                 <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs||[]); }}
@@ -26202,7 +26201,7 @@ ${jobsCtx || "No jobs found."}`;
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700 }}>Dependencies</h3>
         <p style={{ fontSize: 14, color: T.textSec, marginBottom: 20 }}>Select tasks that must finish before <strong style={{ color: T.text }}>{fi.title}</strong> starts:</p>
         <div>{others.map(o => { const linked = (fi.deps || []).includes(o.id);
-          return <div key={o.id} onClick={() => toggleDep(fi.id, o.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderRadius: T.radiusSm, marginBottom: 6, cursor: "pointer", background: linked ? T.accent + "15" : T.surface, border: `1px solid ${linked ? T.accent + "66" : T.border}` }}><span style={{ fontSize: 18 }}>{linked ? "🔗" : "⚪"}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{o.isSub ? "↳ " : ""}{o.title}</div><div style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono, marginTop: 2 }}>{fm(o.start)} – {fm(o.end)}</div></div>{linked && <Btn variant="danger" size="sm" onClick={e => { e.stopPropagation(); toggleDep(fi.id, o.id); }}>Unlink</Btn>}</div>; })}</div>
+          return <div key={o.id} onClick={() => toggleDep(fi.id, o.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderRadius: T.radiusSm, marginBottom: 6, cursor: "pointer", background: linked ? T.accent + "15" : T.surface, border: `1px solid ${linked ? T.accent + "66" : T.border}` }}><span aria-hidden="true" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: 9, border: `1.5px solid ${linked ? T.accent : T.border}`, background: linked ? T.accent : "transparent", color: accentText(T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{linked ? "✓" : ""}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{o.isSub ? "↳ " : ""}{o.title}</div><div style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono, marginTop: 2 }}>{fm(o.start)} – {fm(o.end)}</div></div>{linked && <Btn variant="danger" size="sm" onClick={e => { e.stopPropagation(); toggleDep(fi.id, o.id); }}>Unlink</Btn>}</div>; })}</div>
       </div></div>; }
     if (modal.type === "avail") return <AvailModal people={people} allItems={allItems} bookedHrs={bookedHrs} onClose={closeModal} isMobile={isMobile} onStartTask={(personId, start, end, hpd) => {
       closeModal();
@@ -30461,7 +30460,7 @@ ${jobsCtx || "No jobs found."}`;
       return <div className="anim-modal-overlay" onClick={() => setPanelPhotoPrompt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", zIndex: 2200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <input id="panel-photo-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: pp.jobId, panelId: pp.panelId, opId: pp.opId })} />
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, width: "100%", maxWidth: 420, padding: 24, fontFamily: T.font, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
-          <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 Photo of {pp.panelTitle}</div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 4 }}>Photo of {pp.panelTitle}</div>
           <div style={{ fontSize: 13, color: T.textDim, marginBottom: 18, lineHeight: 1.5 }}>Take a picture of the panel you finished — it's saved to this job's Attachments.</div>
           {atts.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
             {atts.map(a => <div key={a.key} onClick={() => setLightboxAtt(a)} style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, background: T.surface }}>
@@ -30591,7 +30590,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           ) : (
-            <div style={{ textAlign: "center", padding: "8px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>👁 View only — you're not a participant</div>
+            <div style={{ textAlign: "center", padding: "8px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>View only — you're not a participant</div>
           )}
         </div>
       </div>
@@ -30634,7 +30633,7 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!threadCtxMenu}>{threadCtxMenu && <div onClick={() => setThreadCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(threadCtxMenu.x, window.innerWidth - 220), top: Math.min(threadCtxMenu.y, window.innerHeight - 140), zIndex: 9999, minWidth: 210, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{threadCtxMenu.scope === "op" ? "🔧" : threadCtxMenu.scope === "panel" ? "📦" : "🏗"} {threadCtxMenu.title}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{threadCtxMenu.title}</div>
         </div>
         <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>} label={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Unpin from Top" : "Pin to Top"} sub={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
           const updated = pinnedThreads.includes(threadCtxMenu.threadKey)
@@ -30930,7 +30929,7 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!quickAddSub}>{quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
       <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 320), top: Math.min(quickAddSub.y, window.innerHeight - 320), zIndex: 9998, width: 308, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10 }}>
-          {quickAddSub.type === "panel" ? "➕ Add Panel" : "➕ Add Operation"}
+          {quickAddSub.type === "panel" ? "Add Panel" : "Add Operation"}
           <span style={{ fontWeight: 400, color: T.textDim, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>to {quickAddSub.parentTitle}</span>
         </div>
         <input
@@ -31236,7 +31235,7 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!timeOffModal} duration={220}>{timeOffModal && <TimeOffModal people={people} updPerson={updPerson} initialPersonId={timeOffModal?.personId ?? null} onClose={() => setTimeOffModal(false)} />}</FadeOnClose>
     {/* Engineering block error toast */}
     <FadeOnClose open={!!engBlockError} duration={200}>{engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 16, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
-      <span style={{ fontSize: 18 }}>🔧</span>{engBlockError}
+      {engBlockError}
     </div>}</FadeOnClose>
     {/* Logout confirmation modal */}
     <FadeOnClose open={!!confirmLogout} duration={220}>{confirmLogout && (
@@ -31430,7 +31429,7 @@ ${jobsCtx || "No jobs found."}`;
         <p style={{ margin: "0 0 16px", fontSize: 14, color: T.textSec, lineHeight: 1.5 }}>{overlapError.message.includes("Locked") ? "One or more jobs in the path are locked and cannot be moved or pushed forward." : overlapError.message.includes("Clocked") ? "A worker has an active job clock on this job. It can't be moved, restructured, or deleted until they end their job." : "This action would create a scheduling conflict. Team members cannot work on multiple tasks at the same time."}</p>
         <div style={{ textAlign: "left", maxHeight: 200, overflow: "auto", marginBottom: 24 }}>
           {overlapError.details.map((d, i) => <div key={i} style={{ padding: "10px 14px", background: T.danger + "08", borderRadius: T.radiusSm, border: `1px solid ${T.danger}22`, marginBottom: 6, fontSize: 13, color: T.text, lineHeight: 1.5 }}>
-            <span style={{ color: T.danger, fontWeight: 700 }}>⛔ </span>{d}
+            <span style={{ color: T.danger, fontWeight: 700 }}>✕ </span>{d}
           </div>)}
         </div>
         <Btn onClick={() => setOverlapError(null)} style={{ minWidth: 140 }}>Got it</Btn>
@@ -31505,7 +31504,6 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Auto slot suggestion */}
           {hasAutoSlot && <div onClick={() => setRescheduleModal(p => ({ ...p, newStart: autoStart, newEnd: autoEnd }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 16, background: isSameAsAuto ? T.accent + "18" : T.surface, border: `1.5px solid ${isSameAsAuto ? T.accent : T.border}`, marginBottom: 16, cursor: "pointer", transition: "all 0.15s" }}>
-            <span style={{ fontSize: 18 }}>✨</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: isSameAsAuto ? T.accent : T.text }}>Next Available Slot</div>
               <div style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(autoStart)} → {fm(autoEnd)}</div>
