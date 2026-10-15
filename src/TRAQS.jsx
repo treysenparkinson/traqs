@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, resolveDepartments, departmentsAfterToggle, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME, placeCrew } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, assignPickerOptions, isReplannable, dayLoadHint, OUTCOME, placeCrew, placeOpsInOrder } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -9478,6 +9478,8 @@ Extraction rules:
   const [overrideDate, setOverrideDate] = useState({});     // panelId → "YYYY-MM-DD"
   const [overrideLoading, setOverrideLoading] = useState({}); // panelId → bool
   const [overrideError, setOverrideError] = useState({});   // panelId → string
+  // #351: a panel override that placed some ops and not others, in OutcomePanel's shape.
+  const [overrideReport, setOverrideReport] = useState({}); // panelId → { rows, placed, blocked, byPerson } | null
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
@@ -24379,6 +24381,7 @@ ${jobsCtx || "No jobs found."}`;
         const originalStart = panel.start;
         setOverrideLoading(prev => ({ ...prev, [panelId]: true }));
         setOverrideError(prev => ({ ...prev, [panelId]: null }));
+        setOverrideReport(prev => ({ ...prev, [panelId]: null }));
         setTimeout(() => {
           const allCrew = people.filter(pp => (pp.userRole === "user" || pp.userRole === "admin") && !pp.noAutoSchedule);
           const inSession = [];
@@ -24423,7 +24426,7 @@ ${jobsCtx || "No jobs found."}`;
             // successive start dates.
             const eligible = orderByObjective(candidatesFor(op, allCrew),
               { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => loadHoursLocal(id) });
-            if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
+            if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate, outcome: OUTCOME.noCandidates };
             const singleDur = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
             if (scheduleTeamMode === "one") {
               let tryStart = minStart || newStartDate;
@@ -24432,7 +24435,7 @@ ${jobsCtx || "No jobs found."}`;
                 for (const candidate of eligible) { if (isAvailLocal(candidate.id, tryStart, tryEnd, _opH)) return { team: [candidate], start: tryStart, end: tryEnd }; }
                 tryStart = sAddBD(tryStart, 1);
               }
-              return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
+              return { team: [], start: minStart || newStartDate, end: minStart || newStartDate, outcome: OUTCOME.noWindow };
             }
             const teamSize = eligible.length;
             const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * productiveHoursPerDay)));
@@ -24451,36 +24454,40 @@ ${jobsCtx || "No jobs found."}`;
               const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE, _opH));
               if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * productiveHoursPerDay))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
             }
-            return { team: [], start: fallbackStart, end: fallbackStart };
+            return { team: [], start: fallbackStart, end: fallbackStart, outcome: OUTCOME.noWindow };
           };
           let newPanel;
           if ((panel.subs || []).length > 0) {
             // One id for this override, so the ops it places read as one action.
             const _ovRunId = uid();
             const _ovBy = loggedInUser?.name || "Admin";
-            const placedSubs = [];
-            let opEarliestStart = newStartDate;
-            for (const sub of (panel.subs || [])) {
-              const { team: subTeam, start: ss, end: se, unassigned: subUn } = pickTeamLocal(sub, opEarliestStart);
-              // An empty team is only a failure when a department WAS required and
-              // nobody was free. Deliberately-unassigned work is a success.
-              if (subTeam.length === 0 && !subUn) {
-                setOverrideError(prev => ({ ...prev, [panelId]: `No available workers for "${sub.title}" starting ${newStartDate}. Try a later date.` }));
-                setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
-                return;
-              }
+            // #351, ruled: place what the panel can and report the rest. This stopped at the
+            // first op it could not place and threw the whole override away — the abort #344
+            // removed from the wizard. placeOpsInOrder keeps a refused op EXACTLY where it was
+            // and reports it, with its reason, through the wizard's own OutcomePanel.
+            const run = placeOpsInOrder(panel.subs || [], (sub, from) => pickTeamLocal(sub, from), {
+              start: newStartDate,
+              nextDay: (d) => sAddBD(d, 1),
+              book: (m, ss, se) => { inSession.push({ pid: m.id, start: ss, end: se }); _localAvail.book(m.id, ss, se); personCursors[m.id] = sAddBD(se, 1); },
               // #494. EACH OP LOGS, not just the panel. The panel got an
               // `overrideEntry` and its children got new dates with nothing on
               // them — and "the panel's entry covers them" is exactly the kind of
               // understanding that is written nowhere and stops being true.
-              const _placed = { ...sub, start: ss, end: se, team: subTeam.map(m => m.id) };
-              const _oe = placementEntry(sub, _placed, { date: TD, movedBy: _ovBy, reason: "Override start date", runId: _ovRunId });
-              placedSubs.push(_oe ? { ..._placed, moveLog: [...(sub.moveLog || []), _oe] } : _placed);
-              subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); _localAvail.book(m.id, ss, se); personCursors[m.id] = sAddBD(se, 1); });
-              opEarliestStart = sAddBD(se, 1);
-            }
-            const opStart = placedSubs[0]?.start || newStartDate;
-            const opEnd = placedSubs[placedSubs.length - 1]?.end || newStartDate;
+              onPlaced: (sub, { team: subTeam, start: ss, end: se }) => {
+                const _placed = { ...sub, start: ss, end: se, team: subTeam.map(m => m.id) };
+                const _oe = placementEntry(sub, _placed, { date: TD, movedBy: _ovBy, reason: "Override start date", runId: _ovRunId });
+                return _oe ? { ..._placed, moveLog: [...(sub.moveLog || []), _oe] } : _placed;
+              },
+            });
+            setOverrideReport(prev => ({ ...prev, [panelId]: run.blocked.length ? { rows: run.rows, placed: run.placed, blocked: run.blocked, byPerson: [] } : null }));
+            // Nothing could move: there is no override to apply, only the report.
+            if (run.placed === 0) { setOverrideLoading(prev => ({ ...prev, [panelId]: false })); return; }
+            const placedSubs = run.subs;
+            // The panel spans its ops wherever they now sit — refused ones included, since
+            // they stayed put rather than leaving.
+            const _dated = placedSubs.filter(o => o && o.start && o.end);
+            const opStart = _dated.length ? _dated.reduce((x, y) => (x.start < y.start ? x : y)).start : newStartDate;
+            const opEnd = _dated.length ? _dated.reduce((x, y) => (x.end > y.end ? x : y)).end : newStartDate;
             newPanel = { ...panel, start: opStart, end: opEnd, subs: placedSubs };
           } else {
             const { team: panelTeam, start: ps, end: pe, unassigned: pnUn } = pickTeamLocal(panel, newStartDate);
@@ -24949,6 +24956,9 @@ ${jobsCtx || "No jobs found."}`;
                         </button>
                         </Tip>
                       </div>
+                      {/* #351. What the last override placed and what it could not, outside the
+                          date input so it stays visible after the override applies. */}
+                      {overrideReport[panel.id] && <div style={{ borderTop:`1px solid ${T.border}`, padding:"12px 14px 0" }}><OutcomePanel heading="Date override" {...overrideReport[panel.id]} note="done" /></div>}
                       {/* Override date input */}
                       {isOverrideOpen && <div style={{ borderTop:`1px solid ${T.border}`, padding:"12px 14px", background:T.bg, animation:"menuIn 0.16s ease-out" }}>
                         <div style={{ fontSize:12, fontWeight:600, color:T.text, marginBottom:8 }}>Override start date for <strong>{panel.title||"this operation"}</strong></div>

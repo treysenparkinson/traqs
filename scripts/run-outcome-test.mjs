@@ -151,12 +151,14 @@ console.log("\n8. The wizard reports, and reuses the preview's panel");
   // stand-in for forking a second copy — still matched, which mutation caught.
   ok("the outcome panel exists under exactly that name",
     /\bOutcomePanel\b/.test(CODE), true);
-  // TWO render sites and only two: the re-plan preview and the wizard's result.
-  // A third would mean somebody rendered outcomes their own way again.
-  ok("...and is rendered in BOTH places from the one definition",
-    (CODE.match(/<OutcomePanel\b/g) || []).length, 2);
+  // THREE render sites, each named: the re-plan preview, the wizard's result, and (#351,
+  // ruled 2026-10-15) the panel date override's partial placement. An UNNAMED fourth would
+  // mean outcomes rendered somewhere nobody listed — that is what the count still guards.
+  ok("...and is rendered in exactly the three named places from the one definition",
+    (CODE.match(/<OutcomePanel\b/g) || []).length, 3);
   ok("...with the preview among them", /<OutcomePanel heading="Re-plan preview"/.test(CODE), true);
   ok("...and the run's own result", /<OutcomePanel heading=\{runReport\./.test(CODE), true);
+  ok("...and the panel date override (#351)", /<OutcomePanel heading="Date override"/.test(CODE), true);
   ok("...and the reasons are still spelled out for a human",
     /nobody can do it/.test(J) && /nobody is free/.test(J), true);
   // #343 stays fixed: any aiSuggestion updater must seed slots, or a partial

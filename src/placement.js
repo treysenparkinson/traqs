@@ -511,3 +511,39 @@ export function placeCrew({ crew = [], departments = [], named = [], hours, prod
   }
   return { team: [], outcome: OUTCOME.noWindow, candidates: eligible.length, left };
 }
+
+/**
+ * Walk a panel's ops in order and place what can be placed (#351).
+ *
+ * `pick(op, from)` returns `{ team, start, end }` for a placement, `{ ..., unassigned: true }`
+ * for work deliberately left without a team (a success), or `{ ..., outcome }` with an
+ * OUTCOME kind when it cannot be placed. A placed op takes its dates and team, its people
+ * are booked, and the cursor moves past it. A refused op stays EXACTLY as it was — same
+ * object — and is reported; it does not move the cursor, so the next op is tried where it
+ * would have gone.
+ *
+ * The panel date override used to stop at the first refusal and discard the whole override,
+ * which is the abort #344 removed from the wizard; ruled the same way here.
+ *
+ * Returns { subs, rows, placed, blocked } in the shape OutcomePanel takes.
+ */
+export function placeOpsInOrder(ops, pick, { start, nextDay, book = () => {}, onPlaced = null } = {}) {
+  let cursor = start;
+  const subs = [], rows = [];
+  for (const op of ops || []) {
+    const r = pick(op, cursor);
+    if (r?.outcome) {
+      subs.push(op);
+      rows.push({ id: op.id, op, outcome: r.outcome, person: null });
+      continue;
+    }
+    const team = r?.team || [];
+    const placed = onPlaced ? onPlaced(op, r) : { ...op, start: r.start, end: r.end, team: team.map(m => m.id) };
+    subs.push(placed);
+    rows.push({ id: op.id, op, outcome: OUTCOME.placed, person: team[0] || null, team });
+    team.forEach(m => book(m, r.start, r.end));
+    cursor = nextDay(r.end);
+  }
+  const blocked = rows.filter(x => x.outcome !== OUTCOME.placed);
+  return { subs, rows, placed: rows.length - blocked.length, blocked };
+}
