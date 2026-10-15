@@ -282,7 +282,9 @@ console.log("\norganization settings");
 check("the rail does not list the organization pages", () => !/SETTINGS_ORG_CHILDREN/.test(ASIDE) || "SETTINGS_ORG_CHILDREN in the <aside>");
 const pageStart = SRC.indexOf("const renderSettingsPage = () =>");
 const PAGE = pageStart < 0 ? "" : SRC.slice(pageStart, pageStart + 8000);
-check("the settings page renders the organization pages as tabs", () => /SETTINGS_ORG_CHILDREN\.map\(/.test(PAGE) || "no SETTINGS_ORG_CHILDREN.map in renderSettingsPage");
+// #298: the page maps _orgNav, the organization pages this user may open (built from
+// SETTINGS_ORG_CHILDREN by orgSectionAllowed), rather than the whole list.
+check("the settings page renders the organization pages as tabs", () => (/_orgNav\.map\(/.test(PAGE) && /const _orgNav = SETTINGS_ORG_CHILDREN\.filter\(/.test(SRC)) || "no _orgNav.map (filtered SETTINGS_ORG_CHILDREN) in renderSettingsPage");
 
 // ── 5. Dropdown rows do not stagger ─────────────────────────────────────────────
 console.log("\ndropdown stagger");

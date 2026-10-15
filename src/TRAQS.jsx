@@ -20008,7 +20008,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 24 }}>
 
             {/* Pay Period */}
-            {isAdmin && <div>
+            {can("orgSettings") && <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Pay Period</div>
               <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Pay period dates (day of month)</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -20027,7 +20027,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Hours Cap — soft limit per pay period. Workers can clock past it;
                 hours over the cap surface as overtime on every device (desktop + iOS). */}
-            {isAdmin && <div>
+            {can("orgSettings") && <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Hours Cap</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 13, color: T.text }}>Cap each person at</span>
@@ -20038,7 +20038,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
 
             {/* iOS Pay Clock */}
-            {isAdmin && <div>
+            {can("orgSettings") && <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                 Mobile Clock-In
                 <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 9, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
@@ -20054,7 +20054,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
 
             {/* Clock Events */}
-            <div>
+            {can("orgSettings") && <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Clock Events</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
@@ -20069,10 +20069,10 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
 
-            {/* Team */}
-            {isAdmin && (
+            {/* Team — writes people, so manageTeam (#298) */}
+            {can("manageTeam") && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Team</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
@@ -20114,9 +20114,9 @@ ${jobsCtx || "No jobs found."}`;
             {/* Actions */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
               <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
+              {can("manageTeam") && <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
                 {tsSettingsSaving ? "Saving…" : "Save Changes"}
-              </button>
+              </button>}
             </div>
           </div>
         </div>
@@ -21845,7 +21845,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             )}
             <h1 style={{ ...pageTitleStyle, flex: 1 }}>Time Clock</h1>{titleActions}
-            {isAdmin && (
+            {(can("orgSettings") || can("manageTeam")) && (
               <button onClick={openSettings} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusPill, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "15" : "none", cursor: "pointer", color: tsSettingsOpen ? T.accent : T.textDim, transition: "all 0.15s" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               </button>
@@ -26340,6 +26340,11 @@ ${jobsCtx || "No jobs found."}`;
   // Business still routes there, this only removes the nav entry.
   // #421, as on the app nav: unknown tier shows, and only a LOADED Basic removes.
   ].filter(c => businessOnlyVisible(billingTier, billingLoaded) || c.key !== "org-approval-templates");
+  // #298, ruled: each Organization section asks for the permission its rows need. Worker
+  // permissions writes people (manageTeam); Time Clock mixes org rows and people rows, so it opens
+  // for either and splits them; the rest are org settings.
+  const orgSectionAllowed = (key) => key === "org-permissions" ? can("manageTeam") : key === "org-timeclock" ? (can("orgSettings") || can("manageTeam")) : can("orgSettings");
+  const _orgNav = SETTINGS_ORG_CHILDREN.filter(c => orgSectionAllowed(c.key));
   // Under the page title: "Group · Page", as the section nav names them.
   // `title` is what the unsaved-changes dialog calls the section.
   const settingsSectionMeta = {
@@ -26495,10 +26500,13 @@ ${jobsCtx || "No jobs found."}`;
         setOrgSettings(s => ({ ...s, signOffTemplates: (settingsDraft.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) }));
       } else if (sec === "org-timeclock") {
         const dd = settingsDraft || {};
-        setOrgSettings(s => ({ ...s, payDates: [...(dd.payDates || [5, 20])], payPeriodHourCap: dd.payPeriodHourCap, iosPayClockEnabled: dd.iosPayClockEnabled, trackLunch: dd.trackLunch, trackBreaks: dd.trackBreaks }));
-        const updated = (dd.people || []).map(p => ({ ...p }));
-        await savePeople(updated, getToken, orgCode);
-        setPeople(updated);
+        // #298: each half is written only by someone allowed to change it.
+        if (can("orgSettings")) setOrgSettings(s => ({ ...s, payDates: [...(dd.payDates || [5, 20])], payPeriodHourCap: dd.payPeriodHourCap, iosPayClockEnabled: dd.iosPayClockEnabled, trackLunch: dd.trackLunch, trackBreaks: dd.trackBreaks }));
+        if (can("manageTeam")) {
+          const updated = (dd.people || []).map(p => ({ ...p }));
+          await savePeople(updated, getToken, orgCode);
+          setPeople(updated);
+        }
       } else if (sec === "customization") {
         setThemeMode(draftMode);
         setCustomTheme(draftCustom);
@@ -27070,6 +27078,8 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const renderSettingsTimeClock = () => {
+    // #298: org rows need orgSettings, people rows (PINs, pay type) need manageTeam.
+    const _canOrg = can("orgSettings"), _canTeam = can("manageTeam");
     const d = settingsDraft || {};
     const payDates = d.payDates || [5, 20];
     const dp = d.people || [];
@@ -27086,24 +27096,24 @@ ${jobsCtx || "No jobs found."}`;
     return (
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 380px", gridTemplateRows: "minmax(0,1fr)", gap: "0 40px", minHeight: 0 }}>
         <div className="rv-scol">
-          {sRow("Pay period", "First and last day of each pay period, as days of the month.", <>
+          {_canOrg && sRow("Pay period", "First and last day of each pay period, as days of the month.", <>
             <div className="rv-inl"><span style={{ width: 70 }}>First day</span>{dayIn(0)}<span>of each month</span></div>
             <div className="rv-inl"><span style={{ width: 70 }}>Last day</span>{dayIn(1)}<span>of each month</span></div>
             <small className="rv-mute" style={{ display: "block", marginTop: 8 }}>Current pay period: {fmtD(pp.start)} – {fmtD(pp.end)}</small>
           </>)}
-          {sRow("Hours cap", "Maximum paid hours per person per pay period.",
+          {_canOrg && sRow("Hours cap", "Maximum paid hours per person per pay period.",
             <div className="rv-inl">
               <span>Cap each person at</span>
               <input type="number" min="1" max="999" step="1" className="rv-tin rv-num" value={d.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); patchDraft({ payPeriodHourCap: v }); }} />
               <span>hours per pay period</span>
             </div>)}
-          {sRow("Clock events", "Buttons shown to hourly workers on the clock.", <>
+          {_canOrg && sRow("Clock events", "Buttons shown to hourly workers on the clock.", <>
             <div className="rv-ctl"><span>Track lunch<small>Show Start / End Lunch buttons</small></span>{sTog(!!d.trackLunch, () => patchDraft(dd => ({ trackLunch: !dd.trackLunch })))}</div>
             <div className="rv-ctl"><span>Track breaks<small>Show Start / End Break buttons</small></span>{sTog(!!d.trackBreaks, () => patchDraft(dd => ({ trackBreaks: !dd.trackBreaks })))}</div>
           </>)}
-          {sRow("Mobile clock-in", "Allow workers to clock in for pay from the iOS app. If disabled, clock-in on desktop is required for workers.",
+          {_canOrg && sRow("Mobile clock-in", "Allow workers to clock in for pay from the iOS app. If disabled, clock-in on desktop is required for workers.",
             <div className="rv-ctl flat"><span>Allow clock-in from the iOS app</span>{sTog(!!d.iosPayClockEnabled, () => patchDraft(dd => ({ iosPayClockEnabled: !dd.iosPayClockEnabled })))}</div>)}
-          {sRow("Clock-in PINs", "Hourly workers enter these at the shop clock.",
+          {_canTeam && sRow("Clock-in PINs", "Hourly workers enter these at the shop clock.",
             hourlyN === 0 ? <span className="rv-mute">Nobody is set to hourly.</span> :
             <div className="rv-dlist">
               {byName.filter(isHourly).map(p => (
@@ -27115,7 +27125,7 @@ ${jobsCtx || "No jobs found."}`;
               ))}
             </div>)}
         </div>
-        <div className="rv-mside">
+        {_canTeam && <div className="rv-mside">
           <div className="rv-ctl" style={{ paddingTop: 0 }}>
             <span><b style={{ fontSize: 16.5 }}>Pay type</b><small>Hourly workers use the clock · {hourlyN} hourly, {dp.length - hourlyN} salary</small></span>
           </div>
@@ -27129,7 +27139,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     );
   };
@@ -27332,6 +27342,8 @@ ${jobsCtx || "No jobs found."}`;
     );
   };
   const renderSettingsBody = () => {
+    // #298: a section the user may not change is not shown, even if navigated to.
+    if (settingsSection.startsWith("org-") && !orgSectionAllowed(settingsSection)) return null;
     switch (settingsSection) {
       case "general": return renderSettingsGeneral();
       case "org-general": return renderSettingsOrgGeneral();
@@ -27377,13 +27389,13 @@ ${jobsCtx || "No jobs found."}`;
           {isMobile
             ? <select className="rv-in" value={sec} onChange={e => navigateSection(e.target.value)} aria-label="Settings section">
               <optgroup label="Account"><option value="general">Identity</option></optgroup>
-              {can("orgSettings") && <optgroup label="Organization">{SETTINGS_ORG_CHILDREN.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
+              {_orgNav.length > 0 && <optgroup label="Organization">{_orgNav.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</optgroup>}
               <optgroup label="Appearance"><option value="customization">Customization</option></optgroup>
             </select>
             : <nav className="rv-snav" aria-label="Settings sections">
               <small>Account</small>
               {navBtn("general", "Identity")}
-              {can("orgSettings") && <><small>Organization</small>{SETTINGS_ORG_CHILDREN.map(c => navBtn(c.key, c.label))}</>}
+              {_orgNav.length > 0 && <><small>Organization</small>{_orgNav.map(c => navBtn(c.key, c.label))}</>}
               <small>Appearance</small>
               {navBtn("customization", "Customization")}
               {/* FAST TRAQS used to sit on the Settings rail, which is the app rail now. */}
