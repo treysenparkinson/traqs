@@ -3047,6 +3047,18 @@ const STICKY_NAME_Z = 14;
 // A node's CHILDREN: its subs minus tombstones (#209). A deleted panel or op is not a child of
 // anything — counting it as one suggests it, checks it for overlaps, and rolls it into dates.
 const liveSubs = (n) => (n?.subs || []).filter(o => o && !o.deletedAt);
+// THE ORG SETTINGS IN MEMORY, built from a stored copy: defaults for what it never had, then the
+// copy, then withOrgDefaults' repairs. Never from what was in memory before — a spread over the
+// old object can never drop a key another client removed (#225). The mount load and the
+// rehydrate both build through here.
+const orgSettingsFromStored = (server) => {
+  const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } };
+  const merged = { ...base, ...server };
+  if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
+  if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
+  // One set of defaults; a stored null counts as missing (src/orgDefaults.js).
+  return withOrgDefaults(merged);
+};
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 
 // ── Scheduling state of one work item ───────────────────────────────────────
@@ -7703,14 +7715,7 @@ Extraction rules:
         const _badWin = invalidWorkWindow(server);
         if (_badWin) setWorkWindowNotice(_badWin);
         skipNextOrgSave.current = true;
-        setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { ...DEFAULT_ORG_SETTINGS.lunch } };
-          const merged = { ...base, ...server };
-          if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
-          if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
-          // One set of defaults; a stored null counts as missing (src/orgDefaults.js).
-          return withOrgDefaults(merged);
-        });
+        setOrgSettings(() => orgSettingsFromStored(server));
       })
       .catch(() => {})
       .finally(() => { orgSettingsLoadedRef.current = true; });
@@ -8963,7 +8968,9 @@ Extraction rules:
           const s = await readSlice("settings");
           // withOrgDefaults: the same repair the load applies — an empty work week or a null
           // work window from another client must not reach the calendar (an empty week hung it).
-          if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(prev => withOrgDefaults({ ...prev, ...s })); }
+          // #225: REPLACED, as the mount load does, not spread over what was in memory — a spread
+          // could never drop a key another client removed.
+          if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(() => orgSettingsFromStored(s)); }
         }
         // orgConfig is a prop owned by App.jsx — can't be updated from here (see report).
       } catch (e) { console.warn(`[rehydrate ${entity}] failed:`, e?.message || e); }
