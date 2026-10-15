@@ -394,20 +394,18 @@ export async function handler(event) {
 
       const pIdx = people.findIndex((p) => String(p.id) === String(reqRec.personId));
       let peopleChanged = false;
-      if (wasApproved && pIdx !== -1 && Array.isArray(people[pIdx].timeOff)) {
-        if (needsReapproval) {
-          // Pull the schedule entry until it's re-approved.
-          people[pIdx] = { ...people[pIdx], timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id), lastModifiedAt: nowIso() };
-        } else {
-          // Type/note change while still approved → update the entry in place.
-          people[pIdx] = {
-            ...people[pIdx],
-            timeOff: people[pIdx].timeOff.map((t) => t.reqId === reqRec.id
+      // #151. The change is a FUNCTION of the person, applied to the fresh record inside the
+      // conditional write (`cur` below) — not a copy built here from the start-of-request read
+      // and written back, which erased any edit to this person that landed in between. Same
+      // shape as #292 and #511. Needs re-approval: pull the schedule entry until it is
+      // re-approved. Otherwise a type/note change updates the entry in place.
+      const editTimeOff = (p) => needsReapproval
+        ? { ...p, timeOff: (Array.isArray(p.timeOff) ? p.timeOff : []).filter((t) => t.reqId !== reqRec.id), lastModifiedAt: nowIso() }
+        : { ...p, timeOff: (Array.isArray(p.timeOff) ? p.timeOff : []).map((t) => t.reqId === reqRec.id
               ? { ...t, start: newStart, end: newEnd, type: newType, reason: newNote }
-              : t),
-            lastModifiedAt: nowIso(),
-          };
-        }
+              : t), lastModifiedAt: nowIso() };
+      if (wasApproved && pIdx !== -1 && Array.isArray(people[pIdx].timeOff)) {
+        people[pIdx] = editTimeOff(people[pIdx]);
         peopleChanged = true;
       }
 
@@ -423,7 +421,7 @@ export async function handler(event) {
       if (editOut?.abort) return err(editOut.abort.status, editOut.abort.message);
       requests[idx] = editOut.record;
       if (peopleChanged) {
-        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => people[pIdx]);
+        const _p = await commitPerson(peopleKey, reqRec.personId, (cur) => editTimeOff(cur));
         if (_p) people = _p;
       }
 

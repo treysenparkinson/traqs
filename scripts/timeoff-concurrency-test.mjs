@@ -144,6 +144,31 @@ console.log("\n4. THE ORDINARY PATHS STILL WORK");
   ok("...and pulls the entry back out of timeOff", (personBy(9).timeOff || []).length, 0);
 }
 
+console.log("\n4b. #151 — AN EDIT DOES NOT WRITE BACK THE PERSON IT READ AT THE START");
+{
+  // The edit branch ran inside commitPerson but returned `people[pIdx]` — the copy read at
+  // the top of the handler — instead of building on `cur`, the fresh one. A profile edit to
+  // the SAME person landing in between was erased. #292 and #511 are the same shape.
+  for (const [what, body, want] of [
+    ["a type/note change on an approved request", { id: "R1", action: "edit", type: "UTO", note: "moved" }, 1],
+    ["a date change that sends it back for re-approval", { id: "R1", action: "edit", start: "2026-11-09", end: "2026-11-10" }, 0],
+  ]) {
+    reset();
+    globalThis.__S3[K.req] = [REQ({ status: "approved" })];
+    globalThis.__S3[K.people][1].timeOff = [{ start: "2026-11-02", end: "2026-11-03", reqId: "R1", type: "PTO" }];
+    competeOnce(K.people, () => {
+      const arr = globalThis.__S3[K.people];
+      const i = arr.findIndex(p => String(p.id) === "9");
+      arr[i] = { ...arr[i], phone: "555-0199", name: "Quincy R." };
+      globalThis.__ETAGS[K.people] = String(Number(globalThis.__ETAGS[K.people] ?? 0) + 1);
+    });
+    const res = await post(body);
+    ok(`${what}: 200`, res.statusCode, 200);
+    ok(`...the concurrent profile edit to that person survives`, [personBy(9).phone, personBy(9).name], ["555-0199", "Quincy R."]);
+    ok(`...and the time-off change still lands`, (personBy(9).timeOff || []).length, want);
+  }
+}
+
 console.log("\n5. NO PLAIN PUT SURVIVES ON EITHER FILE");
 {
   const SRC = readFileSync(new URL("../netlify/functions/timeoff.js", import.meta.url), "utf8");
