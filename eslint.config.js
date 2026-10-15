@@ -30,7 +30,9 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: { ...globals.browser, ...globals.es2021 },
     },
-    rules: { "no-undef": "error" },
+    // no-dupe-keys (#284): a second key in an object literal silently wins, so the first is dead
+    // code that reads as live. One was found in a style object, the only one in the codebase.
+    rules: { "no-undef": "error", "no-dupe-keys": "error" },
   },
   {
     files: ["netlify/**/*.js", "scripts/**/*.mjs", "tools/**/*.mjs"],
@@ -39,7 +41,7 @@ export default [
       sourceType: "module",
       globals: { ...globals.node, ...globals.es2021 },
     },
-    rules: { "no-undef": "error" },
+    rules: { "no-undef": "error", "no-dupe-keys": "error" },
   },
   {
     // Edge functions run on Deno and reference its globals.

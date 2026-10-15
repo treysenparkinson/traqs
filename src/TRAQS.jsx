@@ -28919,7 +28919,7 @@ ${jobsCtx || "No jobs found."}`;
                 closeAllModals();
                 setView("schedule");
               }}
-              style={{ margin: "6px 8px 4px", padding: "9px 12px", width: "calc(100% - 16px)", borderRadius: 16, cursor: "pointer",
+              style={{ margin: "6px 8px 4px", padding: "9px 12px", width: "calc(100% - 16px)", borderRadius: 16,
                 display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, fontWeight: 700, fontFamily: T.font,
                 border: `1px solid ${planNoHours ? T.border : T.accent + "55"}`,
                 background: planNoHours ? "transparent" : T.accent + "12",
