@@ -330,5 +330,29 @@ console.log("\nE. IT IS WIRED — each statement named separately");
   ok("settle.js is imported", /from "\.\/settle\.js"/.test(CODE), true);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nF. reflowJob ITSELF, EXECUTED (#274)");
+{
+  // #274 listed reflowJob as untested. Its pieces were — reflowPhaseOps and rollUpJobDates run
+  // above — but the function that loops the phases, honours #415's phaseIds and splices the
+  // moves back into the right panel was only ever matched as text (settle-scope-test). Sliced
+  // and run here on the real pieces.
+  const reflowJob = build(need("reflowJob", "const reflowJob = (job, opts) => {"), { ...deps, reflowPhaseOps, rollUpJobDates });
+  const phase = (id) => ({ id, title: id, subs: [
+    op(id + "-ASSIGNED", { start: MON, end: TUE, team: [7] }),
+    op(id + "-QUEUED", { start: MON, end: MON }),
+  ] });
+  const job = { id: "J", start: MON, end: TUE, subs: [phase("P1"), phase("P2")] };
+  const queued = (j) => j.subs.map(pn => pn.subs.find(o => o.id.endsWith("QUEUED")).start);
+  ok("with no phaseIds every phase settles", queued(reflowJob(job, OPTS_BIZ)), [WED, WED]);
+  ok("#415 with phaseIds only the touched phase settles",
+    queued(reflowJob(job, { ...OPTS_BIZ, phaseIds: new Set(["P2"]) })), [MON, WED]);
+  ok("...and the rollup still covers the whole job", (() => { const r = reflowJob(job, OPTS_BIZ); return [r.start, r.end]; })(), [MON, WED]);
+  ok("a deleted phase is skipped, not settled",
+    queued(reflowJob({ ...job, subs: [{ ...phase("P1"), deletedAt: "2026-10-01T00:00:00Z" }, phase("P2")] }, OPTS_BIZ)), [MON, WED]);
+  ok("a job with nothing to move comes back unchanged in its phases",
+    reflowJob({ id: "J", start: MON, end: MON, subs: [{ id: "P", subs: [op("X", { start: MON, end: MON, team: [7] })] }] }, OPTS_BIZ).subs[0].subs[0].start, MON);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
