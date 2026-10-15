@@ -10,7 +10,7 @@
 //
 //   node scripts/id-normalise-test.mjs
 import { register } from "module";
-register("./timeclock-itest-loader.mjs", import.meta.url);
+register("./itest-loader-real-timestamps.mjs", import.meta.url);   // real stamping: the like-with-like case is about re-stamps
 const { stringifyTeams } = await import("../netlify/functions/_utils/normalize-ids.js");
 
 let pass = 0, fail = 0;
@@ -55,6 +55,19 @@ reset([{ id: "j1", title: "One", team: ["1"], subs: [] }]);
 {
   const res = await post({ upsert: [{ id: "j1", title: "One", team: [7], subs: [] }], delete: [] });
   ok("#411 ...and so is a delta's upsert", [res.statusCode, stored().find(j => j.id === "j1").team], [200, ["7"]]);
+}
+
+// LIKE WITH LIKE. A team already stored as numbers (a legacy job), saved back unchanged with its
+// own stamp, is NOT an edit: no re-stamp, no conflict. The first cut normalised only the incoming
+// side, and every such save read as a team change.
+{
+  const STAMP = "2026-10-01T12:00:00.000Z";
+  reset([{ id: "j9", title: "Legacy", team: [7], lastModifiedAt: STAMP, subs: [] }]);
+  const res = await post([{ id: "j9", title: "Legacy", team: [7], lastModifiedAt: STAMP, subs: [] }]);
+  const j9 = stored().find(j => j.id === "j9");
+  ok("#411 a legacy numeric team saved back unchanged is accepted", res.statusCode, 200);
+  ok("#411 ...and is not re-stamped as if it had been edited", j9.lastModifiedAt, STAMP);
+  ok("#411 ...and reports no conflict", (res.body?.conflicts || []).length, 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

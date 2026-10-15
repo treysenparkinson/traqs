@@ -105,7 +105,12 @@ export async function handler(event) {
       // `attempt` is per pass; nothing here may have side effects.
       let attempt;
       const result = await updateJson(s3Key, (stored) => {
-        const existing = stored;
+        // The STORED copy is normalised the same way as the incoming one (#411), so every diff
+        // below — the stale-copy conflict check, the overlap rule's "what changed", stamping —
+        // compares like with like. Normalising only the incoming side made a numeric team
+        // already on disk read as an edit on every save: re-stamped, logged as a conflict, and
+        // refusable in enforce, over a type difference nobody made.
+        const existing = Array.isArray(stored) ? stringifyTeams(stored) : stored;
         attempt = { conflicts: [], violations: [], hpdDefaults: [], overlaps: [], counterKeeps: [] };
 
         // THE EMPTY-TASKS GUARD MOVED FROM SHAPE TO INTENT (#339) — see

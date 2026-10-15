@@ -202,7 +202,9 @@ seed("enforce", ADMIN);
 seed(undefined, ADMIN);
 {
   const res = await post(deptViolation());
-  ok("log (default): the write is accepted", [res.statusCode, node(stored(), "OP").team], [200, [7, 9]]);
+  // The team lands as strings since #411 (tasks.js stores membership ids as strings, whoever
+  // sent them); what this asserts is that log mode ACCEPTS the write, not the type it arrived in.
+  ok("log (default): the write is accepted", [res.statusCode, node(stored(), "OP").team], [200, ["7", "9"]]);
   ok("log: the would-be refusal is logged", logs.filter(l => l.tag === "schedule-rule").map(l => [l.mode, l.rule, l.id, l.personId]), [["log", "department", "OP", "1"]]);
 }
 seed("off", ADMIN);
