@@ -26,7 +26,7 @@ import { jobKeys, buildDelta, missingFromDelta } from "./deltaWrite.js";
 import { applyBarDelete, planBarDelete } from "./barDelete.js";
 import { holdsDateEdit, withDraftValue, overlayDraft, flushPatch, completionPatch } from "./schedDraft.js";
 import { backfillColOrder as backfillCols, visibleColOrder, hiddenFromLegacy } from "./columnPrefs.js";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, deletePerson, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, deletePerson, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, ensureCompletionGroupAction, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, updateOrgIdentityProviders, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { LIGHT, DARK } from "./themeTokens.js";
@@ -11919,37 +11919,18 @@ ${jobsCtx || "No jobs found."}`;
   // explicit false drops someone.
   //
   // Returns the group (with up-to-date memberIds).
+  // The shared "Completion Requests" group, with this user seated in it (#296). The SERVER
+  // decides: groups are delivered members-only, so a worker's list never contains the shared
+  // group until they are in it, and deciding here created a second group of the same name on
+  // their first request. Same rule as the phone's request (_utils/completion-group.js). Returns
+  // the group, or null when nobody can approve.
   const ensureCompletionGroup = async () => {
-    const grpName = "Completion Requests";
-    const adminIds = people.filter(p => permGranted(p.adminPerms, "approveCompletions") && p.userRole === "admin").map(p => p.id);
-    const want = [...new Set([...adminIds, ...(loggedInUser ? [loggedInUser.id] : [])])];
-    const list = Array.isArray(groups) ? groups : [];
-    let grp = list.find(g => g.name === grpName);
-    if (!grp) {
-      grp = { id: uid(), name: grpName, memberIds: want, createdBy: loggedInUser?.id, createdAt: new Date().toISOString() };
-      const updated = [...list, grp];
-      try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup create failed", e); }
-    } else {
-      // Reconcile the roster rather than only adding to it. The thread is shared
-      // and reused for every request, so members accumulated in it and nothing
-      // ever took them out. Who keeps a seat: the people `want` names, plus
-      // anyone who has actually RAISED a request in this thread — they can't
-      // approve (the buttons are gated on the toggle) but must be able to see
-      // that what they sent arrived and how it was resolved.
-      const senders = new Set(
-        (Array.isArray(messages) ? messages : [])
-          .filter(m => m && m.type === "finish_request" && m.threadKey === `group:${grp.id}` && m.authorId != null)
-          .map(m => String(m.authorId))
-      );
-      const allowed = new Set([...want.map(String), ...senders]);
-      const kept = (grp.memberIds || []).filter(id => allowed.has(String(id)));
-      const missing = want.filter(id => !kept.includes(id));
-      if (missing.length || kept.length !== (grp.memberIds || []).length) {
-        grp = { ...grp, memberIds: [...kept, ...missing] };
-        const updated = list.map(g => g.id === grp.id ? grp : g);
-        try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup update failed", e); }
-      }
-    }
+    const res = await ensureCompletionGroupAction(getToken, orgCode);
+    const grp = res?.group || null;
+    if (grp) setGroups(prev => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.some(g => sameId(g.id, grp.id)) ? list.map(g => (sameId(g.id, grp.id) ? grp : g)) : [...list, grp];
+    });
     return grp;
   };
 
@@ -12005,6 +11986,7 @@ ${jobsCtx || "No jobs found."}`;
 
     try {
       const grp = await ensureCompletionGroup();
+      if (!grp) return;
       const jobNumTxt = parentJob.jobNumber ? `Job #${parentJob.jobNumber} — ` : "";
       const msg = await postMessage({
         threadKey: `group:${grp.id}`, scope: "group", jobId: parentJob.id,

@@ -383,6 +383,16 @@ export async function saveGroups(groups, getToken, orgCode) {
   return res.json();
 }
 
+// The shared "Completion Requests" group, found or created by the SERVER with the caller seated
+// in it (#296). A worker's own group list never includes it until they are a member, so the
+// client cannot decide this. Resolves to { ok, group } or { ok, noApprover: true }.
+export async function ensureCompletionGroupAction(getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/groups?action=ensure-completion`, { method: "POST", headers, body: "{}" });
+  if (!res.ok) throw new Error(`ensureCompletionGroup failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Chat Attachments ─────────────────────────────────────────────────────────
 // payload: { filename: string, mimeType: string, data: string (base64 data URL) }
 export async function uploadAttachment(payload, getToken, orgCode) {

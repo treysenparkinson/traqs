@@ -6,6 +6,9 @@ import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
+import { personCan } from "./_utils/can.js";
+import { updateJson } from "./_utils/update-json.js";
+import { reconcileCompletionGroup } from "./_utils/completion-group.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -44,7 +47,45 @@ export async function handler(event) {
   //
   // FUTURE CLEANUP: move that group creation server-side — have the completion
   // request itself provision the group — and this endpoint can then be tightened
-  // to admin-only with users read-only, as originally intended.
+  // to admin-only with users read-only, as originally intended. The WEB now does this
+  // (?action=ensure-completion above, #296); the phone's own path is the remaining user.
+  // POST ?action=ensure-completion — find or create THE "Completion Requests" group and seat
+  // the caller in it (#296). A worker cannot do this from the client: GET delivers only the
+  // groups they belong to, so on their first request they saw none, created a second group of
+  // the same name, and the request went there instead of the thread the approvers read. The
+  // server sees every group. Same rule as the phone's request in timeclock.js, from one helper.
+  if (event.httpMethod === "POST" && event.queryStringParameters?.action === "ensure-completion") {
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    if (member?.personId == null) return err(403, "No person record for this account");
+    try {
+      const people = (await readJson(orgKey(event, "people.json"))) ?? [];
+      const approverIds = filterLive(Array.isArray(people) ? people : [])
+        .filter(p => personCan(p, "approveCompletions")).map(p => p.id);
+      if (approverIds.length === 0) return json(200, { ok: true, noApprover: true });
+      const messages = (await readJson(orgKey(event, "messages.json"))) ?? [];
+      const at = new Date().toISOString();
+      const newId = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const out = await updateJson(s3Key, (stored) => {
+        const prev = Array.isArray(stored) ? stored : [];
+        const rec = reconcileCompletionGroup(prev, messages, { approverIds, requesterId: String(member.personId), newId, at });
+        if (!rec.changed) return { abort: { grp: rec.grp, changed: false } };
+        return { value: stampArray(rec.groups, prev), grp: rec.grp, changed: true };
+      });
+      // An unchanged roster comes back as updateJson's { abort } and writes nothing.
+      const r = out && "abort" in out ? out.abort : out;
+      const grp = (r.value || []).find(g => g && String(g.id) === String(r.grp?.id)) || r.grp;
+      if (r.changed) {
+        await publishChange(member.orgCode, "groups", { ids: [grp.id] });
+        await sendSilentPush(member.orgCode, { entity: "groups" });
+      }
+      return json(200, { ok: true, group: grp });
+    } catch (e) {
+      console.error("groups ensure-completion error:", e);
+      return err(e.statusCode || 500, "Failed to prepare the completion group");
+    }
+  }
+
   if (event.httpMethod === "POST") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }

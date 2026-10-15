@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { isFinishedStatus, isActiveStatus, activeStatusName } from "../../src/statusMeaning.js";
 import { can, canClockIn, personCan, permDenied } from "./_utils/can.js";
+import { reconcileCompletionGroup } from "./_utils/completion-group.js";
 import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
 import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../src/statsMath.js";
@@ -2710,38 +2711,14 @@ export async function handler(event) {
         const messagesKey = `orgs/${orgCode}/messages.json`;
         let messages = (await readJson(messagesKey)) ?? [];
         if (!Array.isArray(messages)) messages = [];
-        const want = [...new Set([...adminIds, ...(byId != null ? [byId] : [])])];
-        let grp = groups.find(g => g.name === "Completion Requests");
-        if (!grp) {
-          grp = { id: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, name: "Completion Requests", memberIds: want, createdBy: byId, createdAt: at };
-          groups = [...groups, grp];
-          await writeJson(groupsKey, groups);
-        } else {
-          // Reconcile the roster rather than only adding to it. The thread is
-          // shared and reused for every request, so members accumulated in it
-          // and nothing ever took them out: an admin whose toggle was switched
-          // off, or anyone added back when the audience was still "every admin",
-          // stayed and kept getting every request.
-          //
-          // Who keeps a seat: the people `want` names (approvers + whoever is
-          // requesting now), plus anyone who has actually RAISED a request in
-          // this thread. That last group can't approve anything — the card's
-          // buttons are gated on the toggle — but has to be able to see that
-          // what they sent arrived and how it was resolved.
-          const senders = new Set(
-            messages
-              .filter(m => m && m.type === "finish_request" && m.threadKey === `group:${grp.id}` && m.authorId != null)
-              .map(m => String(m.authorId))
-          );
-          const allowed = new Set([...want.map(String), ...senders]);
-          const kept = (grp.memberIds || []).filter(m => allowed.has(String(m)));
-          const missing = want.filter(id => !kept.some(m => String(m) === String(id)));
-          if (missing.length || kept.length !== (grp.memberIds || []).length) {
-            grp = { ...grp, memberIds: [...kept, ...missing] };
-            groups = groups.map(g => (g.id === grp.id ? grp : g));
-            await writeJson(groupsKey, groups);
-          }
-        }
+        // The group and its roster: one rule, shared with POST /groups?action=ensure-completion,
+        // which is how the web raises a request (#296). See _utils/completion-group.js.
+        const rec = reconcileCompletionGroup(groups, messages, {
+          approverIds: adminIds, requesterId: byId,
+          newId: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, at,
+        });
+        const grp = rec.grp;
+        if (rec.changed) { groups = rec.groups; await writeJson(groupsKey, groups); }
 
         const jobNumTxt = jobNumber ? `Job #${jobNumber} — ` : "";
         const contextLabel = [panelTitle, opTitle].filter(Boolean).join(" › ") || jobTitle;
