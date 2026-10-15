@@ -9,6 +9,7 @@ import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRu
 // nothing sets — an unset switch is the never-executes shape all over again.
 const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
+import { movePersonRow } from "./personRowDrag.js";
 import { setShopZone, shopDay, shopHour, shopMs, isoToLocalInput, localInputToIso } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
@@ -10638,7 +10639,8 @@ Extraction rules:
       if (rtype === "person" && rid !== String(personId)) {
         const rect = rowEl.getBoundingClientRect();
         const pos = me.clientY < rect.top + rect.height / 2 ? "before" : "after";
-        setRowDragOver({ type: "person", id: Number(rid), pos });
+        // The id as the DOM holds it, a string. movePersonRow compares it as sameId does (#144).
+        setRowDragOver({ type: "person", id: rid, pos });
       } else if (rtype === "group") {
         setRowDragOver({ type: "group", id: rid });
       } else {
@@ -10650,24 +10652,8 @@ Extraction rules:
       setRowDragId(pid => {
         // apply drop inside setState to get latest rowDragOver via closure
         setRowDragOver(over => {
-          if (over && pid != null) {
-            if (over.type === "person") {
-              const targetNumId = over.id;
-              setPeople(prev => {
-                const targetPerson = prev.find(p => p.id === targetNumId);
-                if (!targetPerson) return prev;
-                const dragged = { ...prev.find(p => p.id === personId), role: targetPerson.role };
-                const without = prev.filter(p => p.id !== personId);
-                const tIdx = without.findIndex(p => p.id === targetNumId);
-                const insertAt = over.pos === "before" ? tIdx : tIdx + 1;
-                const result = [...without];
-                result.splice(insertAt, 0, dragged);
-                return result;
-              });
-            } else if (over.type === "group") {
-              setPeople(prev => prev.map(p => p.id === personId ? { ...p, role: over.id } : p));
-            }
-          }
+          // Where it lands, and which department it joins: movePersonRow (#144, #145).
+          if (over && pid != null) setPeople(prev => movePersonRow(prev, personId, over));
           return null;
         });
         return null;
