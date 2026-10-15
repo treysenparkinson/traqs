@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { applyRosterEdits, SETTINGS_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -32183,7 +32183,14 @@ ${jobsCtx || "No jobs found."}`;
                               <SearchSelect
                                 multi
                                 values={(op.team || []).map(String)}
-                                onChangeMulti={vals => updOp(pi, oi, { team: (vals || []).map(String) })}
+                                onChangeMulti={vals => {
+                                  // #156, ruled: the department FOLLOWS the work here as on a drop
+                                  // (#427) — departmentFollow, the same function applyDragMove runs.
+                                  // Still no filter: filtering would refuse what a drop permits.
+                                  const _team = (vals || []).map(String);
+                                  const _dept = departmentFollow(op, panel, ej, { reassigned: true, from: { team: op.team || [] }, to: { team: _team } }, people);
+                                  updOp(pi, oi, { team: _team, ...(_dept ? { requiredDepartments: _dept.to, requiredDepartment: _dept.to[0] || "" } : {}) });
+                                }}
                                 options={people.filter(pp => pp && !pp.deletedAt).map(pp => ({ value: String(pp.id), label: pp.name }))}
                                 placeholder="Search people…" emptyLabel="Unassigned" compact />
                             </div>
