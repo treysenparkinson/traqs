@@ -134,11 +134,13 @@ reset();
   const res = await post(adminCopy);
   // The stale copy still lands in log mode — that is what log mode means. What changed is
   // that loggedHours does NOT come back with it: since #323 the server restores the stored
-  // counter on every whole-tree POST, regardless of mode. Status, pendingFinish and the
-  // request list are still clobbered here, which is precisely the damage enforce exists to
-  // stop, and precisely why leaving that switch at its default was not harmless.
-  ok("log: the stale copy is still written — but the counter survives it",
-    [res.statusCode, opState()], [200, ["Not Started", 3.5, null, 0]]);
+  // counter on every whole-tree POST, regardless of mode. Since #463 the open finish request
+  // survives it too, also regardless of mode (absence is not deletion — see finish-keep-test).
+  // This assertion USED to want `null, 0` here: it pinned the hole, as the comment said
+  // ("pendingFinish and the request list are still clobbered here"). Status is still
+  // clobbered in log mode, which is what enforce exists to stop.
+  ok("log: the stale copy is still written — but the counter and the open request survive it",
+    [res.statusCode, opState()], [200, ["Not Started", 3.5, true, 1]]);
   ok("log: no conflicts reported to the client", res.body?.conflicts ?? null, null);
   ok("log: the would-be conflict is logged", tagged("task-conflict").map(l => [l.mode, l.jobId]), [["log", "JOB"]]);
 }

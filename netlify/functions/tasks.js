@@ -155,6 +155,12 @@ export async function handler(event) {
           const kept = [];
           incoming = keepServerOwned(incoming, idx, kept);
           attempt.counterKeeps = kept;
+          // FINISH REQUESTS: ABSENCE IS NOT DELETION, AND A DECISION IS NOT UNDONE BY A STALE
+          // COPY (#463). Not pinned — clients resolve requests through this POST — so the rule
+          // is people.js's absence rule, by entry id. Not behind a mode, for #323's reason.
+          const finishKept = [];
+          incoming = keepFinishRequests(incoming, idx, finishKept);
+          attempt.finishKeeps = finishKept;
           // MOVE HISTORY IS APPEND-ONLY (#465). Same index, same shape as the
           // counter guard above, and for the same reason: a client that models a
           // subset of an entry re-encodes the whole array and drops what it does
@@ -636,6 +642,58 @@ function keepServerOwned(nodes, storedIdx, kept) {
     }
     if (Array.isArray(n.subs)) {
       const subs = keepServerOwned(n.subs, storedIdx, kept);
+      if (subs !== n.subs) { if (next === n) next = { ...n }; next.subs = subs; }
+    }
+    if (next !== n) moved = true;
+    return next;
+  });
+  return moved ? out : nodes;
+}
+
+/**
+ * #463. The finish-request list on an EXISTING node, merged by entry id against the stored one:
+ *   - a stored entry the incoming copy does not carry is kept — a client that loaded before the
+ *     request was raised cannot erase it;
+ *   - a stored entry that is resolved is kept as stored when the incoming copy says `pending` —
+ *     a stale copy cannot reopen a decision;
+ *   - anything else (a resolution, a new entry) passes through as sent.
+ * `pendingFinish` is recomputed from the merged list only when the merge changed it. Entries
+ * with no id cannot be matched and are left exactly as sent. Identity is preserved where
+ * nothing changed, as in keepServerOwned.
+ */
+function keepFinishRequests(nodes, storedIdx, kept) {
+  if (!Array.isArray(nodes)) return nodes;
+  let moved = false;
+  const out = nodes.map((n) => {
+    if (!n || typeof n !== "object") return n;
+    const was = n.id != null ? storedIdx.get(String(n.id)) : null;
+    let next = n;
+    const stored = Array.isArray(was?.finishRequests) ? was.finishRequests.filter((r) => r && r.id != null) : [];
+    if (stored.length) {
+      const mine = Array.isArray(n.finishRequests) ? n.finishRequests : [];
+      const mineById = new Map(mine.filter((r) => r && r.id != null).map((r) => [String(r.id), r]));
+      const storedById = new Map(stored.map((r) => [String(r.id), r]));
+      let changed = false;
+      const merged = mine.map((r) => {
+        const st = r && r.id != null ? storedById.get(String(r.id)) : null;
+        if (st && st.status && st.status !== "pending" && r.status === "pending") {
+          changed = true; kept.push({ id: String(n.id), field: "finishRequests", entry: String(r.id), kept: "decision" });
+          return st;
+        }
+        return r;
+      });
+      for (const st of stored) {
+        if (!mineById.has(String(st.id))) {
+          merged.push(st); changed = true;
+          kept.push({ id: String(n.id), field: "finishRequests", entry: String(st.id), kept: "absent" });
+        }
+      }
+      if (changed) {
+        next = { ...n, finishRequests: merged, pendingFinish: merged.some((r) => r && r.status === "pending") };
+      }
+    }
+    if (Array.isArray(n.subs)) {
+      const subs = keepFinishRequests(n.subs, storedIdx, kept);
       if (subs !== n.subs) { if (next === n) next = { ...n }; next.subs = subs; }
     }
     if (next !== n) moved = true;
