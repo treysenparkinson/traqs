@@ -5749,7 +5749,7 @@ Extraction rules:
   // search, select/clear and the list — and offers only the formats, because the
   // scope is already decided. Cleared whenever the sheet closes.
   const [exportScopeJob, setExportScopeJob] = useState(null);
-  const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
+  const [scheduledLaterPanel, setScheduledLaterPanel] = useState("closed"); // "closed" | "open" | "closing"
   const [exportSelRows, setExportSelRows] = useState(new Set());
   const [exportSelSearch, setExportSelSearch] = useState("");
   const [exportPreview, setExportPreview] = useState(null); // { html, filename, mime, kind, jobs }
@@ -13800,12 +13800,12 @@ ${jobsCtx || "No jobs found."}`;
             this button has never done. `bae5483` wrapped an UNLABELLED cloud button
             in a Tip and invented that label from the toolbar's own header comment
             ("Export, FAST TRAQS and + New Job") rather than from the handler, which
-            opens TRAQS Cloud — the queue of jobs parked by "Schedule Later". FAST
+            opens Scheduled Later — the queue of jobs parked by "Schedule Later". FAST
             TRAQS is real and fully built; it lives on the app rail under Tools, and
             the revamp author clearly meant it to be here too. Putting it here is a
             product decision nobody has made, so the label tells the truth instead. */}
-        <Tip label="TRAQS Cloud — jobs parked for later scheduling">
-          <button className="rv-pill ic" onClick={() => setBcModalState("open")}>
+        <Tip label="Scheduled Later — jobs parked to schedule later">
+          <button className="rv-pill ic" onClick={() => setScheduledLaterPanel("open")}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </button>
         </Tip>
@@ -16203,9 +16203,9 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7, marginRight: 5 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
-          {/* #405, as on the Jobs toolbar: this button opens TRAQS Cloud, not the
+          {/* #405, as on the Jobs toolbar: this button opens Scheduled Later, not the
               importer. Same invented label, same commit. */}
-          <Tip label="TRAQS Cloud — jobs parked for later scheduling"><button className="rv-pill ic" onClick={() => setBcModalState("open")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></button></Tip>
+          <Tip label="Scheduled Later — jobs parked to schedule later"><button className="rv-pill ic" onClick={() => setScheduledLaterPanel("open")}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></button></Tip>
           {can("editJobs") && <button className="rv-pill pri" onClick={() => openNew()}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg> New Job</button>}
         </div>
       </div>
@@ -27668,21 +27668,21 @@ ${jobsCtx || "No jobs found."}`;
     </div>
     </div>
     {/* ── BuilderTrend Modal ── */}
-    {bcModalState !== "closed" && (
+    {scheduledLaterPanel !== "closed" && (
       <div
-        onAnimationEnd={() => { if (bcModalState === "closing") setBcModalState("closed"); }}
+        onAnimationEnd={() => { if (scheduledLaterPanel === "closing") setScheduledLaterPanel("closed"); }}
         style={{
           position: "fixed", inset: 0, zIndex: 10020, background: T.bg,
           display: "flex", flexDirection: "column", fontFamily: T.font,
-          animation: bcModalState === "closing"
+          animation: scheduledLaterPanel === "closing"
             ? "bcPageOut 0.22s cubic-bezier(0.4, 0, 1, 1) both"
             : "bcPageIn  0.30s cubic-bezier(0.22, 1, 0.36, 1) both",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>TRAQS Cloud</span>
-          <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Scheduled Later</span>
+          <button onClick={() => setScheduledLaterPanel("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           {(() => {
@@ -27690,18 +27690,18 @@ ${jobsCtx || "No jobs found."}`;
             if (laterJobs.length === 0) return (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, paddingTop: 80 }}>
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                <span style={{ fontSize: 14, color: T.textDim }}>No jobs pending scheduling</span>
+                <span style={{ fontSize: 14, color: T.textDim }}>No jobs scheduled for later</span>
               </div>
             );
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 4 }}>Pending Scheduling — {laterJobs.length} job{laterJobs.length !== 1 ? "s" : ""}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 4 }}>Scheduled Later — {laterJobs.length} job{laterJobs.length !== 1 ? "s" : ""}</div>
                 {laterJobs.map(job => {
                   const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
                   return (
                     <div key={job.id}
                       onClick={() => {
-                        setBcModalState("closing");
+                        setScheduledLaterPanel("closing");
                         // #161. The wizard is an edit; without editJobs its save is refused and
                         // rolled back. Go where a bar click goes instead (#160's answer).
                         if (!can("editJobs")) { openJobDetailOrEdit(job); return; }

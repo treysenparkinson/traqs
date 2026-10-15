@@ -59,15 +59,15 @@ console.log("\n1. #405 — every FAST TRAQS label opens FAST TRAQS");
 
 console.log("\n2. #405 — the cloud buttons say what they open");
 {
-  const cloudTips = [...CODE.matchAll(/<Tip label="([^"]*)">\s*(?:<button[^>]*onClick=\{\(\) => setBcModalState\("open"\)\})/g)].map(m => m[1]);
+  const cloudTips = [...CODE.matchAll(/<Tip label="([^"]*)">\s*(?:<button[^>]*onClick=\{\(\) => setScheduledLaterPanel\("open"\)\})/g)].map(m => m[1]);
   ok("both toolbar buttons were found", cloudTips.length, 2);
   ok("...and neither promises a file import", cloudTips.filter(l => /import|file/i.test(l)), []);
-  ok("...and both name the panel they open", cloudTips.every(l => /TRAQS Cloud/.test(l)), true);
+  ok("...and both name the panel they open (#420: Scheduled Later)", cloudTips.every(l => /Scheduled Later/.test(l)), true);
   // The panel is a real feature and must stay reachable. SCOPED TO ITS OWN BLOCK:
   // `setModalStep(2)` appears elsewhere, so an unscoped check stayed green with
   // this row's call deleted — that mutant survived the first run.
   const cloudAt = CODE.indexOf("const laterJobs = tasks.filter(t => t.scheduledLater);");
-  ok("TRAQS Cloud still lists the jobs parked for later", cloudAt > 0, true);
+  ok("Scheduled Later still lists the jobs parked for later", cloudAt > 0, true);
   const cloud = cloudAt > 0 ? CODE.slice(cloudAt, cloudAt + 2500) : "";
   ok("...and a row inside it still opens the scheduling wizard",
     /setModalStep\(2\)[\s\S]{0,400}setModal\(\{ type: "edit"/.test(cloud), true);
