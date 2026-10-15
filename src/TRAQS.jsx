@@ -9513,18 +9513,24 @@ Extraction rules:
   const teamCWRef = useRef(8);
   const splitContainerRef = useRef(null);
   const splitGanttRef = useRef(null);
-  const splitGanttPaneRef = useRef(null);
   const [splitGanttPaneWidth, setSplitGanttPaneWidth] = useState(600);
   const teamWheelAcc = useRef(0);
 
-  useEffect(() => {
-    const el = splitGanttPaneRef.current;
+  // The pane's width, observed for exactly as long as the pane exists (#312). This was a
+  // useEffect with NO dependency array: after every render it disconnected, built a new
+  // observer and wrote the width twice — the integer clientWidth, then the fractional
+  // contentRect.width — two values for one box, the shape of a render loop. A callback ref
+  // runs when the pane mounts and when it unmounts, and not otherwise. One measure, the
+  // observer's, so the two values cannot disagree.
+  const splitGanttRoRef = useRef(null);
+  const splitGanttPaneRef = useCallback((el) => {
+    splitGanttRoRef.current?.disconnect();
+    splitGanttRoRef.current = null;
     if (!el) return;
-    const ro = new ResizeObserver(entries => { for (const e of entries) setSplitGanttPaneWidth(e.contentRect.width); });
+    const ro = new ResizeObserver(entries => { for (const e of entries) setSplitGanttPaneWidth(e.contentRect.width || 600); });
     ro.observe(el);
-    setSplitGanttPaneWidth(el.clientWidth || 600);
-    return () => ro.disconnect();
-  });
+    splitGanttRoRef.current = ro;
+  }, []);
 
   const handleDividerMouseDown = (e) => {
     e.preventDefault();
