@@ -40,7 +40,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -12953,9 +12953,9 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               );
             })}
-            {/* Today line — faint */}
+            {/* Today line — faint. At the hour, not mid-column (#129). */}
             {TD >= gStart && TD <= gEnd && (
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW / 2, width: 1, background: T.accent + "33", pointerEvents: "none", zIndex: 4 }} />
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW * nowColumnFrac({ nowHour: shopHour(), workStartH, totalWorkH }), width: 1, background: T.accent + "33", pointerEvents: "none", zIndex: 4 }} />
             )}
           </div>
         </div>
