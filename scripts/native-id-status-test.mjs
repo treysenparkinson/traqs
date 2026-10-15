@@ -140,8 +140,14 @@ console.log("\n5. #442 — the delete compares the way the server does");
   // `filter { it.id != person.id }` with sixteen zeros removed sixteen people.
   // Comparing as the server does — String on both sides — is what makes one
   // delete remove one person.
-  ok("the delete filters on a string comparison",
-    /filter \{ it\.id != person!!\.id \}/.test(KTEAM), true);
+  // MOVED 2026-10-15 (#524(7), #525): the Team screen no longer deletes by leaving someone out
+  // of a roster save — the server keeps them — but through DELETE /people?id=. The local
+  // removal that keeps the screen in step moved to AppState.deletePerson, and still compares
+  // String to String (ids are String since #442).
+  ok("the Team screen deletes through appState.deletePerson, not a roster save",
+    /appState\.deletePerson\(person!!\.id\)/.test(KTEAM) && !/updatePeople\([^)]*filter \{ it\.id != person/.test(KTEAM), true);
+  ok("...which filters on a string comparison",
+    /fun deletePerson\(id: String\) \{\s*_people\.value = _people\.value\.filter \{ it\.id != id \}/.test(readFileSync(new URL("../traqs-android/app/src/main/java/com/matrixsystems/traqs/services/AppState.kt", import.meta.url), "utf8")), true);
   ok("the SafeInt deserialiser no longer sees ids, because none are Int",
     /registerTypeAdapter\(Int::class\.java, SafeIntDeserializer\)/.test(KAPI), true);
 }

@@ -12,6 +12,7 @@ import com.matrixsystems.traqs.models.Engineering
 import com.matrixsystems.traqs.models.EngineeringSignOff
 import com.matrixsystems.traqs.models.Message
 import com.matrixsystems.traqs.models.OrgSettings
+import com.matrixsystems.traqs.models.StatusMeaning
 import com.matrixsystems.traqs.models.Panel
 import com.matrixsystems.traqs.models.Person
 import com.matrixsystems.traqs.models.NotifyPayload
@@ -208,7 +209,7 @@ class AppState(private val context: Context) : ViewModel() {
                 _messages.value = m.await()
                 _unreadCount.value = maxOf(0, _messages.value.size - msgPrefs.getInt("last_seen_msg_count", 0))
                 _groups.value = g.await()
-                s.await()?.let { _orgSettings.value = it }
+                s.await()?.let { setOrgSettings(it) }
                 autoMatchPerson()
             } catch (e: Exception) {
                 _errorMessage.value = e.message
@@ -218,7 +219,13 @@ class AppState(private val context: Context) : ViewModel() {
     }
 
     suspend fun refreshOrgSettings() {
-        runCatching { api?.fetchOrgSettings() }.getOrNull()?.let { _orgSettings.value = it }
+        runCatching { api?.fetchOrgSettings() }.getOrNull()?.let { setOrgSettings(it) }
+    }
+
+    /** The one place settings land, so the org's status meanings are installed with them (#504). */
+    private fun setOrgSettings(settings: OrgSettings) {
+        StatusMeaning.install(settings.extras?.get("statusOpts"))
+        _orgSettings.value = settings
     }
 
     /// Refresh JUST the jobs list — used after a job clock mutation so we
@@ -345,6 +352,20 @@ class AppState(private val context: Context) : ViewModel() {
     fun updatePeople(newPeople: List<Person>) {
         _people.value = newPeople
         viewModelScope.launch { runCatching { api?.savePeople(newPeople) } }
+    }
+
+    /**
+     * Remove someone (#524(7), #525) through DELETE /people?id=, the only delete the server
+     * honours — leaving them out of a roster save is now kept, not deleted. Removed from the
+     * screen at once; if the server refuses, the roster is re-read so they come back rather
+     * than looking deleted while they are not.
+     */
+    fun deletePerson(id: String) {
+        _people.value = _people.value.filter { it.id != id }
+        viewModelScope.launch {
+            val ok = runCatching { api?.deletePerson(id) }.isSuccess
+            if (!ok) runCatching { api?.fetchPeople() }.getOrNull()?.let { _people.value = it }
+        }
     }
 
     fun updateClients(newClients: List<Client>) {

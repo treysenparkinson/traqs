@@ -73,8 +73,10 @@ data class Operation(
     val title: String = "",
     val start: String = "",
     val end: String = "",
-    val status: JobStatus = JobStatus.NOT_STARTED,
-    val pri: Priority = Priority.MEDIUM,
+    // #504/#523: stored AS READ — null when the org's value has no case here, so the
+    // passthrough keeps the raw value on save. Read `status` / `pri` below, never these.
+    @SerializedName("status") val statusOrNull: JobStatus? = JobStatus.NOT_STARTED,
+    @SerializedName("pri") val priOrNull: Priority? = Priority.MEDIUM,
     val team: List<String> = emptyList(),
     val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
     val notes: String = "",
@@ -85,7 +87,11 @@ data class Operation(
     val pendingFinish: Boolean? = null,
     val loggedHours: Double? = null,
     @Transient override val extras: JsonObject? = null
-) : Passthrough
+) : Passthrough {
+    /** By MEANING under the org's status list, never null (#504, #523). */
+    val status: JobStatus get() = StatusMeaning.statusOf(statusOrNull, extras)
+    val pri: Priority get() = StatusMeaning.priOf(priOrNull)
+}
 
 // MARK: - Panel (Level 1)
 
@@ -94,8 +100,10 @@ data class Panel(
     val title: String = "",
     val start: String = "",
     val end: String = "",
-    val status: JobStatus = JobStatus.NOT_STARTED,
-    val pri: Priority = Priority.MEDIUM,
+    // #504/#523: stored AS READ — null when the org's value has no case here, so the
+    // passthrough keeps the raw value on save. Read `status` / `pri` below, never these.
+    @SerializedName("status") val statusOrNull: JobStatus? = JobStatus.NOT_STARTED,
+    @SerializedName("pri") val priOrNull: Priority? = Priority.MEDIUM,
     val team: List<String> = emptyList(),
     val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
     val notes: String = "",
@@ -103,7 +111,11 @@ data class Panel(
     val engineering: Engineering? = null,
     val subs: List<Operation> = emptyList(),
     @Transient override val extras: JsonObject? = null
-) : Passthrough
+) : Passthrough {
+    /** By MEANING under the org's status list, never null (#504, #523). */
+    val status: JobStatus get() = StatusMeaning.statusOf(statusOrNull, extras)
+    val pri: Priority get() = StatusMeaning.priOf(priOrNull)
+}
 
 // MARK: - Job (Level 0) — named TRAQSJob to avoid conflict with kotlinx.coroutines.Job
 
@@ -115,8 +127,10 @@ data class TRAQSJob(
     val start: String = "",
     val end: String = "",
     val dueDate: String? = null,
-    val status: JobStatus = JobStatus.NOT_STARTED,
-    val pri: Priority = Priority.MEDIUM,
+    // #504/#523: stored AS READ — null when the org's value has no case here, so the
+    // passthrough keeps the raw value on save. Read `status` / `pri` below, never these.
+    @SerializedName("status") val statusOrNull: JobStatus? = JobStatus.NOT_STARTED,
+    @SerializedName("pri") val priOrNull: Priority? = Priority.MEDIUM,
     val team: List<String> = emptyList(),
     val color: String = "#3d7fff",
     val hpd: Double = 0.0,   // 0 = UNESTIMATED, as on iOS; 7.5 was written onto every absent hpd on save (#301, #520)
@@ -131,6 +145,9 @@ data class TRAQSJob(
     @Transient override val extras: JsonObject? = null
 ) : Passthrough {
     val displayNumber: String get() = jobNumber?.let { "#$it" } ?: ""
+    /** By MEANING under the org's status list, never null (#504, #523). */
+    val status: JobStatus get() = StatusMeaning.statusOf(statusOrNull, extras)
+    val pri: Priority get() = StatusMeaning.priOf(priOrNull)
 }
 
 // MARK: - Timeclock

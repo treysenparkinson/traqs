@@ -72,7 +72,12 @@ fun JobEditScreen(
                 actions = {
                     TextButton(
                         onClick = {
-                            val newJob = TRAQSJob(
+                            // COPY the job being edited, never rebuild it (#520's family): a fresh
+                            // TRAQSJob(...) has no `extras`, so every key Android does not model
+                            // was dropped by any edit. And a status or priority the user did not
+                            // change is written back AS READ (#504/#523) — `status` is a meaning,
+                            // and writing it would replace an org's own name ("MTX FAT") with ours.
+                            val newJob = (job ?: TRAQSJob()).copy(
                                 id = job?.id ?: UUID.randomUUID().toString(),
                                 title = title,
                                 jobNumber = jobNumber.takeIf { it.isNotEmpty() },
@@ -80,8 +85,8 @@ fun JobEditScreen(
                                 start = startDate,
                                 end = endDate,
                                 dueDate = if (hasDueDate && dueDate.isNotBlank()) dueDate else null,
-                                status = status,
-                                pri = priority,
+                                statusOrNull = if (job != null && status == job.status) job.statusOrNull else status,
+                                priOrNull = if (job != null && priority == job.pri) job.priOrNull else priority,
                                 notes = notes,
                                 clientId = selectedClientId,
                                 color = selectedColor,

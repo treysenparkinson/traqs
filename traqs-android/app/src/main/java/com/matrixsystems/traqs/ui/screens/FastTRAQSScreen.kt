@@ -98,7 +98,7 @@ fun FastTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
                             panel = panel,
                             op = op,
                             onToggle = { newStatus ->
-                                val updatedOp = op.copy(status = newStatus)
+                                val updatedOp = op.copy(statusOrNull = newStatus)
                                 val updatedSubs = panel.subs.toMutableList().also { list ->
                                     val idx = list.indexOfFirst { it.id == op.id }
                                     if (idx >= 0) list[idx] = updatedOp

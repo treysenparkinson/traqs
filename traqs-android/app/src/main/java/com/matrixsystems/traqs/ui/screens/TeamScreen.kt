@@ -627,7 +627,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
-                    appState.updatePeople(appState.people.value.filter { it.id != person!!.id })
+                    appState.deletePerson(person!!.id)
                     onDismiss()
                 }) { Text("Delete", color = c.danger) }
             },

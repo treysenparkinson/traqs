@@ -76,8 +76,16 @@ interface TRAQSApi {
     @GET("settings")
     suspend fun fetchOrgSettings(): OrgSettings
 
-    @POST("settings")
-    suspend fun saveOrgSettings(@Body settings: OrgSettings)
+    // No settings POST (#524(4)). OrgSettings fills every ABSENT key with a Kotlin default
+    // (payPeriodType "biweekly", a 30-minute lunch, a 10:00 break), so posting it back would
+    // write those defaults over keys the org never set — #520's 7.5 problem, for settings.
+    // Nothing on Android called it; it is gone so nothing can start to. A settings writer
+    // needs absence tracking first.
+
+    // #524(7)/#525. Removing SOMEONE ELSE. A roster save no longer deletes anyone — the server
+    // keeps a person missing from the array — so a delete by omission silently did nothing.
+    @DELETE("people")
+    suspend fun deletePerson(@Query("id") id: String)
 
     @GET("timeclock")
     suspend fun fetchTimeclock(@Query("personId") personId: String? = null): List<TimeclockEntry>
@@ -135,6 +143,7 @@ class ApiService(private val token: String, private val orgCode: String) {
 
     // MARK: - Org Settings
     suspend fun fetchOrgSettings(): OrgSettings = api.fetchOrgSettings()
+    suspend fun deletePerson(id: String) = api.deletePerson(id)
 
     // MARK: - Timeclock history
     suspend fun fetchTimeclock(personId: String? = null): List<TimeclockEntry> =

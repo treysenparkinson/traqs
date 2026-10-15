@@ -20,18 +20,15 @@ package com.matrixsystems.traqs.services
  * copies this replaces were all missing that floor.
  *
  * `now` is injectable so the cases worth testing are not races against the wall
- * clock. `frozenAtMs` is accepted and currently IGNORED — call sites pass it so
- * that teaching held sessions to stop accruing is a change to this function
- * alone, with no call site revisited.
+ * clock.
+ *
+ * A HELD clock (`frozenAtMs`, a pending finish request) stops at the hold, and an
+ * open pause is measured against that same instant — as the web's `openSessionEnd`
+ * and iOS's `HoursCalculator.liveElapsedHours` do (#283; iOS's twin was #521). It was
+ * threaded through every call site and ignored here, so a held session kept accruing.
  */
 object HoursCalculator {
 
-    // frozenAtMs is threaded through every call site and used by none of them
-    // yet. Suppressed rather than dropped: dropping it would mean revisiting all
-    // four call sites when held sessions learn to stop accruing, which is the
-    // one thing this signature exists to avoid. Remove the suppression in the
-    // same change that reads the parameter.
-    @Suppress("UNUSED_PARAMETER")
     fun liveElapsedHours(
         clockIn: String?,
         pausedAt: String?,
@@ -40,9 +37,11 @@ object HoursCalculator {
         now: Long = System.currentTimeMillis(),
     ): Double {
         val started = parseFlexibleISO(clockIn) ?: return 0.0
-        var ms = (now - started).toDouble() - (totalPausedMs ?: 0.0)
+        // Held: the clock stops at the hold, never later than now.
+        val effNow = if (frozenAtMs != null) minOf(now, frozenAtMs.toLong()) else now
+        var ms = (effNow - started).toDouble() - (totalPausedMs ?: 0.0)
         val pausedSince = parseFlexibleISO(pausedAt)
-        if (pausedSince != null) ms -= maxOf(0.0, (now - pausedSince).toDouble())
+        if (pausedSince != null) ms -= maxOf(0.0, (effNow - pausedSince).toDouble())
         return maxOf(0.0, ms) / 3_600_000.0
     }
 }
