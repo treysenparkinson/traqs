@@ -1899,3 +1899,18 @@ export function barSegmentsPct({ segs, layoutStart, tStart, nDays, startHour, en
   }
   return out;
 }
+
+// THE JOB A SCHEDULE BAR BELONGS TO, as hover dimming keys it (#318, #106). `task.pid` is the
+// PARENT and so means a different thing at each level — an op's panel, a panel's job — which
+// lit an op's sibling ops but never its own panel. The job is what a person means by "this
+// job": `grandPid` for an op (and its cross-row records), `pid` for a panel or a general job's
+// flat sub, and `jobId` for an engineering chip, whose `task` is the job itself and has no
+// parent. A string, because sameId compares that way; null for PTO, which belongs to no job.
+export function hoverJobKey(bar) {
+  if (!bar || bar.type === "pto") return null;
+  if (bar.type === "eng-chip") return bar.jobId == null ? null : String(bar.jobId);
+  const t = bar.task;
+  if (!t) return null;
+  const k = t.grandPid ?? t.pid;
+  return k == null ? null : String(k);
+}
