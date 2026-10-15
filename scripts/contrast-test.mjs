@@ -253,8 +253,11 @@ for (const T of THEMES) for (const c of ["#94a3b8", "#3b82f6", "#e3368d", "#f59e
 }
 ok("#113: the schedule grid steps by wantsLightText, not hexLum < 0.5",
   /_schedDk\s*=\s*wantsLightText\(/.test(SRC) && !/_schedDk\s*=\s*hexLum\([^)]*\)\s*<\s*0\.5/.test(SRC));
-ok("#311: the overdue chip is count-only (the word lives in the title)", !/\{n\}\s*overdue/.test(SRC));
-ok("#311: the chip takes its ink from the rule, not a hard-coded amber", !/color:\s*["']#b45309["']/.test(SRC));
+// #311's chip is GONE — removed with the Overdue tray in a00855d (2026-10-03). The two
+// assertions that stood here tested its spelling and passed on its absence, so they
+// described a chip nothing renders. What is true now is that there is no chip to fit.
+ok("#311: no per-row overdue badge is rendered (removed with the Overdue tray)", !/overdueBadge/.test(SRC));
+ok("the schedule takes no hard-coded amber ink", !/color:\s*["']#b45309["']/.test(SRC));
 
 
 // ── chunk B: the new treatments ─────────────────────────────────────────────
