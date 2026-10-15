@@ -134,7 +134,8 @@ console.log("\n6. The cell: OPERATION rows only");
   // not. The first cut built a parallel trigger and broke assignee-col-test.
   ok("...the cell's own content is the trigger", /trigger=\{content\}/.test(CODE), true);
   ok("...through one wrapper used by every branch",
-    /const wrap = \(content, style, t\) => canQuickAssign/.test(CODE), true);
+    // #397 widened its condition to (canQuickAssign || canClearUndated); still ONE wrapper.
+    /const wrap = \(content, style, t\) => \(?canQuickAssign\b/.test(CODE) && (CODE.match(/const wrap = \(content, style, t\)/g) || []).length === 1, true);
   ok("...which falls back to a plain cell when not assignable",
     /\) : <div style=\{style\} title=\{t\}>\{content\}<\/div>;/.test(CODE), true);
   ok("...and all three branches go through it",

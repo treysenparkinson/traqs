@@ -14271,6 +14271,10 @@ ${jobsCtx || "No jobs found."}`;
               const hasDates = !!(_ad.start && _ad.end);
               const canReassign = can("reassign") && _leaf;
               const canQuickAssign = canReassign && hasDates;
+              // #397. An op WITH a team and NO dates fell through to plain text: no picker, so
+              // the crew could not be cleared from here at all. Assigning someone else still
+              // needs dates; taking people off does not.
+              const canClearUndated = canReassign && !hasDates && who.length > 0;
               if (canReassign && !hasDates && !who.length) return (
                 <div style={{ ...cellBase }} title="Set a start and end on this operation first — an operation with no dates cannot appear on the schedule.">
                   <span style={{ fontSize: 10.5, color: T.textDim, fontStyle: "italic" }}>Can't assign until dates are set.</span>
@@ -14278,13 +14282,14 @@ ${jobsCtx || "No jobs found."}`;
               );
               const _job = canQuickAssign ? (tasks.find(t => sameId(t.id, jobId)) || null) : null;
               const _panel = canQuickAssign && panelId ? ((_job?.subs) || []).find(p => sameId(p.id, panelId)) || null : null;
-              const wrap = (content, style, t) => canQuickAssign ? (
-                <div style={style} title={t} onClick={e => e.stopPropagation()}>
+              const wrap = (content, style, t) => (canQuickAssign || canClearUndated) ? (
+                <div style={style} title={canClearUndated ? "No dates yet — set a start and end to assign someone else. You can still unassign." : t} onClick={e => e.stopPropagation()}>
                   <SimpleDrop
                     portal
                     value={who.length ? who[0].id : ""}
                     trigger={content}
                     options={() => {
+                      if (canClearUndated) return [{ value: "__clear", label: "Unassign", color: T.textDim }];
                       const rows = assignPickerFor(_ad, _panel, _job).map((r, ri) => r.divider
                         ? { divider: true, label: "Others", value: "__div" + ri }
                         : { value: r.id, label: r.name, sub: r.busy ? `busy — ${r.busyWith.title}` : r.dept, color: r.busy ? T.danger : undefined });
