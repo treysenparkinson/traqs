@@ -9470,7 +9470,7 @@ Extraction rules:
   //
   // ACCEPTED CONSEQUENCE, ruled 2026-10-06: typing a date that overlaps is now
   // REFUSED where it used to succeed silently. A quieter path is the defect.
-  const commitDates = (op, next) => {
+  const commitDates = (op, next, reason = "Date typed on the Jobs list") => {
     const from = { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] };
     const to = { ...from, ...next };
     const movedBy = loggedInUser?.name || "Admin";
@@ -9484,7 +9484,7 @@ Extraction rules:
     const refusal = refuseLanding(plan);
     if (refusal) { showLandingRefusal(refusal); return false; }
     return commitLanding(
-      (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason: "Date typed on the Jobs list", people }), movedBy),
+      (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy, reason, people }), movedBy),
       [String(op.id)], op.title || "");
   };
   // #456. Leaving a drafted row: write the dates typed so far, in ONE save.
@@ -11461,18 +11461,19 @@ ${jobsCtx || "No jobs found."}`;
           if (changed) setTasks(prev => prev.map(t => sameId(t.id, input.job_id) ? { ...t, team: withoutPerson(t.team, input.person_id) } : t));
           break;
         case "update_operation": {
-          const opUpd = {};
-          if (input.status !== undefined)           opUpd.status = input.status;
-          if (input.start !== undefined)            opUpd.start = input.start;
-          if (input.end !== undefined)              opUpd.end = input.end;
-          if (input.assign_person_id !== undefined) opUpd.team = [input.assign_person_id];
-          changed = nodeExists(input.operation_id);
-          if (changed) {
-            const _wasOp = findTaskNode(input.operation_id);
-            const _e = _wasOp && (opUpd.start !== undefined || opUpd.end !== undefined || opUpd.team !== undefined)
-              ? placementEntry(_wasOp, { ..._wasOp, ...opUpd }, { date: TD, movedBy: _aiBy, reason: "Moved by TRAQS AI" })
-              : null;
-            updTask(input.operation_id, _e ? { ...opUpd, moveLog: [...(_wasOp.moveLog || []), _e] } : opUpd, input.panel_id);
+          // #400. The SCHEDULE half (dates, who) goes through commitDates — the refusal chain,
+          // the overlap backstop and the moveLog, like every other path that moves or assigns
+          // (#398: a quieter path is the defect). Status is not a schedule field and stays a patch.
+          const _sched = {};
+          if (input.start !== undefined)            _sched.start = input.start;
+          if (input.end !== undefined)              _sched.end = input.end;
+          if (input.assign_person_id !== undefined) _sched.team = [input.assign_person_id];
+          const _opNode = nodeExists(input.operation_id) ? findTaskNode(input.operation_id) : null;
+          changed = !!_opNode;
+          if (_opNode) {
+            if (input.status !== undefined) updTask(input.operation_id, { status: input.status }, input.panel_id);
+            // A refused move is not reported as applied; the refusal itself is shown by commitDates.
+            if (Object.keys(_sched).length && commitDates(_opNode, _sched, "Moved by TRAQS AI") === false) changed = input.status !== undefined;
           }
           break;
         }

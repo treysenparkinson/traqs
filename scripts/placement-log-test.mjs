@@ -88,8 +88,10 @@ console.log("\n3. THE FOUR WRITERS ARE WIRED");
     /const _runId = uid\(\);/.test(CODE), true);
   ok("2. the AI path logs a job's date change",
     /placementEntry\(_wasJob, \{ \.\.\._wasJob, \.\.\.upd \}, \{ date: TD, movedBy: _aiBy, reason: "Moved by TRAQS AI" \}\)/.test(CODE), true);
+  // Since #400 an operation's move goes through commitDates, which logs it via applyDragMove
+  // under the reason it is given — the same entry, written by the shared commit.
   ok("...and an operation's",
-    /placementEntry\(_wasOp, \{ \.\.\._wasOp, \.\.\.opUpd \}, \{ date: TD, movedBy: _aiBy, reason: "Moved by TRAQS AI" \}\)/.test(CODE), true);
+    /commitDates\(_opNode, _sched, "Moved by TRAQS AI"\)/.test(CODE) && /applyDragMove\(list, plan, \{ date: TD, movedBy, reason, people \}\)/.test(CODE), true);
   ok("3. updTask's cascade logs ONCE, on the parent",
     /placementEntry\(t, updated, \{ date: TD, movedBy: _by, reason: "Moved with its parent" \}\)/.test(CODE), true);
   // ...and only when the caller did not already write one, or a single AI date
