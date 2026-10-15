@@ -16815,17 +16815,8 @@ ${jobsCtx || "No jobs found."}`;
                   // remainder may sit behind the cursor. workedHoursShown above stays op-level
                   // because the bar's LENGTH and its overrun are about the op, not about a row.
                   ownWorkedHours: spansDurationMs(workedSpansPerPerson.get(String(p.id))?.get(String(b.task?.id)) || []) / 3600000,
-                  // THIS ROW'S person, clocked into this op. It used to be anyone from any row,
-                  // which was right while the exemption's job was 'do not drag an op somebody is
-                  // working'. Under the idle-left rule it is wrong: a row shows only its own
-                  // person's work, so a colleague's session puts no worked time on THIS row, and
-                  // exempting the bar from the cursor push left it sitting behind the line with
-                  // nothing but grey in front of it. That is the muted slab, exactly.
-                  //
-                  // It stays a boolean rather than an hours test because at the instant of
-                  // clock-in the hours are still zero and the op would be dragged out from under
-                  // the person working it.
-                  hasActiveSession: !!p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, b.task?.id),
+                  // No hasActiveSession (#67): rowPushHours stopped reading it when the idle-left
+                  // rule made the target the cursor itself (statsMath.js explains why).
                 })),
                 nowDay: shopDay(_nowD.getTime()), nowHour: shopHour(_nowD.getTime()),
                 cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
