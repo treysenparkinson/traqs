@@ -7,8 +7,15 @@
 const target = Date.parse(process.env.CLOCK_SHIFT_TO || "");
 if (Number.isFinite(target)) {
   const RealDate = Date;
-  const offset = target - RealDate.now();
-  const now = () => RealDate.now() + offset;
+  // The REAL clock function, captured once. Reading `RealDate.now` at call time looped forever
+  // under a suite that saves and restores Date.now (timeclock-itest: `const realNow = Date.now;
+  // ... Date.now = realNow;`) — through this proxy the saved value is `now` itself, and the
+  // restore writes it onto the real Date, so `now` then called `now`. Found when
+  // timeclock-itest joined the build (#273): "Maximum call stack size exceeded" at every
+  // shifted clock.
+  const realNow = RealDate.now.bind(RealDate);
+  const offset = target - realNow();
+  const now = () => realNow() + offset;
   globalThis.Date = new Proxy(RealDate, {
     construct: (D, args, newTarget) => Reflect.construct(D, args.length ? args : [now()], newTarget),
     apply: () => new RealDate(now()).toString(),
