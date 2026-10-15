@@ -29,18 +29,13 @@ const wired = new Set([...build.matchAll(/scripts\/([a-zA-Z0-9._-]+\.mjs)/g)].ma
 // A GUARD WITH A NAMING BLIND SPOT IS THE SAME FAILURE IT GUARDS AGAINST, one file along.
 // Matched on the shape a suite actually has — `test` before `.mjs`, with or without a
 // prefix letter — rather than on one exact suffix.
-// NOT YET `-i?test` — AND THE REASON IS THE FINDING (#273, 2026-10-12).
-//
-// The guard matches `-test.mjs`, so `timeclock-itest.mjs` was invisible to it
-// and stayed out of the build. Widening the pattern to `/-i?test\.mjs$/` is one
-// character and it is the right end state; it is held because the suite it
-// catches does not pass yet. Its fixture has been repaired (36 → 43 passing),
-// and the FOUR that remain are one unresolved question about whether the shop's
-// scheduled lunch should be deducted from a MEASURED session on top of that
-// session's own recorded pauses — see #273 in SCHEDULE_MAP. Widening this line
-// before that is settled would either redden the build or invite someone to
-// re-base four assertions onto whatever the code happens to return.
-const suites = readdirSync(new URL("scripts/", ROOT)).filter((f) => /-test\.mjs$/.test(f)).sort();
+// WIDENED 2026-10-15 (#273). The line was held at `-test` because timeclock-itest had four
+// failures that were one open question: should the shop's scheduled lunch come off a MEASURED
+// session on top of its own recorded pauses? #505 (Trey's rule, 2026-10-12) answered it — a
+// measured session drops the scheduled windows and subtracts its recorded pauses once — and
+// the four pass on that code with their assertions untouched since 2026-10-12. So the suite
+// is in the build and this guard sees it.
+const suites = readdirSync(new URL("scripts/", ROOT)).filter((f) => /-i?test\.mjs$/.test(f)).sort();
 
 const missing = suites.filter((f) => !wired.has(f));
 if (missing.length) {
