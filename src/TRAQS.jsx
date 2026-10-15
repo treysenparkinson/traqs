@@ -8699,14 +8699,36 @@ Extraction rules:
 
   // Save orgSettings to server whenever they change (skips initial mount and poll-loaded updates)
   const isFirstOrgSave = useRef(true);
+  // The settings as the server last had them: the value at mount, every load or poll that
+  // arrives with skipNextOrgSave, and every save the server accepted. What a refused change
+  // goes back to (#226).
+  const orgSettingsConfirmedRef = useRef(null);
   useEffect(() => {
-    if (isFirstOrgSave.current) { isFirstOrgSave.current = false; return; }
-    if (skipNextOrgSave.current) { skipNextOrgSave.current = false; return; }
+    if (isFirstOrgSave.current) { isFirstOrgSave.current = false; orgSettingsConfirmedRef.current = orgSettings; return; }
+    if (skipNextOrgSave.current) { skipNextOrgSave.current = false; orgSettingsConfirmedRef.current = orgSettings; return; }
     if (!orgCode) return;
+    // #226. A change from someone without orgSettings was POSTed, refused with a 403 that was
+    // only console.warn'd, and reverted on the next load with nothing said — a member added a
+    // column, watched it appear, and lost it later. Refused here instead, up front, and the
+    // same for a 403 that comes back anyway (a permission changed under an open page): the
+    // confirmed copy goes back on screen and the user is told.
+    const refuse = () => {
+      // The skip is armed only if the state really changes; armed on a no-op it would sit there
+      // and swallow the next genuine save.
+      const conf = orgSettingsConfirmedRef.current;
+      if (conf) setOrgSettings(cur => { if (cur === conf) return cur; skipNextOrgSave.current = true; return conf; });
+      denied("change organization settings");
+    };
+    if (!can("orgSettings")) { refuse(); return; }
+    const sent = orgSettings;
     orgSettingsDirty.current = true;
-    saveOrgSettings(orgSettings, getTokenRef.current, orgCode)
-      .then(() => { orgSettingsDirty.current = false; toast("Organization settings saved", { generic: true }); })
-      .catch(e => { orgSettingsDirty.current = false; console.warn("saveOrgSettings failed:", e); });
+    saveOrgSettings(sent, getTokenRef.current, orgCode)
+      .then(() => { orgSettingsDirty.current = false; orgSettingsConfirmedRef.current = sent; toast("Organization settings saved", { generic: true }); })
+      .catch(e => {
+        orgSettingsDirty.current = false;
+        if (/\b403\b/.test(String(e?.message || ""))) refuse();
+        else console.warn("saveOrgSettings failed:", e);
+      });
   }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Per-account settings sync (appearance + personal view prefs) ────────────
