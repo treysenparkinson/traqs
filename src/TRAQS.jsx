@@ -3038,6 +3038,9 @@ function TimeField({ value, onChange, style = {}, stepMinutes = 15, portal = fal
 // another person appears to do nothing. Compare person ids through these — never
 // with === or Array.includes.
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+// A node's CHILDREN: its subs minus tombstones (#209). A deleted panel or op is not a child of
+// anything — counting it as one suggests it, checks it for overlaps, and rolls it into dates.
+const liveSubs = (n) => (n?.subs || []).filter(o => o && !o.deletedAt);
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 
 // ── Scheduling state of one work item ───────────────────────────────────────
@@ -11576,10 +11579,10 @@ ${jobsCtx || "No jobs found."}`;
     }) };
     // Checked AFTER seeding: the ops as they will be saved, start hours included.
     const opsToCheck = [];
-    (withIds.subs || []).forEach(sub => {
-      if ((sub.subs || []).length > 0) {
+    liveSubs(withIds).forEach(sub => {
+      if (liveSubs(sub).length > 0) {
         // Panel-style: nested ops — check every team member
-        (sub.subs || []).forEach(op => {
+        liveSubs(sub).forEach(op => {
           (op.team || []).forEach(personId => {
             opsToCheck.push({ personId, start: op.start, end: op.end, startHour: op.startHour, endHour: op.endHour, team: op.team, src: op, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
           });
@@ -24250,9 +24253,9 @@ ${jobsCtx || "No jobs found."}`;
           // exactly. Without inference the scheduler ignores departments
           // entirely on a first reschedule and assigns by hours-carried only.
           const _inferDept = (op, panel) => deptOfUnit(op, panel, null);
-          const rawOps = (ed.subs || []).flatMap(panel => {
-            if ((panel.subs || []).length > 0) {
-              return topoSort((panel.subs || []).filter(o => o.title?.trim()))
+          const rawOps = liveSubs(ed).flatMap(panel => {
+            if (liveSubs(panel).length > 0) {
+              return topoSort(liveSubs(panel).filter(o => o.title?.trim()))
                 .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || 0, requiredDepartment: _inferDept(o, panel) }));
             }
             return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || 0, requiredDepartment: _inferDept(panel, null) }] : [];
