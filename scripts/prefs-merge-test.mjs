@@ -63,8 +63,11 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\
 const RAW = read("../src/TRAQS.jsx");
 const CODE = codeOf(RAW);
 
-// The seven that move, and the nineteen that do not.
-const MOVED = ["grouping", "jobSort", "colSort", "gSort", "jobsView", "showCompleted", "adminFilter"];
+// The five that move, and the nineteen that do not. (jobSort and gSort were two more until #320
+// deleted them — no control could set either, so the blob was the only thing that ever did.)
+const MOVED = ["grouping", "colSort", "jobsView", "showCompleted", "adminFilter"];
+// ...and #320's two must NOT come back into the bundle or the read-back.
+for (const k of ["jobSort", "gSort"]) ok(`#320 ${k} is not synced any more`, new RegExp(`\\b${k}\\b`).test(CODE), false);
 const STAY = ["fStat", "fDeptEqTitle", "fPers", "fJobNum", "fRole", "fHpd", "fOverloaded", "sFStat",
   "sFClient", "sFJobNum", "sFPers", "sFRole", "expandedJobs", "groupCollapsed", "pmSectionsCollapsed",
   "detailSecClosed", "fClient", "fCustom", "tCollapsed"];
@@ -203,9 +206,7 @@ console.log("\n5. #431 — the seven move, and only the seven");
   // green, and that mutant survived the first run.
   const GUARDED = {
     grouping: /if \(Array\.isArray\(remote\.grouping\)\) setGrouping\(remote\.grouping\)/,
-    jobSort: /if \(typeof remote\.jobSort === "string"\) setJobSort\(remote\.jobSort\)/,
     colSort: /if \(remote\.colSort && typeof remote\.colSort === "object" && !Array\.isArray\(remote\.colSort\)\) setColSort\(remote\.colSort\)/,
-    gSort: /if \(typeof remote\.gSort === "string"\) setGSort\(remote\.gSort\)/,
     jobsView: /if \(typeof remote\.jobsView === "string"\) setJobsView\(remote\.jobsView\)/,
     showCompleted: /if \(typeof remote\.showCompleted === "boolean"\) setShowCompleted\(remote\.showCompleted\)/,
     adminFilter: /if \(typeof remote\.adminFilter === "string"\) setAdminFilter\(remote\.adminFilter\)/,

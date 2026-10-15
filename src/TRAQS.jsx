@@ -5409,7 +5409,6 @@ Extraction rules:
   const [fHpd, setFHpd] = usePersistedUI("fHpd", "All");    // filter by hours-per-day
   const [fOverloaded, setFOverloaded] = usePersistedUI("fOverloaded", false); // show only tasks with overbooked team
   const [fTimePeriod, setFTimePeriod] = useState(['current', 'future', 'finished']); // time-based visibility
-  const [jobSort, setJobSort] = usePersistedUI("jobSort", "date"); // "date" | "project" | "client"
   const [colSort, setColSort] = usePersistedUI("colSort", { id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
@@ -5610,7 +5609,6 @@ Extraction rules:
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
-  const [gSort, setGSort] = usePersistedUI("gSort", "date"); // date, project, client
   const [ctxMenu, setCtxMenu] = useState(null);
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
   const [quickAddSub, setQuickAddSub] = useState(null); // { type:"panel"|"op", parentId, grandParentId, title, start, end, x, y }
@@ -8780,7 +8778,7 @@ Extraction rules:
     // sent. Leaving it empty made the first save after a failed load a full write of local
     // values over whatever the account held.
     const prefsAtLoad = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
-      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
+      grouping, colSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
     fetchUserSettings(getToken, orgCode)
       .then(remote => {
         if (cancelled || !remote || typeof remote !== "object") return;
@@ -8823,9 +8821,7 @@ Extraction rules:
         // first frame — this read lands after it and is the one that wins, the
         // same arrangement colOrder already has.
         if (Array.isArray(remote.grouping)) setGrouping(remote.grouping);
-        if (typeof remote.jobSort === "string") setJobSort(remote.jobSort);
         if (remote.colSort && typeof remote.colSort === "object" && !Array.isArray(remote.colSort)) setColSort(remote.colSort);
-        if (typeof remote.gSort === "string") setGSort(remote.gSort);
         if (typeof remote.jobsView === "string") setJobsView(remote.jobsView);
         if (typeof remote.showCompleted === "boolean") setShowCompleted(remote.showCompleted);
         if (typeof remote.adminFilter === "string") setAdminFilter(remote.adminFilter);
@@ -8873,7 +8869,7 @@ Extraction rules:
     // filter is a current investigation rather than a preference, and expanded/
     // collapsed id sets mean nothing on a different screen.
     const bundle = { themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
-      grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
+      grouping, colSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab };
     const patch = changedPrefs(bundle, lastSyncedUserSettingsRef.current);
     if (!patch) return; // unchanged since the last write the server accepted
     const t = setTimeout(() => {
@@ -8885,7 +8881,7 @@ Extraction rules:
     }, 900);
     return () => clearTimeout(t);
   }, [themeMode, customTheme, colOrder, colLabels, groupColPref, userPrefs, hiddenCols, colWidths,
-    grouping, jobSort, colSort, gSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+    grouping, colSort, jobsView, showCompleted, adminFilter, tMode, scheduleTeamMode, tsAdminTab, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -13084,8 +13080,6 @@ ${jobsCtx || "No jobs found."}`;
         : x.k.localeCompare(y.k))) || (x.i - y.i));
       return dec.map(d => d.t);
     }
-    if (jobSort === "project") return [...arr].sort((a, b) => String(a.jobNumber || a.title).localeCompare(String(b.jobNumber || b.title), undefined, { numeric: true }));
-    if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }); }
     return [...arr].sort((a, b) => (a.start || "").localeCompare(b.start || ""));
   };
   // The Jobs list and grid already had a dedicated Completed section, so they only need
@@ -15771,9 +15765,8 @@ ${jobsCtx || "No jobs found."}`;
         const ap = a.type === "task" ? 1 : 0, bp = b.type === "task" ? 1 : 0;
         if (ap !== bp) return ap - bp;
         if (!ap) return (a.start || "").localeCompare(b.start || "") || String(a.id).localeCompare(String(b.id));
-        const byKey = gSort === "project" ? String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true })
-          : gSort === "client" ? (a.clientName || "").localeCompare(b.clientName || "") : 0;
-        return byKey || (a.start || "").localeCompare(b.start || "") || String(a.id).localeCompare(String(b.id));
+        // By start, then id (#320: the project/client keys had no control and were removed).
+        return (a.start || "").localeCompare(b.start || "") || String(a.id).localeCompare(String(b.id));
       });
       // ── §3a CROSS-ROW WORK ────────────────────────────────────────────
       // Someone can clock into an op they are not on the team of, and the work is real: it
