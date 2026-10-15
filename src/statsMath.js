@@ -1086,7 +1086,7 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   // however much lunch falls inside the span.
   const atCursor = new Set();
   const out = new Map();
-  const { workStartH = 0, totalWorkH = 1, productiveHoursPerDay = 1, diffBD } = cfg || {};
+  const { workStartH = 0, totalWorkH = 1, productiveHoursPerDay = 1, diffBD, deadWindows } = cfg || {};
   // #66. IN ROW ORDER, held here: the walk below takes the first op as the anchor and pushes each
   // op off the one before it, so unsorted input gives wrong pushes silently. Only the caller used
   // to sort. Same key as that caller (start date, then start hour) and a stable sort, so sorted
@@ -1101,7 +1101,15 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   // reads as the whole day. Uncapped above, 22:00 on an 08:00-16:00 day was 13.1 productive
   // hours — past today's end and into tomorrow — and every evening the cursor pushed
   // tomorrow's untouched work into tomorrow afternoon.
-  const dayFraction = (h) => Math.min(productiveHoursPerDay, Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay));
+  //
+  // #64. ON THE LINE THE PAINT WALKS. Given the day's dead windows, an hour is the productive
+  // time elapsed since work start — lunch and breaks before it subtracted — because the render
+  // spends every push with walkProductiveHours, which steps over them. The clock-linear scaling
+  // below smeared lunch across the whole day instead, so a bar pushed off one spanning lunch
+  // landed up to twenty minutes INSIDE it. Without windows the line is exactly what it was.
+  const dayFraction = deadWindows
+    ? (h) => Math.min(productiveHoursPerDay, productiveClockHours(workStartH, h ?? workStartH, { workStartH, workEndH: workStartH + totalWorkH, deadWindows }))
+    : (h) => Math.min(productiveHoursPerDay, Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay));
   const startProd = (op) => diffBD(anchor, op.start) * productiveHoursPerDay + dayFraction(op.startHour);
   // Now on the same line. Deliberately the SAME formula as startProd rather than a true
   // productive-hours elapsed: two axes that disagree by a lunch break would put the cursor in

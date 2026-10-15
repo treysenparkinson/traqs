@@ -5,6 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
+import { walkProductiveHours, buildDayWindows } from "../src/statsMath.js";
 import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren, isAssignedHere } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
@@ -879,6 +880,34 @@ eq("#65 after hours: today's untouched op slides to the end of today, not into t
   asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 22, cfg: CFG })), { a: 7.5 });
 eq("#65 exactly at work end is still the end of the day",
   asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 16, cfg: CFG })), { a: 7.5 });
+
+// ── #64: a push off a bar that spans lunch lands at that bar's PAINTED end ─────
+// The push placed ops on a clock-linear line — a clock hour scaled by productive/total — while
+// the paint spends the push by walking productive hours, stepping over lunch. The two disagree
+// by however much lunch sits before the hour, so on 07:00-15:30 with lunch 11:30-12:00 an op
+// stored at 13:00 behind a 07:00 six-hour bar (painted 07:00-13:30) was pushed 0.353 h and
+// painted at 13:21: nine minutes INSIDE the bar in front of it. Measured by running the two
+// functions, not inferred. Given the day's dead windows, the line is the same one the paint walks.
+{
+  const dw = buildDayWindows(7, 15.5, [], { time: "11:30", durationMinutes: 30 });
+  const LCFG = { workStartH: 7, totalWorkH: 8.5, productiveHoursPerDay: 8, diffBD, deadWindows: dw.deadWindows };
+  const walk = (h, p) => walkProductiveHours(h, p, dw).endHour;
+  const at = (h) => Math.round(h * 60);
+  for (const [aStart, aHpd, bStart] of [[7, 6, 13], [7, 6, 12.5], [9, 4, 12], [7, 5, 12]]) {
+    const ops = [op("A", "2026-09-14", { startHour: aStart, hpd: aHpd }), op("B", "2026-09-14", { startHour: bStart, hpd: 2 })];
+    const push = rowPushHours({ ops, nowDay: null, cfg: LCFG }).pushes.get("B") || 0;
+    eq(`#64 B stored ${bStart} behind A ${aStart}+${aHpd}h paints at A's painted end, not inside it`,
+      at(walk(bStart, push)), at(walk(aStart, aHpd)));
+  }
+  // The schedule hands rowPushHours the same windows the paint walks (R4: scoped to the call).
+  const SRC = (await import("node:fs")).readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+  const callAt = SRC.indexOf("const _rowPush = rowPushHours({");
+  eq("#64 the schedule passes the day's dead windows to the push",
+    callAt > 0 && /cfg: \{[^}]*deadWindows: dayWindowCfg\.deadWindows \}/.test(SRC.slice(callAt, SRC.indexOf("});", callAt) + 3)), true);
+  // No dead windows given: the line is exactly what it was, so every caller that has none is unchanged.
+  eq("#64 without dead windows the push is unchanged",
+    asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 12, cfg: CFG })), { a: 3.75 });
+}
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk && growRedOk && leafRedOk ? 0 : 1);

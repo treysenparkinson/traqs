@@ -16651,7 +16651,7 @@ ${jobsCtx || "No jobs found."}`;
                   // rule made the target the cursor itself (statsMath.js explains why).
                 })),
                 nowDay: shopDay(_nowD.getTime()), nowHour: shopHour(_nowD.getTime()),
-                cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
+                cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts), deadWindows: dayWindowCfg.deadWindows },
               });
               for (const [_k, _v] of _rowPush.pushes) overrunPushH[_k] = _v;
               // Anchored ops are placed AT the cursor below rather than rebuilt from these
