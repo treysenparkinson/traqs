@@ -39,7 +39,12 @@ const get = async (k) => JSON.parse(await (await s3.send(
 
 const td = await get(`orgs/${ORG}/tasks.json`);
 const pd = await get(`orgs/${ORG}/people.json`);
-const tasks = Array.isArray(td) ? td : (td.tasks || td.records || []);
+// #357 (D6, #356). A TOMBSTONE IS NOT WORK. Every traversal here read deleted jobs, panels and
+// ops as live: on Matrix 49 deleted jobs held 536 dated, teamed, unfinished ops, which inflated
+// the crew's load (the 92% #346 rested on) and could pick a deleted job as "most recent". Guarded
+// once, at the read, and again at each level below.
+const live = (n) => n && !n.deletedAt;
+const tasks = (Array.isArray(td) ? td : (td.tasks || td.records || [])).filter(live);
 const people = Array.isArray(pd) ? pd : (pd.people || pd.records || []);
 const nameOf = (id) => (people.find(p => String(p.id) === String(id)) || {}).name || `#${id}`;
 
@@ -48,7 +53,8 @@ const iso = (d) => d.toISOString().slice(0, 10);
 const isWD = (d) => { const w = d.getUTCDay(); return w !== 0 && w !== 6; };
 const bdays = (a, b) => { if (!a || !b || a > b) return []; const o = []; let d = D(a);
   for (let i = 0; i < 2000 && iso(d) <= b; i++) { if (isWD(d)) o.push(iso(d)); d = new Date(d.getTime() + 864e5); } return o; };
-const dated = (j) => (j.subs || []).flatMap(p => (p.subs || []).length ? p.subs : [p]).filter(o => o.start && o.end);
+const liveSubs = (n) => (n.subs || []).filter(live);
+const dated = (j) => liveSubs(j).flatMap(p => liveSubs(p).length ? liveSubs(p) : [p]).filter(o => o.start && o.end);
 
 // hpd is the op's TOTAL estimated hours, not hours-per-day: pickTeam derives
 // duration as ceil(hpd / productiveHoursPerDay) and divides by team size. Every
@@ -62,7 +68,7 @@ else job = tasks.filter(j => dated(j).length > 1)
 if (!job) { console.log("No job matched."); process.exit(0); }
 
 const panelOf = new Map();
-for (const p of (job.subs || [])) for (const o of (p.subs || [])) panelOf.set(String(o.id), String(p.id));
+for (const p of liveSubs(job)) for (const o of liveSubs(p)) panelOf.set(String(o.id), String(p.id));
 const placed = dated(job).map(o => ({ ...o, team: (o.team || []).map(String) })).filter(o => o.team.length);
 if (!placed.length) { console.log("Nothing assigned — no idle days to attribute."); process.exit(0); }
 
@@ -133,8 +139,8 @@ console.log(`\nTRULY EMPTY days on the drawn row (all jobs): ${empty}   of which
 
 // ── 3. panel chains — what a job-scoped view draws ─────────────────────────
 let chainGap = 0, chains = 0;
-for (const p of (job.subs || [])) {
-  const seq = (p.subs || []).filter(o => o.start && o.end).sort((a, b) => a.start.localeCompare(b.start));
+for (const p of liveSubs(job)) {
+  const seq = liveSubs(p).filter(o => o.start && o.end).sort((a, b) => a.start.localeCompare(b.start));
   if (seq.length < 2) continue;
   chains++;
   for (let i = 1; i < seq.length; i++) chainGap += Math.max(0, bdays(seq[i - 1].end, seq[i].start).length - 2);
