@@ -43,7 +43,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, outsideLabelOffset, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -2491,6 +2491,23 @@ let T = THEMES.light;
 // system → the element's own color; adaptive → theme accent; custom → the chosen color.
 function elColorT(c) { return T.jobBarMode === "adaptive" ? T.accent : T.jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c; }
 
+// The rendered width of a bar's outside label (#116), so it can flip left before it runs off
+// the canvas. One shared canvas, cached per string; 0 where there is no DOM, which keeps the
+// label on the right rather than guessing.
+const _labelPxCache = new Map();
+let _labelCtx = null;
+const outsideLabelTextPx = (text) => {
+  const k = String(text || "");
+  if (_labelPxCache.has(k)) return _labelPxCache.get(k);
+  let w = 0;
+  try {
+    if (!_labelCtx && typeof document !== "undefined") _labelCtx = document.createElement("canvas").getContext("2d");
+    if (_labelCtx) { _labelCtx.font = `700 11px ${T.font}`; w = Math.ceil(_labelCtx.measureText(k).width); }
+  } catch { w = 0; }
+  if (_labelPxCache.size > 2000) _labelPxCache.clear();
+  _labelPxCache.set(k, w);
+  return w;
+};
 const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: T.radiusPill, fontSize: lg ? 13 : 12, fontWeight: 700, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
 // THE secondary button, in one place. Card as the fill, the colour as both the
 // ring and the label -- and the icons inside stroke currentColor, so they follow
@@ -17827,6 +17844,11 @@ ${jobsCtx || "No jobs found."}`;
                     : _walk ? _walk.endHour : workEndH;
                   // Tail widths from the same geometry, now that the end hour is known.
                   const _geoTail = barSegmentsPct({ ..._geoArgs, endHour: _barEndHour, firstWantedPct: _wWanted });
+                  // #116, ruled: a bar whose name NO segment can draw shows it OUTSIDE. The segment
+                  // that would carry it is the head (hidden under 44px) or a tail (labelled only at
+                  // 44px or more), so the name is homeless exactly when that one is too narrow.
+                  const _labelTailPx = _labelSeg > 0 ? ((_geoTail[_labelSeg]?.widthPct ?? 0) / 100) * nDays * cW : 0;
+                  const _labelHomeless = bar.type === "task" && (_labelSeg === 0 ? _hideBarLabel : _labelTailPx < 44);
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (_renderNowMs - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   // Someone is clocked into this operation right now. sameId, not === :
@@ -18113,13 +18135,23 @@ ${jobsCtx || "No jobs found."}`;
                   // rather than one hiding the other.
                   isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now: ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${badgeOffsetPx(_barPx, 10)}px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
                   isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job, added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${badgeOffsetPx(_barPx, isLive ? 23 : 10)}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
-                  isLive && _hideBarLabel && _wFirst > 0 && <span key={barKey + "-livelabel"}
-                    title={bar.task?.level === 2 && bar.task?.panelTitle ? `${bar.task.panelTitle}  ·  ${bar.task.title}` : (bar.task?.title || bar.title)}
-                    style={{ position: "absolute", left: `calc(${x} + ${Math.max(_barPx, badgeOffsetPx(_barPx, 10) + 9) + 8}px)`, top: 4, height: rH - 8,
-                      display: "flex", alignItems: "center", gap: 6, zIndex: 8, pointerEvents: "none",
-                      fontSize: 11, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
-                    {bar.task?.level === 2 && bar.task?.panelTitle ? `${bar.task.panelTitle}  ·  ${bar.task.title}` : (bar.task?.title || bar.title)}
-                  </span>,
+                  // #116, ruled: "the label goes OUTSIDE the bar when it doesn't fit, on the right,
+                  // with the bar's colour as text ... If it would run off the canvas, flip it to the
+                  // left of the bar." Every task bar, not only a live one, which was all this drew.
+                  // The hue is the bar's, stepped by legibleOn until it reads on the row.
+                  ...(() => {
+                    if (!(_labelHomeless && _wFirst > 0)) return [];
+                    const _outText = bar.task?.level === 2 && bar.task?.panelTitle ? `${bar.task.panelTitle}  ·  ${bar.task.title}` : (bar.task?.title || bar.title);
+                    const _outLabel = outsideLabelOffset({ barLeftPx: (_xNum / 100) * nDays * cW, barPx: _barPx,
+                      textPx: outsideLabelTextPx(_outText), canvasPx: nDays * cW,
+                      rightLeadPx: isLive ? badgeOffsetPx(_barPx, 10) + 9 + 2 : 0 });
+                    return [<span key={barKey + "-outlabel"} title={_outText} data-outlabel-side={_outLabel.side}
+                      style={{ position: "absolute", left: `calc(${x} + ${_outLabel.offsetPx}px)`, top: _bLaneTop, height: _bLaneHeight,
+                        display: "flex", alignItems: "center", zIndex: 8, pointerEvents: "none",
+                        fontSize: 11, fontWeight: 700, color: legibleOn(bc, _schedSurf), whiteSpace: "nowrap" }}>
+                      {_outText}
+                    </span>];
+                  })(),
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // This segment's own lane on its own day (#119).

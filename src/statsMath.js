@@ -859,6 +859,15 @@ export function labelSegmentIndex(widthsPx, minPx = 88) {
   for (let i = 1; i < w.length; i++) if (w[i] > w[best]) best = i;
   return best;
 }
+// WHERE A NAME GOES WHEN ITS BAR CANNOT HOLD IT (#116, ruled 2026-10-15). Outside, on the
+// right, past a gap -- and past `rightLeadPx` when something already sits at the bar's corner
+// (the live dot). If that would run past the canvas, the left of the bar instead. Offsets are
+// from the bar's left edge, in px.
+export function outsideLabelOffset({ barLeftPx, barPx, textPx, canvasPx, gapPx = 6, rightLeadPx = 0 }) {
+  const right = Math.max(barPx, rightLeadPx) + gapPx;
+  if (barLeftPx + right + (textPx || 0) <= canvasPx) return { side: "right", offsetPx: right };
+  return { side: "left", offsetPx: -(gapPx + (textPx || 0)) };
+}
 // THE IDLE-LEFT INVARIANT, as a number so it can be asserted instead of argued about.
 //
 // RULE: left of the cursor a bar shows WORKED TIME AND NOTHING ELSE. Time that has passed
