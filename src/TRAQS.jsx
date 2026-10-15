@@ -12826,6 +12826,17 @@ ${jobsCtx || "No jobs found."}`;
       setTEnd(prev => addD(prev, days));
     }
   }, []);
+  // #231. NATIVE, NOT onWheel. React registers wheel listeners as passive, so the preventDefault
+  // above did nothing: a horizontal swipe panned the schedule AND scrolled the page (or, in Chrome
+  // on a Mac, went Back). A stable callback ref adds it with { passive: false } on the element and
+  // still sets teamRef.current for everything else that reads it.
+  const teamScrollElRef = useRef(null);
+  const setTeamScrollEl = useCallback((el) => {
+    if (teamScrollElRef.current) teamScrollElRef.current.removeEventListener("wheel", handleTeamWheel);
+    teamScrollElRef.current = el;
+    teamRef.current = el;
+    if (el) el.addEventListener("wheel", handleTeamWheel, { passive: false });
+  }, [handleTeamWheel]);
 
   // ═══════════════════ GANTT ═══════════════════
 
@@ -16623,7 +16634,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{ width: "100%" }}>
-      <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: "1px solid var(--rv-line)", borderRadius: 18, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={setTeamScrollEl} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: "1px solid var(--rv-line)", borderRadius: 18, background: T.surface, position: "relative", cursor: "grab" }}>
         <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:16px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
