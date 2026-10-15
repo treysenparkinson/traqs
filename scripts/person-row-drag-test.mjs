@@ -1,4 +1,4 @@
-// Dragging a person's row on the schedule — #144, #145.
+// Dragging a person's row on the schedule — #144, #145, #146 (client half).
 //
 // #144: the drop target's id went through `Number(rid)` and was then compared strictly with
 //       `p.id`. Every person created in the app has a string uid(), so the target was never
@@ -6,6 +6,8 @@
 // #145: dropping onto a group (or beside someone in another group) wrote `role`, but the
 //       schedule groups rows by `department` — so the person stayed in the group they started
 //       in, and their role was silently overwritten with a department name.
+// #146: the handle was offered to everyone. Reordering now needs manageTeam on the client;
+//       the server keeps the stored order for anyone without it (people-perms-test).
 //
 //   node scripts/person-row-drag-test.mjs
 
@@ -61,13 +63,16 @@ const PEOPLE = [
   ok("red proof: the old Number() lookup never finds a string-id target", oldDrop(PEOPLE, "a1", { type: "person", id: "c3" }) === PEOPLE);
 }
 
-// ── the render uses it ─────────────────────────────────────────────────────
+// ── the render uses it, and #146: only manageTeam gets the handle ───────────
 const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 const at = S.indexOf("const startRowDrag = (e, personId) => {");
 const handler = S.slice(at, S.indexOf("const updTimeOff =", at)).replace(/^\s*\/\/.*$/gm, "");
 ok("the drop goes through movePersonRow", /movePersonRow\(/.test(handler));
 ok("#144 no Number() on the row id", !/Number\(rid\)/.test(handler));
 ok("#145 the drop writes no role", !/role:\s*(targetPerson|over)/.test(handler));
+ok("#146 the handler refuses without manageTeam", /if \(!canManageTeam\)/.test(handler));
+const handle = S.slice(S.indexOf('<Tip label="Drag to reorder">') - 200, S.indexOf('<Tip label="Drag to reorder">') + 120);
+ok("#146 the drag handle is only rendered for manageTeam", /canManageTeam\s*\?\s*<Tip label="Drag to reorder">/.test(handle));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

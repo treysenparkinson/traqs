@@ -83,6 +83,29 @@ seed(WORKER);
   ok("worker's own safe edit still applies while the omission is ignored", [res.statusCode, globalThis.__S3[KEY].find(p => p.id === 7).name, state(sam())], [200, "Wendy W.", "live"]);
 }
 
+// #146. The roster's ORDER is the schedule's row order, and a full-roster POST wrote it in
+// whatever order the caller sent. Reordering is a team edit: without manageTeam the stored
+// order stands, while the caller's permitted field edits still apply.
+console.log("\n#146. Row order");
+const order = () => globalThis.__S3[KEY].map(p => p.id);
+for (const [who, auth] of [["worker", WORKER], ["admin without manageTeam", RESTRICTED_ADMIN]]) {
+  seed(auth);
+  const r = roster().reverse();
+  const res = await post(r);
+  ok(`#146 ${who} posting the roster reversed: the stored order stands`, [res.statusCode, order()], [200, [1, 2, 7, 8]]);
+}
+seed(WORKER);
+{
+  const r = roster().reverse(); r.find(p => p.id === 7).name = "Wendy W.";
+  const res = await post(r);
+  ok("#146 a worker's own safe edit in a reordered roster still applies, and the order does not", [res.statusCode, globalThis.__S3[KEY].find(p => p.id === 7).name, order()], [200, "Wendy W.", [1, 2, 7, 8]]);
+}
+seed(TEAM_ADMIN);
+{
+  const res = await post(roster().reverse());
+  ok("#146 an admin with manageTeam reorders the roster", [res.statusCode, order()], [200, [8, 7, 2, 1]]);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no assertions ran"); process.exit(2); }
 process.exit(fail === 0 ? 0 : 1);

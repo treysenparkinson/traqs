@@ -346,10 +346,14 @@ export async function handler(event) {
         // anything. (Before root cause 4 it was worse: any member could delete a
         // colleague, or the whole team, by omission.)
         const incomingIds = new Set(merged.map(p => String(p.id)));
-        const safeMerged = [
-          ...(can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(String(p.id)))),
-          ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
-        ];
+        // THE ARRAY'S ORDER IS THE SCHEDULE'S ROW ORDER, and reordering it is a team edit
+        // (#146). For anyone without manageTeam the stored order stands: each stored person
+        // keeps their position and takes the record merged above, which already limits what
+        // that caller could change. They cannot add anyone, so nothing is left over.
+        const mergedById = new Map(merged.map(p => [String(p.id), p]));
+        const safeMerged = can(member, "manageTeam")
+          ? [...merged, ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id)))]
+          : existing.filter(p => p && p.id != null).map(p => mergedById.get(String(p.id)) || p);
         const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
         const stamped = stampArray(reconciled, existing);
         return { value: stamped, reconciled, existing };

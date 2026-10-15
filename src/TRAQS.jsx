@@ -10628,6 +10628,9 @@ Extraction rules:
 
   const startRowDrag = (e, personId) => {
     e.preventDefault(); e.stopPropagation();
+    // Reordering and regrouping the roster is a team edit (#146). The handle is not rendered
+    // without manageTeam; this is the guard if anything else ever calls it.
+    if (!canManageTeam) return;
     setRowDragId(personId);
     document.body.style.cursor = "grabbing";
     const onMove = me => {
@@ -16815,7 +16818,11 @@ ${jobsCtx || "No jobs found."}`;
                 style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", cursor: canEditPerson ? "pointer" : undefined, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
                 <div data-row-pids={bars.map(hoverJobKey).filter(_k => _k != null).join(" ")} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
-                <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
+                {/* Only for manageTeam (#146). Without it the same glyph is kept, invisible and
+                    inert, so every row's avatar and name stay in the same column. */}
+                {canManageTeam
+                  ? <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
+                  : <div aria-hidden="true" style={{ visibility: "hidden", fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none" }}>⠿</div>}
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, display: "flex", alignItems: "center", minWidth: 0, cursor: barSelectMode ? "pointer" : "default" }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{p.name.split(" ")[0]}</span></div>
