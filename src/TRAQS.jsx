@@ -11409,11 +11409,13 @@ ${jobsCtx || "No jobs found."}`;
           // `!==` filter below both compared raw, and they fail in opposite
           // directions: the add put the same human on twice, the remove took
           // nobody off and reported success.
-          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: withPerson(t.team, input.person_id) } : t));
+          // #469. The JOB id comes from the model too, and jobExists matched it loosely —
+          // so the edit must match it the same way, or a number-typed id is "applied" to nothing.
+          if (changed) setTasks(prev => prev.map(t => sameId(t.id, input.job_id) ? { ...t, team: withPerson(t.team, input.person_id) } : t));
           break;
         case "remove_person_from_job":
           changed = jobExists(input.job_id);
-          if (changed) setTasks(prev => prev.map(t => t.id === input.job_id ? { ...t, team: withoutPerson(t.team, input.person_id) } : t));
+          if (changed) setTasks(prev => prev.map(t => sameId(t.id, input.job_id) ? { ...t, team: withoutPerson(t.team, input.person_id) } : t));
           break;
         case "update_operation": {
           const opUpd = {};
