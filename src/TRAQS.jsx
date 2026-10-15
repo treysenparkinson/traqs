@@ -41,7 +41,7 @@ import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LAB
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -6127,7 +6127,7 @@ Extraction rules:
   // day, which is the intended split.
   // Duration of an operation in working days given org's hrs/day
   // Working days one person needs for a unit: their share over the productive day.
-  const opDurBD = op => Math.max(1, Math.ceil(personShareHours(op?.hpd, (op?.team || []).length, productiveHoursPerDay) / productiveHoursPerDay));
+  const opDurBD = op => durationDays(op?.hpd, (op?.team || []).length, productiveHoursPerDay);
   // Job hours/progress helpers — used by both renderTasks and the export modal
   // ?? not ||. An explicit 0 is a real answer -- "nobody has estimated this yet" --
   // and || cannot tell it from a missing field, so a task deliberately created at
@@ -9327,7 +9327,7 @@ Extraction rules:
       // duration. The pre-flight answers "could this land there", which is the
       // question an infeasible report has to be able to answer per op.
       windowOf: (o) => {
-        const days = Math.max(1, Math.ceil((Number(o.hpd) || 0) / Math.max(1, productiveHoursPerDay)));
+        const days = durationDays(Number(o.hpd) || 0, 1, productiveHoursPerDay);   // the window one person would need: the re-plan chooses the crew
         return { start: base, end: sAddBD(base, days - 1), startH: null };
       },
       objective: SCHEDULE_OBJECTIVE,
@@ -10920,7 +10920,7 @@ Extraction rules:
       ? getWorkingDayDuration(it.start, it.end, orgSettings.workDays)
       : 1;
     const daysNeeded = (it.hpd || 0) > 0
-      ? Math.max(1, Math.ceil(it.hpd / productiveHoursPerDay))
+      ? durationDays(it.hpd, 1, productiveHoursPerDay)   // placeTaskAt puts exactly one person on it
       : Math.max(1, spanDays);
     const start = dayStr;
     const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
@@ -10976,7 +10976,8 @@ Extraction rules:
     // Compute true duration from hpd (total hours / productive hours per workday).
     // sub-1-day stays on a single day (partial-width bar via startHour/endHour); multi-day
     // spans the right number of business days so the bar lands at its real length immediately.
-    const daysNeeded = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
+    // #352. Sized for the crew it COMMITS — the merged team below — not for one person.
+    const daysNeeded = durationDays(item.hpd || 0, withPerson(node.team, personId).length, productiveHoursPerDay);
     const start = dayStr;
     const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
     // NO STATUS (#437, ruled 2026-10-07). This used to promote "Not Started" to
@@ -24440,7 +24441,7 @@ ${jobsCtx || "No jobs found."}`;
             // among candidates, the other is deciding whether to choose at all.
             if (reqDepts.length === 0) {
               const s0 = minStart || newStartDate;
-              const d0 = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
+              const d0 = durationDays(totalHours, 1, productiveHoursPerDay);
               return { team: [], start: s0, end: sAddBD(s0, Math.max(0, d0 - 1)), unassigned: true };
             }
             // RETIRED onto the engine (2 of 4). The filter is candidatesFor; the
@@ -24451,7 +24452,7 @@ ${jobsCtx || "No jobs found."}`;
             const eligible = orderByObjective(candidatesFor(op, allCrew),
               { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => loadHoursLocal(id) });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate, outcome: OUTCOME.noCandidates };
-            const singleDur = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
+            const singleDur = durationDays(totalHours, 1, productiveHoursPerDay);
             if (scheduleTeamMode === "one") {
               let tryStart = minStart || newStartDate;
               for (let guard = 0; guard < 300; guard++) {
@@ -24462,7 +24463,7 @@ ${jobsCtx || "No jobs found."}`;
               return { team: [], start: minStart || newStartDate, end: minStart || newStartDate, outcome: OUTCOME.noWindow };
             }
             const teamSize = eligible.length;
-            const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * productiveHoursPerDay)));
+            const durBD = durationDays(totalHours, teamSize, productiveHoursPerDay);
             let tryStart = minStart || newStartDate;
             for (let guard = 0; guard < 300; guard++) {
               const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
@@ -24476,7 +24477,7 @@ ${jobsCtx || "No jobs found."}`;
               const tryS = sAddBD(fallbackStart, g2);
               const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
               const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE, _opH));
-              if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * productiveHoursPerDay))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
+              if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = durationDays(totalHours, sz, productiveHoursPerDay); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
             }
             return { team: [], start: fallbackStart, end: fallbackStart, outcome: OUTCOME.noWindow };
           };
@@ -25145,7 +25146,7 @@ ${jobsCtx || "No jobs found."}`;
                         // had the fewest jobs.
                         if(reqDepts.length===0){
                           const s0=minStart||slot.start;
-                          const d0=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
+                          const d0=durationDays(totalHours,1,productiveHoursPerDay);
                           return {team:[],start:s0,end:sAddBD(s0,Math.max(0,d0-1)),unassigned:true};
                         }
                         // Filter by dept first; if dept is set but no crew matches (e.g. an
@@ -25183,10 +25184,10 @@ ${jobsCtx || "No jobs found."}`;
                         // above. Reported in step 3; never silently dropped.
                         if(eligible.length===0) {
                           const fallback=minStart||slot.start;
-                          const d1=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
+                          const d1=durationDays(totalHours,1,productiveHoursPerDay);
                           return {team:[],start:fallback,end:sAddBD(fallback,Math.max(0,d1-1)),outcome:OUTCOME.noCandidates};
                         }
-                        const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
+                        const singleDur=durationDays(totalHours,1,productiveHoursPerDay);
                         if(scheduleTeamMode==="one") {
                           let tryStart=eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
                           if(minStart && tryStart<minStart) tryStart=minStart;
@@ -31791,7 +31792,8 @@ ${jobsCtx || "No jobs found."}`;
                   e.dataTransfer.setData("application/x-traqs-pending", item.id);
                   // Build a custom drag ghost styled like a schedule bar — colored rectangle,
                   // bold title, length proportional to op duration (hpd / productive hours/day).
-                  const days = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
+                  // One person: the ghost is drawn before there is a row to drop on (#352).
+                  const days = durationDays(item.hpd || 0, 1, productiveHoursPerDay);
                   const cw = teamCWRef.current && teamCWRef.current > 0 ? teamCWRef.current : 60;
                   const ghostW = Math.max(80, Math.min(cw * days - 4, 800));
                   const ghost = document.createElement("div");

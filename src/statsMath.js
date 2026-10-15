@@ -1973,3 +1973,11 @@ export function chipSpanPct({ start, end }, days) {
   const n = days.length;
   return { leftPct: (firstIdx / n) * 100, widthPct: ((lastIdx - firstIdx + 1) / n) * 100 };
 }
+
+// HOW MANY WORKING DAYS AN OP SPANS for a crew of `teamSize` (#352). `hpd` is the WHOLE crew's
+// total (#212), so each person carries personShareHours of it, at `ppd` productive hours a day.
+// Never less than a day; no estimate counts as one day's work. Thirteen sites spelled this
+// three ways with an implicit crew size; they now say which crew they mean.
+export function durationDays(hpd, teamSize, ppd) {
+  return Math.max(1, Math.ceil(personShareHours(hpd, teamSize, ppd) / ppd));
+}
