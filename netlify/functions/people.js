@@ -241,7 +241,8 @@ export async function handler(event) {
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
     const edits = Array.isArray(body?.edits) ? body.edits : null;
     if (!edits) return err(400, "Missing edits");
-    const ALLOWED = new Set(["payType", "pin", "adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule"]);
+    // canClockInOut: #549, the clock-in switch beside the PIN on both settings screens.
+    const ALLOWED = new Set(["payType", "pin", "adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule", "canClockInOut"]);
     try {
       const result = await updateJson(s3Key, (stored) => {
         const existing = Array.isArray(stored) ? stored : [];

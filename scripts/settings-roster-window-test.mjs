@@ -82,7 +82,8 @@ console.log("\n2. THE ROSTER ITSELF IS NOT RESHAPED");
 
 console.log("\n3. THE FIELD LIST IS THE WHOLE OF WHAT IT MAY TOUCH");
 {
-  ok("it is exactly payType and pin", SETTINGS_FIELDS, ["payType", "pin"]);
+  // #549 added canClockInOut: the Time Clock screen's clock-in switch sits beside each PIN.
+  ok("it is exactly payType, pin and canClockInOut", SETTINGS_FIELDS, ["payType", "pin", "canClockInOut"]);
   const draft = CUR().map(p => ({ ...p, name: "HACKED", userRole: "admin", adminPerms: { approveTimeOff: true } }));
   const out = applyRosterEdits(CUR(), draft, SETTINGS_FIELDS);
   ok("a field outside the list is ignored, whatever the draft says", out.map(p => p.name), ["Ann", "Bob", "Cid"]);

@@ -26219,6 +26219,12 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     );
   };
+  // #549: clock-in from the app (pay clock and job clock), beside the PIN so the two are read
+  // together (#443). Opt-out, as the server reads it: absent means allowed. Writes a boolean.
+  const sClockIn = (p, upd) => {
+    const on = p.canClockInOut !== false;
+    return sTog(on, () => upd(p.id, { canClockInOut: !on }));
+  };
   // Time-zone <option>s: US zones first, then every zone the browser knows.
   const SETTINGS_US_TZ = [["America/Denver", "Mountain"], ["America/Phoenix", "Arizona (no DST)"], ["America/Los_Angeles", "Pacific"], ["America/Chicago", "Central"], ["America/New_York", "Eastern"], ["America/Anchorage", "Alaska"], ["Pacific/Honolulu", "Hawaii"]];
   const tzOptions = (cur) => {
@@ -26462,8 +26468,10 @@ ${jobsCtx || "No jobs found."}`;
             <div className="rv-ctl flat"><span>Approval queue access</span>{sTog(person.canSignOff, () => updDraftPerson(person.id, { canSignOff: !person.canSignOff }))}</div>)}
           {sRow("Scheduling", "Auto-scheduling will skip this person.",
             <div className="rv-ctl flat"><span>Exclude from auto-scheduling</span>{sTog(!isAutoSchedulable(person), () => updDraftPerson(person.id, autoScheduleFlags(!isAutoSchedulable(person))), "y")}</div>)}
-          {sRow("Clock-in PIN", "Entered at the shop clock to clock in.",
-            <div className="rv-ctl flat"><span>PIN</span>{sPin(person, updDraftPerson)}</div>)}
+          {sRow("Clock-in", "The PIN is entered at the shop clock. Clocking in from the app is allowed separately.", <>
+            <div className="rv-ctl" style={{ paddingTop: 0 }}><span>PIN</span>{sPin(person, updDraftPerson)}</div>
+            <div className="rv-ctl"><span>Clock in from the app<small>Pay clock and job clock on the phone</small></span>{sClockIn(person, updDraftPerson)}</div>
+          </>)}
         </div>
       );
     }
@@ -26681,7 +26689,7 @@ ${jobsCtx || "No jobs found."}`;
           </>)}
           {_canOrg && sRow("Mobile clock-in", "Allow workers to clock in for pay from the iOS app. If disabled, clock-in on desktop is required for workers.",
             <div className="rv-ctl flat"><span>Allow clock-in from the iOS app</span>{sTog(!!d.iosPayClockEnabled, () => patchDraft(dd => ({ iosPayClockEnabled: !dd.iosPayClockEnabled })))}</div>)}
-          {_canTeam && sRow("Clock-in PINs", "Hourly workers enter these at the shop clock.",
+          {_canTeam && sRow("Clock-in PINs", "Hourly workers enter these at the shop clock. The switch allows clocking in from the app.",
             hourlyN === 0 ? <span className="rv-mute">Nobody is set to hourly.</span> :
             <div className="rv-dlist">
               {byName.filter(isHourly).map(p => (
@@ -26689,6 +26697,8 @@ ${jobsCtx || "No jobs found."}`;
                   <PersonAvatar person={p} size={28} />
                   <span style={{ flex: 1, minWidth: 0, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                   {sPin(p, updDraftPerson)}
+                  <span className="rv-mute" style={{ fontSize: 12, marginLeft: 6 }}>App</span>
+                  {sClockIn(p, updDraftPerson)}
                 </div>
               ))}
             </div>)}

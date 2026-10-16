@@ -34,7 +34,7 @@
 // the available fix, and saying which it is beats implying it is the other.
 
 /** The only fields the Time Clock Settings modal edits. */
-export const SETTINGS_FIELDS = ["payType", "pin"];
+export const SETTINGS_FIELDS = ["payType", "pin", "canClockInOut"];
 
 /**
  * `current` with `fields` taken from `draft`, matched by id.
@@ -103,4 +103,4 @@ export function applyFieldEdits(people, edits) {
 }
 
 /** The fields each settings screen edits on a person — and nothing else is sent for them (#150). */
-export const PERMISSION_FIELDS = ["adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule", "pin"];
+export const PERMISSION_FIELDS = ["adminPerms", "canSignOff", "userRole", "noAutoSchedule", "autoSchedule", "pin", "canClockInOut"];
