@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs `npm run check:push` before a push: the checks too slow for every build that
+# must still pass before anything reaches Netlify (see PUSH_ONLY in scripts/suites.mjs).
+#
+# Install (once per clone; every worktree shares it):
+#   cp scripts/git-hooks/pre-push "$(git rev-parse --git-path hooks)/pre-push"
+#
+# A checkout without `check:push` (an older branch) pushes as before.
+grep -q '"check:push"' package.json 2>/dev/null || exit 0
+echo "pre-push: npm run check:push"
+exec npm run --silent check:push
