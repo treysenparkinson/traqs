@@ -63,7 +63,8 @@ seed(NO_TEAM);
 
 // ── 3. The controls, beside the PIN ────────────────────────────────────────
 console.log("\n3. The toggle sits beside the PIN on both screens");
-const RAW = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+// LF, as every literal below is: on a CRLF checkout "\n  };\n" never matches (#376).
+const RAW = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const between = (from, to) => {
   const a = RAW.indexOf(from), b = RAW.indexOf(to, a + 1);
   if (a < 0 || b < 0 || RAW.indexOf(from, a + 1) >= 0) { console.error(`anchor not unique: ${from}`); process.exit(2); }

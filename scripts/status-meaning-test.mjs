@@ -17,6 +17,7 @@
 //   node scripts/status-meaning-test.mjs
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as M from "../src/statusMeaning.js";
 import { statusLiteralViolations } from "../src/statusText.js";
 // #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
@@ -88,7 +89,8 @@ console.log("\n4. The callers use it");
   // list into another's request. Only the explicit forms may appear under netlify/.
   const files = [];
   const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (f.endsWith(".js")) files.push(p); } };
-  walk(new URL("../netlify/functions", import.meta.url).pathname);
+  // fileURLToPath, not .pathname: on Windows that is "/C:/..." and readdirSync makes it C:\C:\ .
+  walk(fileURLToPath(new URL("../netlify/functions", import.meta.url)));
   ok("no server file uses the page-level forms",
     files.filter(f => /\b(setOrgStatuses|isFinished|isActive|FINISHED|ACTIVE)\(/.test(readFileSync(f, "utf8").replace(/\/\/.*$/gm, ""))).map(f => f.split("/").pop()), []);
 }

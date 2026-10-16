@@ -16,7 +16,8 @@ const ok = (label, got, want) => {
   good ? pass++ : fail++;
 };
 // Code only: a comment may quote the old literal while explaining it (R2).
-const code = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8")
+// LF first: on a CRLF checkout the trailing \r stops `//.*$` matching, so no comment is stripped (#376).
+const code = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n")
   .split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
 
 ok("the default itself is 12:00 for 30 minutes", { ...DEFAULT_ORG_SETTINGS.lunch }, { time: "12:00", durationMinutes: 30 });
