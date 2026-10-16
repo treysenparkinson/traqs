@@ -415,12 +415,7 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
     const key = day + "|" + h;
     if (key === lastKey) return last?.preview ?? null;
     lastKey = key;
-    const share = resizeShare({ side, paintedStart, paintedEnd, day, hour: h, cfg: fullCfg });
-    const from = side === "left" ? { day, hour: h } : paintedStart;
-    const plan = planDragMove({
-      grabbed: { id: node.id, node, fromDay: from.day, fromHour: from.hour, shareH: share, hpd: Math.round(share * Math.max(1, teamSize) * 100) / 100 },
-      drop: from, origPerson, dropPerson: origPerson, cfg, cal, workStartH, workEndH,
-    });
+    const { plan, share } = planResize({ side, node, teamSize, paintedStart, paintedEnd, day, hour: h, cfg, fullCfg, cal, workStartH, workEndH, origPerson });
     const refusal = refuse(plan);
     const t = plan[0].to;
     const preview = { start: t.start, startHour: t.startHour, end: t.end, endHour: t.endHour, share, hpd: t.hpd, edge: { day, hour: h }, refused: !!refusal };
@@ -446,63 +441,22 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
 }
 
 /**
- * What a committed resize did, in words (#550): "Resized <op> (<who>): 16h → 24h, ends Wed
- * instead of Tue". A resize used to save without a word, so an accidental one went unnoticed.
- *
- * Hours are the op's hpd — the TEAM's total, as the estimate is. The edge named is the one that
- * was dragged (`side`), not whichever field differs: a bar drawn pushed (a cursor push, an
- * overrun) lands at its painted start, which would read as a start that moved. The day is named
- * when it changed, else the hour. Null for a plan that is not a resize (no hpd written).
+ * One resize landing (#550): the edge at (day, hour), the other edge fixed where the bar is drawn.
+ * The session's mouse moves and the confirm modal's typed edits both land through this, so what
+ * the modal confirms is exactly what a drag to that spot would have written. Null when the edge
+ * would cross (or touch) the fixed one.
  */
-export function resizeNotice(plan, { side, who = "", fmtDay, fmtHour }) {
-  const m = plan?.[0];
-  if (!m || m.to?.hpd == null) return null;
-  const f = m.from, t = m.to;
-  const r1 = (h) => Math.round((h || 0) * 10) / 10;
-  const edge = (word, fd, td, fh, th) =>
-    fd !== td ? `, ${word} ${fmtDay(td)} instead of ${fmtDay(fd)}`
-      : fh != null && th != null && fh !== th ? `, ${word} ${fmtHour(th)} instead of ${fmtHour(fh)}` : "";
-  const moved = side === "left" ? edge("starts", f.start, t.start, f.startHour, t.startHour) : edge("ends", f.end, t.end, f.endHour, t.endHour);
-  // No stored estimate before: say what it is now rather than "0h →", which reads as "had none".
-  const hours = f.hpd == null ? `set to ${r1(t.hpd)}h` : `${r1(f.hpd)}h → ${r1(t.hpd)}h`;
-  return { id: m.id, text: `Resized ${m.node?.title || "Untitled"}${who ? ` (${who})` : ""}: ${hours}${moved}` };
-}
-
-/**
- * The notice's Undo (#550): the resize's own plan run backwards, or null when it can't be undone
- * cleanly. Only while the unit STILL looks exactly as the resize left it (dates, hours and hpd).
- * Moved, re-estimated or deleted since, there is no Undo: putting back the old values would wipe
- * out the later edit, which is worse than the accident. Nothing else in the tree is touched, so
- * a sibling's or another user's edit in the meantime survives (the global undo stack would
- * restore the whole schedule over it).
- *
- * Feed the result to applyDragMove with reason "Resize undone": history stays append-only.
- */
-export function undoResizePlan(tasks, plan) {
-  const m = plan?.[0];
-  if (!m || m.to?.hpd == null || m.from?.hpd == null) return null;
-  // Deletes are soft (deletedAt), so a deleted unit is still in the tree: it, or a deleted
-  // panel/job above it, counts as gone.
-  let node = null;
-  for (const j of tasks || []) {
-    if (same(j.id, m.id)) { node = j; break; }
-    for (const p of j.subs || []) {
-      if (same(p.id, m.id)) { node = j.deletedAt ? { deletedAt: j.deletedAt } : p; break; }
-      const o = (p.subs || []).find(x => same(x.id, m.id));
-      if (o) { node = j.deletedAt || p.deletedAt ? { deletedAt: j.deletedAt || p.deletedAt } : o; break; }
-    }
-    if (node) break;
-  }
-  if (!node || node.deletedAt) return null;
-  const t = m.to;
-  const stillAsResized = node.start === t.start && node.end === t.end
-    && (node.startHour ?? null) === (t.startHour ?? null) && (node.endHour ?? null) === (t.endHour ?? null)
-    && (node.hpd ?? null) === t.hpd;
-  if (!stillAsResized) return null;
-  // shareH is the OLD per-person share (resizeSession wrote hpd = share × team), because the
-  // overlap rule measures a landing by it: the resize's own shareH would check the shorter bar.
-  const shareH = m.from.hpd / Math.max(1, (node.team || []).length);
-  return [{ ...m, node, shareH, from: { ...t, team: node.team || [] }, to: { ...m.from, team: node.team || [] }, reassigned: false }];
+export function planResize({ side, node, teamSize = 1, paintedStart, paintedEnd, day, hour, cfg, fullCfg, cal, workStartH, workEndH, origPerson, isRecord = false }) {
+  if (side === "left") {
+    if (day > paintedEnd.day || (day === paintedEnd.day && hour >= paintedEnd.hour - 0.25)) return null;
+  } else if (day < paintedStart.day || (day === paintedStart.day && hour <= paintedStart.hour + 0.25)) return null;
+  const share = resizeShare({ side, paintedStart, paintedEnd, day, hour, cfg: fullCfg });
+  const from = side === "left" ? { day, hour } : paintedStart;
+  const plan = planDragMove({
+    grabbed: { id: node.id, node, fromDay: from.day, fromHour: from.hour, shareH: share, hpd: Math.round(share * Math.max(1, teamSize) * 100) / 100, isRecord },
+    drop: from, origPerson, dropPerson: origPerson, cfg, cal, workStartH, workEndH,
+  });
+  return { plan, share };
 }
 
 /**

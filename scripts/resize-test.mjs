@@ -42,11 +42,14 @@ const octx = overlapContext(settings, "2026-09-30");
 console.log("1. #31 #32 — one resize drag: ONE write, ONE undo snapshot, ONE save, nothing mid-drag");
 // The real undo-recording wrapper, sliced: every setTasks that changes state pushes one deep copy.
 const wrapperSrc = (() => { const a = CUR.indexOf("const setTasks = useCallback((updater) => {"); const s = CUR.indexOf("(updater) =>", a); let i = CUR.indexOf("{", s), d = 0; for (; i < CUR.length; i++) { if (CUR[i] === "{") d++; else if (CUR[i] === "}" && --d === 0) break; } return CUR.slice(s, i + 1); })();
-const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {}, escape = false }) => {
+// #550: a release opens the confirm modal (setResizeConfirm) instead of writing. `confirm` plays
+// the user's answer: true confirms the landing as dropped (or `editTo`, typed in the modal),
+// false cancels. The modal's own replan / apply are the handler's, so this drives the real path.
+const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {}, escape = false, confirm = true, editTo = null }) => {
   let state = tasks0;
   const undoStack = { current: [] }, redoStack = { current: [] }, skipHistory = { current: false }, latestTasksRef = { current: null };
   let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false, lastPreview;
-  const notes = [];
+  const confirms = [];
   const _setTasks = (fn) => { const next = fn(state); if (next !== state) writes++; if (!released) writesBeforeRelease = writes; state = next; };
   // #338. The wrapper now pushes a STRIPPED snapshot — content without
   // lastModifiedAt — so an undo cannot replay stale stamps into a save. Supplied
@@ -69,7 +72,15 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
     setResizePreview: (pv) => { previews++; lastPreview = pv; }, setResizeTooltip: () => {}, setConfirmMove: () => { refusedShown++; },
     recalcBounds: (t) => t, enforceNoOverlap: (t) => ({ tasks: t, moved: [], refused: [] }),
     setTasks, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(), TD: "2026-09-30",
-    noteResize: (...a) => { notes.push(a); },
+    planResize: D.planResize, latestTasksRef,
+    setResizeConfirm: (rc) => {
+      confirms.push(rc);
+      rc.answer = (editTo ? rc.replan(editTo.day, editTo.hour) : rc.replan(rc.edge.day, rc.edge.hour));
+      rc.preview(rc.answer.plan ? rc.answer : null);
+      rc.previewDuring = lastPreview;
+      rc.preview(null);
+      if (confirm && rc.answer.plan && !rc.answer.refusal && !rc.answer.error) rc.apply(rc.answer.plan);
+    },
     days, isWorkDay: (d) => cal.isWorkDay(d), cW: 100,
     // Removal is real (#550): after Esc the mouseup must reach nothing.
     document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
@@ -94,7 +105,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   const previewAfterEsc = lastPreview;
   released = true;
   listeners.mouseup?.(ev(moves[moves.length - 1]));
-  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown, escStopped, left: Object.keys(listeners), previewAfterEsc, notes };
+  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown, escStopped, left: Object.keys(listeners), previewAfterEsc, confirms };
 };
 // A: Mon 08:00, 4 h (08–12). B: Mon 13:00, 3 h (13–16). Same person, same phase.
 const A = { id: "A", title: "A", start: "2026-10-05", end: "2026-10-05", startHour: 8, endHour: 12, hpd: 4, team: ["w"] };
@@ -106,7 +117,11 @@ check("nothing is written while the mouse moves", () => eq(run.writesBeforeRelea
 check("ONE write for the whole drag", () => eq(run.writes, 1));
 check("ONE undo snapshot — one undo reverts it", () => eq(run.snapshots, 1));
 check("ONE save", () => eq(run.saves, 1));
-check("#550: ONE notice, for that plan, naming the row's person and the side", () => eq([run.notes.length, run.notes[0]?.[0]?.[0]?.id, run.notes[0]?.[1], run.notes[0]?.[2]], [1, "A", "right", "Wes"]));
+check("#550: the release opens ONE confirm, naming the op, the row's person and the side", () => eq([run.confirms.length, run.confirms[0]?.title, run.confirms[0]?.who, run.confirms[0]?.side], [1, "A", "Wes", "right"]));
+check("…showing BEFORE as the bar was drawn: Mon 08–12, 4 h", () => eq(run.confirms[0]?.before, { start: "2026-10-05", startHour: 8, end: "2026-10-05", endHour: 12, hpd: 4 }));
+check("…and the edge where it was dropped: Mon 11:00", () => eq(run.confirms[0]?.edge, { day: "2026-10-05", hour: 11 }));
+check("…AFTER (the replan at that edge) is what gets written: 3 h, ends 11:00", () => eq([run.confirms[0]?.answer.to.end, run.confirms[0]?.answer.to.endHour, run.confirms[0]?.answer.to.hpd], ["2026-10-05", 11, 3]));
+check("…and the bar behind the modal previews that landing", () => eq([run.confirms[0]?.previewDuring?.barId, run.confirms[0]?.previewDuring?.endHour], ["bar-A", 11]));
 check("the bar was previewed on every step instead", () => (run.previews >= 5 ? true : run.previews));
 const Aw = run.state[0].subs[0].subs.find(o => o.id === "A"), Bw = run.state[0].subs[0].subs.find(o => o.id === "B");
 check("the resize landed: A ends 11:00 with 3 h", () => eq([Aw?.end, Aw?.endHour, Aw?.hpd], ["2026-10-05", 11, 3]));
@@ -121,17 +136,38 @@ console.log("1b. #550 — Esc mid-resize writes nothing (week/month)");
   check("Esc is kept from anything else listening (a modal, a selection)", () => eq(r.escStopped, true));
   check("the bar stops drawing the preview the moment Esc lands", () => eq(r.previewAfterEsc, null));
   check("every listener the resize added is gone", () => eq(r.left, []));
-  check("no notice: nothing was resized", () => eq(r.notes.length, 0));
+  check("no confirm: nothing to confirm", () => eq(r.confirms.length, 0));
   const plain = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B) });
-  check("…and without Esc the same drag still writes once", () => eq([plain.writes, plain.saves], [1, 1]));
+  check("…and without Esc the same drag, confirmed, writes once", () => eq([plain.writes, plain.saves], [1, 1]));
+}
+
+console.log("1d. #550 — Cancel in the confirm writes nothing; an edited time is what gets written");
+{
+  const no = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), confirm: false });
+  check("Cancel: no write, no undo frame, no save", () => eq([no.confirms.length, no.writes, no.snapshots, no.saves], [1, 0, 0, 0]));
+  check("…A keeps 08–12 / 4 h", () => { const a = no.state[0].subs[0].subs.find(o => o.id === "A"); return eq([a.endHour, a.hpd], [12, 4]); });
+  // Dropped at 11:00, then the end typed as 10:30 in the modal.
+  const ed = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), editTo: { day: "2026-10-05", hour: 10.5 } });
+  const a = ed.state[0].subs[0].subs.find(o => o.id === "A");
+  check("edited end 10:30: written as 10:30 / 2.5 h, once", () => eq([ed.writes, ed.saves, a.endHour, a.hpd], [1, 1, 10.5, 2.5]));
+  // Typed onto another day: Tue 12:00 — all of Mon 08–17 (8 h after lunch) + Tue 08–12 (4 h) = 12 h.
+  const tue = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A), editTo: { day: "2026-10-06", hour: 12 } });
+  const t = tue.state[0].subs[0].subs.find(o => o.id === "A");
+  check("edited onto Tue 12:00: ends Tue, 12 h", () => eq([t.end, t.endHour, t.hpd], ["2026-10-06", 12, 12]));
+  // Typed into B (13:00–16:00): the rules refuse it in the modal, so it can't be confirmed.
+  const into = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), editTo: { day: "2026-10-05", hour: 15 } });
+  check("edited into someone's work: the modal shows the refusal, nothing written", () => eq([!!into.confirms[0].answer.refusal, into.writes], [true, 0]));
+  // Typed before the fixed start: no landing at all.
+  const back = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), editTo: { day: "2026-10-05", hour: 8 } });
+  check("edited end at or before the start: an error, no plan, nothing written", () => eq([!!back.confirms[0].answer.error, back.confirms[0].answer.plan, back.writes], [true, undefined, 0]));
 }
 
 console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real handleTeamDayBarDrag)");
 {
-  const dayRun = ({ mode = "right", from, moves, escape = false }) => {
+  const dayRun = ({ mode = "right", from, moves, escape = false, confirm = true, editTo = null }) => {
     let state = tree(A);
     let writes = 0, saves = 0, escStopped = false;
-    const listeners = {}, notes = [];
+    const listeners = {}, confirms = [];
     const scope = {
       can: () => true, isDraggingRef: { current: true }, openJobDetailOrEdit: () => {}, denied: () => {}, PERM_VERB: {},
       dayGrid: { HS: 8, HE: 17, NH: 9 }, tStart: "2026-10-05", isWorkDay: (d) => cal.isWorkDay(d), orgSettings: settings,
@@ -144,7 +180,12 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
       setDayDragInfo: () => {}, setTeamDayGhost: () => {}, setDayDragTarget: () => {}, setConfirmMove: () => {},
       loggedInUser: { name: "T" }, recalcBounds: (t) => t, TD: "2026-09-30", enforceNoOverlap: () => ({ moved: [], refused: [] }),
       setTasks: (fn) => { const n = fn(state); if (n !== state) writes++; state = n; }, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(),
-      noteResize: (...a) => { notes.push(a); },
+      planResize: D.planResize, latestTasksRef: { current: null },
+      setResizeConfirm: (rc) => {
+        confirms.push(rc);
+        rc.answer = editTo ? rc.replan(editTo.day, editTo.hour) : rc.replan(rc.edge.day, rc.edge.hour);
+        if (confirm && rc.answer.plan && !rc.answer.refusal && !rc.answer.error) rc.apply(rc.answer.plan);
+      },
       document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
     };
     const proxy = new Proxy(scope, { has: () => true, get: (t, k) => (k === Symbol.unscopables ? undefined : (k in t ? t[k] : globalThis[k])) });
@@ -156,7 +197,7 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
     for (const x of moves) listeners.mousemove?.(ev(x));
     if (escape) listeners.keydown?.({ key: "Escape", preventDefault() {}, stopPropagation() { escStopped = true; } });
     listeners.mouseup?.(ev(moves[moves.length - 1]));
-    return { writes, saves, escStopped, left: Object.keys(listeners), a: state[0].subs[0].subs[0], notes };
+    return { writes, saves, escStopped, left: Object.keys(listeners), a: state[0].subs[0].subs[0], confirms };
   };
   // Right edge 12:00 → 11:00 (x = (hour − 8) × 100).
   const plain = dayRun({ from: 400, moves: [350, 300] });
@@ -165,11 +206,30 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
   check("with Esc: no write, no save, A keeps 4 h", () => eq([esc.writes, esc.saves, esc.a.hpd], [0, 0, 4]));
   check("Esc is kept from anything else listening", () => eq(esc.escStopped, true));
   check("every listener the resize added is gone", () => eq(esc.left, []));
-  check("the committed day resize raises ONE notice, side and person named", () => eq([plain.notes.length, plain.notes[0]?.[1], plain.notes[0]?.[2]], [1, "right", "Wes"]));
-  check("Esc: no notice", () => eq(esc.notes.length, 0));
+  check("the day resize opens ONE confirm, side and person named, edge as dropped", () => eq([plain.confirms.length, plain.confirms[0]?.side, plain.confirms[0]?.who, plain.confirms[0]?.edge], [1, "right", "Wes", { day: "2026-10-05", hour: 11 }]));
+  check("Esc: no confirm", () => eq(esc.confirms.length, 0));
+  const no = dayRun({ from: 400, moves: [350, 300], confirm: false });
+  check("day view, Cancel: no write, no save, A keeps 4 h", () => eq([no.writes, no.saves, no.a.hpd], [0, 0, 4]));
+  const ed = dayRun({ from: 400, moves: [350, 300], editTo: { day: "2026-10-05", hour: 10 } });
+  check("day view, end edited to 10:00: written as 2 h", () => eq([ed.writes, ed.a.endHour, ed.a.hpd], [1, 10, 2]));
   const mv = dayRun({ mode: "move", from: 200, moves: [250, 300] });
-  check("a committed MOVE raises no resize notice", () => eq([mv.writes, mv.notes.length], [1, 0]));
+  check("a MOVE writes straight away, with no confirm (moving is unchanged)", () => eq([mv.writes, mv.confirms.length], [1, 0]));
   check("a MOVE adds no Esc handler (moving is unchanged)", () => eq(mv.left.includes("keydown"), false));
+}
+
+console.log("1e. #550 — the confirm modal itself (ResizeConfirm)");
+{
+  const RC = WEB.replace(/\r\n/g, "\n");
+  const body = RC.slice(RC.indexOf("function ResizeConfirm({ rc, onClose }) {"), RC.indexOf("\nfunction AvailModal("));
+  check("it is rendered from the app's resizeConfirm state", () => eq(RC.split("{resizeConfirm && <ResizeConfirm key={resizeConfirm.key} rc={resizeConfirm} onClose={() => setResizeConfirm(null)} />}").length - 1, 1));
+  check("Confirm is disabled unless the landing has a plan, no error and no refusal", () => /const canConfirm = !!r\.plan && !r\.error && !r\.refusal;/.test(body) && /disabled=\{!canConfirm\}/.test(body));
+  check("only Confirm applies; Cancel, Esc and the backdrop close without writing", () =>
+    /const close = \(ok\) => \{ rc\.preview\(null\); if \(ok && canConfirm\) rc\.apply\(r\.plan\); onClose\(\); \};/.test(body)
+    && (body.match(/close\(false\)/g) || []).length === 2 && /closeRef\.current\(false\)/.test(body) && (body.match(/close\(true\)/g) || []).length === 1);
+  check("every edit re-lands through the handler's replan", () => /return rc\.replan\(edge\.day, edge\.hour\);/.test(body));
+  check("non-work days and out-of-hours times are caught before replanning", () => /rc\.isWorkDay\(edge\.day\)/.test(body) && /edge\.hour < rc\.workStartH \|\| edge\.hour > rc\.workEndH/.test(body));
+  check("before / after rows for start, end and hours; the dragged edge is the editable one", () =>
+    /row\("Starts".*rc\.side === "left" \? editor : null\)/.test(body) && /row\("Ends".*rc\.side === "right" \? editor : null\)/.test(body) && /row\("Hours"/.test(body));
 }
 
 console.log("2. ruling 1 — a resize that grows into someone's work is refused, and writes nothing");
@@ -177,7 +237,7 @@ console.log("2. ruling 1 — a resize that grows into someone's work is refused,
   const r = harness({ node: A, moves: [45, 60, 75], tasks0: tree(A, B) });   // to 13:30, 14:00, 15:00 — into B
   check("refused, with a message", () => eq(r.refusedShown, 1));
   check("…and nothing was written", () => eq([r.writes, r.snapshots, r.saves], [0, 0, 0]));
-  check("…and no resize notice (#550)", () => eq(r.notes.length, 0));
+  check("…and no confirm: a refused drop has nothing to confirm (#550)", () => eq(r.confirms.length, 0));
 }
 
 console.log("3. #33 — a week-view resize changes the bar's length (whole days)");

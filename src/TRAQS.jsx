@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx, resizeNotice, undoResizePlan } from "./dragMove.js";
+import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx, planResize } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -7899,54 +7899,10 @@ Extraction rules:
     setEditToast({ msg, key });
     setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
   }, []);
-  // #550. A committed resize says what it did: an accidental one used to save silently. Its own
-  // notice rather than a toast, because it stays long enough to read and (step 4) to act on.
-  // Bottom centre, so it never sits on a toast. A new one replaces the last; hovering holds it.
-  const [resizeNote, setResizeNote] = useState(null);   // { key, id, text, plan, side }
-  const resizeNoteTimer = useRef(null);
-  const holdResizeNote = useCallback((ms) => {
-    clearTimeout(resizeNoteTimer.current);
-    if (ms) resizeNoteTimer.current = setTimeout(() => setResizeNote(null), ms);
-  }, []);
-  const noteResize = useCallback((plan, side, who) => {
-    const fmtDay = (d) => new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" });
-    const fmtHour = (h) => { const H = Math.floor(h), M = Math.round((h - H) * 60); return `${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`; };
-    const n = resizeNotice(plan, { side, who, fmtDay, fmtHour });
-    if (!n) return;
-    setResizeNote({ ...n, key: `${Date.now()}-${Math.random()}`, plan, side });
-    holdResizeNote(6000);
-  }, [holdResizeNote]);
-  // The notice's Undo: that resize only, and only while the op still looks as it left it
-  // (undoResizePlan). Anything since — a move, a new estimate, another user's edit to it — and
-  // the button is gone, because restoring would wipe that out. Same right as the resize (C4).
-  const _noteUndoPlan = useMemo(() => (resizeNote ? undoResizePlan(tasks, resizeNote.plan) : null), [resizeNote, tasks]);
-  const _noteUndo = _noteUndoPlan && can("moveJobs");
-  const undoResizeNote = () => {
-    const note = resizeNote;
-    if (!note) return;
-    if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
-    holdResizeNote(0); setResizeNote(null);
-    // Checked, built and written against ONE value — the latest tasks the setTasks wrapper holds —
-    // so the toast at the end says what was actually written.
-    const cur = latestTasksRef.current || tasks;
-    const rev = undoResizePlan(cur, note.plan);
-    if (!rev) { toast("That changed since, so there's nothing to undo"); return; }
-    // The resize's own refusals and backstop. Putting the old length back can now land on work,
-    // leave or a live clock that wasn't there when the resize was made.
-    const refusal = refuseDragMove(rev, {
-      isLocked: () => false, isLive: n => blockedByActiveClock(jobIdOfNode(n.id), n.id), isOverdue: () => false,
-      timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
-      nowDay: shopDay(), nowHour: shopHour(), business: billingTier === "business", tasks: cur, overlapCtx, people,
-    });
-    if (refusal) { toast(`Can't undo: ${refusalMessage(refusal)}`); return; }
-    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-    const next = recalcBounds(applyDragMove(cur, rev, { date: TD, movedBy: movedByName, people, reason: "Resize undone" }), movedByName);
-    const { moved: _bumped, refused: _stuck } = enforceNoOverlap(next, rev.map(m => m.id));
-    if (_bumped.length || _stuck.length) { toast(`Can't undo: ${refusalMessage({ kind: "overlap", title: rev[0].node?.title || "", other: null })}`); return; }
-    setTasks(next);
-    setTimeout(() => doSaveRef.current(), 0);
-    toast("Resize undone");
-  };
+  // #550. A resize no longer saves on release. It opens ResizeConfirm: the op's start, end and
+  // hours before and after, with the moved edge editable. Confirm writes it; Cancel or Esc
+  // writes nothing. Set by both resize handlers, which supply replan / preview / apply.
+  const [resizeConfirm, setResizeConfirm] = useState(null);
   // A refused action says so. A missing control reads as a bug; a message reads as a policy.
   const denied = (action) => toast(`You don't have permission to ${action}.`);
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
@@ -15868,17 +15824,35 @@ ${jobsCtx || "No jobs found."}`;
           return;
         }
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, people, ...(mode === "move" ? {} : { reason: "Resized in schedule" }) }), movedByName);
-        // Backstop, as week/month: if the no-overlap guard would move anything, refuse instead.
-        const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
-        if (_bumped.length || _stuck.length) {
-          console.warn("[schedule-day-drag] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
-          setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't move here", message: refusalMessage({ kind: "overlap", title: barTask.title || "", other: null }), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-          return;
-        }
-        setTasks(prev => build(prev));
-        setTimeout(() => doSaveRef.current(), 0);
-        if (mode !== "move") noteResize(plan, mode, people.find(x => sameId(x.id, fromPersonId))?.name);
+        const apply = (pl) => {
+          const build = (list) => recalcBounds(applyDragMove(list, pl, { date: TD, movedBy: movedByName, people, ...(mode === "move" ? {} : { reason: "Resized in schedule" }) }), movedByName);
+          // Backstop, as week/month: if the no-overlap guard would move anything, refuse instead.
+          const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(latestTasksRef.current || tasks), pl.map(m => m.id));
+          if (_bumped.length || _stuck.length) {
+            console.warn("[schedule-day-drag] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't move here", message: refusalMessage({ kind: "overlap", title: barTask.title || "", other: null }), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+            return;
+          }
+          setTasks(prev => build(prev));
+          setTimeout(() => doSaveRef.current(), 0);
+        };
+        if (mode === "move") { apply(plan); return; }
+        // #550: a resize asks first, with its edge editable (ResizeConfirm), as week/month.
+        const t0 = plan[0].to;
+        setResizeConfirm({
+          key: `${barTask.id}-${++resizeConfirmSeq}`, title: barTask.title || "", who: people.find(x => sameId(x.id, fromPersonId))?.name || "", side: mode,
+          before: { start: paintedStart.day, startHour: paintedStart.hour, end: paintedEnd.day, endHour: paintedEnd.hour, hpd: barTask.hpd ?? null },
+          edge: mode === "left" ? { day: t0.start, hour: t0.startHour } : { day: t0.end, hour: t0.endHour },
+          workStartH, workEndH, isWorkDay: d => _dayIsWork(d),
+          replan: (d, hour) => {
+            const r = planResize({ side: mode, node: barTask, teamSize: _teamSize, paintedStart, paintedEnd, day: d, hour, cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: _cal, workStartH, workEndH, origPerson: fromPersonId, isRecord: !!meta.isRecord });
+            if (!r) return { error: mode === "left" ? "The start has to stay before the end." : "The end has to stay after the start." };
+            const refusal = _refuse(r.plan);
+            return { plan: r.plan, share: r.share, to: r.plan[0].to, edge: { day: d, hour }, refusal: refusal ? refusalMessage(refusal) : null };
+          },
+          preview: () => {},
+          apply,
+        });
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -17538,25 +17512,45 @@ ${jobsCtx || "No jobs found."}`;
                     const _refused = (r) => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
                       title: r.kind === "past" ? "Can't schedule in the past" : "Can't resize here",
                       message: refusalMessage(r), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+                    const _resizeCal = calOf(orgSettings.workDays, orgSettings.holidays);
                     const session = resizeSession({
                       side, precision: tMode === "month" ? "halfHour" : "day",
                       node: bar.task, teamSize: (bar.task.team || []).length, paintedStart, paintedEnd,
-                      cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: calOf(orgSettings.workDays, orgSettings.holidays),
+                      cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: _resizeCal,
                       workStartH, workEndH, origPerson: p.id,
                       refuse: _refuseResize,
                       onPreview: (pv) => setResizePreview(pv ? { barId: bar.id, ...pv } : null),
+                      // #550: the release doesn't write. It opens ResizeConfirm on this landing, with
+                      // the moved edge editable; apply() is the write, run only on Confirm.
                       commit: (plan) => {
-                        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, people, reason: "Resized in schedule" }), movedByName);
-                        // Backstop, as the drag: if the no-overlap guard would move anything, refuse.
-                        const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
-                        if (_bumped.length || _stuck.length) {
-                          console.warn("[schedule-resize] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
-                          _refused({ kind: "overlap", title: bar.task.title || "", other: null });
-                          return;
-                        }
-                        setTasks(prev => build(prev));
-                        setTimeout(() => doSaveRef.current(), 0);
-                        noteResize(plan, side, p.name);
+                        const apply = (pl) => {
+                          const build = (list) => recalcBounds(applyDragMove(list, pl, { date: TD, movedBy: movedByName, people, reason: "Resized in schedule" }), movedByName);
+                          // Backstop, as the drag: if the no-overlap guard would move anything, refuse.
+                          const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(latestTasksRef.current || tasks), pl.map(m => m.id));
+                          if (_bumped.length || _stuck.length) {
+                            console.warn("[schedule-resize] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+                            _refused({ kind: "overlap", title: bar.task.title || "", other: null });
+                            return;
+                          }
+                          setTasks(prev => build(prev));
+                          setTimeout(() => doSaveRef.current(), 0);
+                        };
+                        const t0 = plan[0].to;
+                        setResizeConfirm({
+                          key: `${bar.id}-${++resizeConfirmSeq}`, title: bar.task.title || "", who: p.name || "", side,
+                          before: { start: paintedStart.day, startHour: paintedStart.hour, end: paintedEnd.day, endHour: paintedEnd.hour, hpd: bar.task.hpd ?? null },
+                          edge: side === "left" ? { day: t0.start, hour: t0.startHour } : { day: t0.end, hour: t0.endHour },
+                          workStartH, workEndH, isWorkDay: d => _resizeCal.isWorkDay(d),
+                          replan: (day, hour) => {
+                            const r = planResize({ side, node: bar.task, teamSize: (bar.task.team || []).length, paintedStart, paintedEnd, day, hour, cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: _resizeCal, workStartH, workEndH, origPerson: p.id });
+                            if (!r) return { error: side === "left" ? "The start has to stay before the end." : "The end has to stay after the start." };
+                            const refusal = _refuseResize(r.plan);
+                            return { plan: r.plan, share: r.share, to: r.plan[0].to, edge: { day, hour }, refusal: refusal ? refusalMessage(refusal) : null };
+                          },
+                          // The bar behind the modal is drawn at whatever the modal would write.
+                          preview: (r) => setResizePreview(r ? { barId: bar.id, start: r.to.start, startHour: r.to.startHour, end: r.to.end, endHour: r.to.endHour, share: r.share, hpd: r.to.hpd, edge: r.edge, refused: !!r.refusal } : null),
+                          apply,
+                        });
                       },
                     });
                     // The cursor as a (day, hour) on the grid. Month: the half hour under it. Week:
@@ -32165,13 +32159,83 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <span>{editToast.msg}</span>
     </div>, document.body)}
-  {resizeNote && createPortal(
-    <div key={resizeNote.key} role="status" onMouseEnter={() => holdResizeNote(0)} onMouseLeave={() => holdResizeNote(3000)}
-      style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 12, maxWidth: "min(640px, calc(100vw - 32px))", padding: "10px 12px 10px 18px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 100000, animation: "fadeIn 0.18s ease-out both" }}>
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resizeNote.text}</span>
-      {_noteUndo && <button onClick={undoResizeNote} style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 999, border: "none", background: T.accentText, color: T.accent, fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>Undo</button>}
-    </div>, document.body)}
+  {resizeConfirm && <ResizeConfirm key={resizeConfirm.key} rc={resizeConfirm} onClose={() => setResizeConfirm(null)} />}
   </TooltipCtx.Provider>;
+}
+
+// A fresh key per confirm, so a new resize never inherits the last one's typed edits. A counter,
+// not Date.now(): the render-time clock rule (#75) can't tell a handler from a render.
+let resizeConfirmSeq = 0;
+// #550. A resize asks before it saves: the op's start, end and hours before and after, with the
+// edge that was dragged editable (date and time). Every edit re-lands through the handler's own
+// replan (planResize + the resize's refusals), so Confirm writes exactly what a drag to that spot
+// would have, and a landing the rules refuse can't be confirmed. Cancel, Esc or the backdrop
+// write nothing. The week/month bar behind it previews the landing as it's edited.
+//
+// rc: { title, who, side, before: {start,startHour,end,endHour,hpd}, edge: {day,hour},
+//       workStartH, workEndH, isWorkDay(d), replan(day, hour), preview(r | null), apply(plan) }
+function ResizeConfirm({ rc, onClose }) {
+  const [edge, setEdge] = useState(rc.edge);
+  const hhmm = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
+  const r = useMemo(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(edge.day || "")) return { error: "Pick a date." };
+    if (!rc.isWorkDay(edge.day)) return { error: "That isn't a work day." };
+    if (edge.hour < rc.workStartH || edge.hour > rc.workEndH) return { error: `Pick a time between ${hhmm(rc.workStartH)} and ${hhmm(rc.workEndH)}.` };
+    return rc.replan(edge.day, edge.hour);
+  }, [rc, edge]);
+  useEffect(() => { rc.preview(r.plan ? r : null); }, [rc, r]);
+  const canConfirm = !!r.plan && !r.error && !r.refusal;
+  const close = (ok) => { rc.preview(null); if (ok && canConfirm) rc.apply(r.plan); onClose(); };
+  const closeRef = useRef(close); closeRef.current = close;
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeRef.current(false); } };
+    document.addEventListener("keydown", k, true);
+    return () => document.removeEventListener("keydown", k, true);
+  }, []);
+  const fmtWhen = (d, h) => {
+    if (!d) return "-";
+    const day = new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" });
+    if (h == null) return day;
+    const H = Math.floor(h), M = Math.round((h - H) * 60);
+    return `${day}, ${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`;
+  };
+  const hrs = (h) => (h == null ? "-" : `${Math.round(h * 10) / 10}h`);
+  const b = rc.before, to = r.to;
+  const onEdge = (v) => {
+    const [d, t] = String(v || "").split("T");
+    const [H, M] = String(t || "").split(":").map(Number);
+    setEdge({ day: d, hour: Number.isFinite(H) ? H + (Number.isFinite(M) ? M : 0) / 60 : edge.hour });
+  };
+  const editor = <DateField withTime portal value={`${edge.day || ""}T${hhmm(edge.hour)}`} onChange={onEdge} style={{ width: "100%" }} />;
+  const cell = { padding: "8px 10px", fontSize: 13, textAlign: "left", borderTop: `1px solid ${T.border}` };
+  const head = { ...cell, borderTop: "none", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" };
+  const row = (label, before, after, editing) => (
+    <tr>
+      <td style={{ ...cell, color: T.textSec, fontWeight: 600 }}>{label}</td>
+      <td style={{ ...cell, color: T.textSec }}>{before}</td>
+      <td style={{ ...cell, color: T.text, fontWeight: 700 }}>{editing || after}</td>
+    </tr>
+  );
+  return createPortal(
+    <div className="anim-modal-overlay" onMouseDown={() => close(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div className="anim-modal-box" role="dialog" aria-label="Confirm resize" onMouseDown={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 520, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+        <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 20, fontWeight: 700 }}>Confirm resize</h3>
+        <div style={{ margin: "0 0 16px", fontSize: 13, color: T.textSec }}>{rc.title || "Untitled"}{rc.who ? ` · ${rc.who}` : ""}</div>
+        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 12 }}>
+          <thead><tr><th style={head} /><th style={head}>Before</th><th style={head}>After</th></tr></thead>
+          <tbody>
+            {row("Starts", fmtWhen(b.start, b.startHour), fmtWhen(to?.start, to?.startHour), rc.side === "left" ? editor : null)}
+            {row("Ends", fmtWhen(b.end, b.endHour), fmtWhen(to?.end, to?.endHour), rc.side === "right" ? editor : null)}
+            {row("Hours", hrs(b.hpd), hrs(to?.hpd), null)}
+          </tbody>
+        </table>
+        {(r.error || r.refusal) && <div role="alert" style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 10, background: T.danger + "18", color: T.danger, fontSize: 13, fontWeight: 600 }}>{r.error || r.refusal}</div>}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={() => close(false)} style={{ minWidth: 110 }}>Cancel</Btn>
+          <Btn onClick={() => close(true)} disabled={!canConfirm} style={{ minWidth: 140 }}>Confirm resize</Btn>
+        </div>
+      </div>
+    </div>, document.body);
 }
 
 function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTask, style: fadeStyle }) {

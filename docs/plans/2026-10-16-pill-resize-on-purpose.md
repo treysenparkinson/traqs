@@ -1,101 +1,96 @@
 # Moving a pill never changes its length unless you meant it to
 
-**Status:** Done (step 5 left for Treysen, see Log)
-**Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16)
+**Status:** Done (browser check is Treysen's, see How you'll test it)
+**Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16), then D2 in chat the same day
 **Where:** `traqs-func` on `master` · **Platforms:** web only. iOS and Android don't drag-resize pills and aren't touched. · **Size:** S
-**Last updated:** 2026-10-16 17:45, review fixes in, handed back
+**Last updated:** 2026-10-16 18:40, D2: confirm modal replaces the notice and Undo
 
 ## In one breath
-Grabbing a pill anywhere but a thin strip at its very end will always move it. After every
-resize, a notice names the op and shows old vs. new hours and end date, with an Undo button
-that reverses only that resize. Esc cancels a resize mid-drag. The thing most likely to go
-wrong: short pills lose resize entirely (see D1).
+Grabbing a pill anywhere but a thin strip at its very end always moves it. Letting go of a
+resize no longer saves: a confirm modal shows start, end and hours before and after, with the
+new edge editable as a date and time, and only Confirm writes. Esc cancels a resize mid-drag.
+The thing most likely to go wrong: short pills lose resize entirely (see D1).
 
 ## Done means
-- [ ] A drag that starts in the body of a pill changes dates only. Hours and `hpd` stay the same **(said)**
-- [ ] The grip is a fixed thin strip, not a share of the pill's width. Short pills have no grip **(inferred)**
-- [ ] Every committed resize, in both the week/month and day views, shows a notice: op, person, old → new hours and end date, and Undo **(said)**
-- [ ] Undo restores that op's dates and hours only if nothing changed it since. Otherwise the button is gone **(inferred)**
-- [ ] The pill shows its new hours while you resize **(inferred)**. Already true today: the bar's hours label reads the preview ([TRAQS.jsx:16622](src/TRAQS.jsx:16622)), and a tooltip shows the edge date. Nothing to build.
-- [ ] Esc mid-resize: nothing saved, no undo step **(assumed)**
+- [x] A drag that starts in the body of a pill changes dates only. Hours and `hpd` stay the same **(said)**
+- [x] The grip is a fixed thin strip, not a share of the pill's width. Short pills have no grip **(inferred)**
+- [x] Every resize, in both the week/month and day views, asks first: op, person, start / end / hours before and after **(said, D2)**
+- [x] The changed edge can be edited (date and time) in that modal, and what's confirmed is what gets written **(said, D2)**
+- [x] A landing the rules refuse (overlap, time off, a live clock, the past) shows why and can't be confirmed **(inferred)**
+- [x] Cancel, Esc or clicking outside writes nothing **(inferred)**
+- [x] The pill shows its new hours while you resize **(inferred)**. Already true: the bar's hours label reads the preview, and the bar behind the modal previews the landing as you edit.
+- [x] Esc mid-drag: nothing saved, no undo step **(assumed)**
 
-## How it works today
-- Each week/month pill has a left and a right grip, each `max(3, min(10, width / 3))` px wide ([TRAQS.jsx:16870](src/TRAQS.jsx:16870)). Pills under 12px get none. So a 30px pill is two-thirds grip, with a 10px middle that moves. The grip is invisible until the mouse is on the grip itself ([TRAQS.jsx:17876](src/TRAQS.jsx:17876)). The overrun "tail" has its own right grip, also a third of its width ([TRAQS.jsx:17970](src/TRAQS.jsx:17970)).
-- Pressing a grip runs `handleTeamResize` ([TRAQS.jsx:17435](src/TRAQS.jsx:17435)). That opens a `resizeSession` ([dragMove.js:390](src/dragMove.js:390)): mouse moves only preview, and release runs the refusal checks and commits once. The commit goes through `applyDragMove`, which writes new dates **and a new `hpd`** (the op's total planned hours) plus a "Resized in schedule" moveLog entry, then saves. No confirm and no notice.
-- The day view has its own grips, a fixed 12px ([TRAQS.jsx:16127](src/TRAQS.jsx:16127)), and its own commit in `handleTeamDayBarDrag` ([TRAQS.jsx:15813](src/TRAQS.jsx:15813)). Same silent save.
-- Undo is one global stack of whole-schedule snapshots, 50 deep, this session only ([TRAQS.jsx:5283](src/TRAQS.jsx:5283)). Undoing a resize from earlier also undoes everything done after it.
-- The only notice the app has is `toast()` ([TRAQS.jsx:7887](src/TRAQS.jsx:7887)): text only, 1.8s, can't be clicked. The autosave's generic "Changes saved" stands down if a specific toast spoke in the last 1.5s.
-- Neither mouse handler listens for Esc.
+## How it works today (before this work)
+- Each week/month pill had a left and a right grip, each `max(3, min(10, width / 3))` px wide. Pills under 12px got none. So a 30px pill was two-thirds grip, and the grip was invisible until the mouse was on it. The overrun "tail" had its own right grip, also a third of its width.
+- Pressing a grip runs `handleTeamResize` ([TRAQS.jsx](src/TRAQS.jsx)). That opens a `resizeSession` ([dragMove.js](src/dragMove.js)): mouse moves only preview, and release ran the refusal checks and committed once through `applyDragMove`, which writes new dates **and a new `hpd`** plus a "Resized in schedule" moveLog entry, then saves. No confirm, no notice.
+- The day view has its own fixed 12px grips and its own commit in `handleTeamDayBarDrag`. Same silent save.
+- Undo is one global stack of whole-schedule snapshots, so undoing an old resize also undoes everything after it.
 
 ## The approach
-Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMove.js), next to `resizeSession`, so a suite can pin it, and have all three week/month grips read it. Give `resizeSession` a cancel and wire Esc to it in both views. Add two pure helpers: one turns a committed resize plan into the notice's text, and one builds the reverse plan for Undo, or returns nothing if the op has changed since. Both resize commit paths then raise one new notice, a clickable cousin of the toast, whose Undo runs the reverse plan through the same `applyDragMove` + save path.
+Pull the grip-width rule into a pure `resizeGripPx` that all three week/month grips read. Give `resizeSession` a cancel and wire Esc in both views. Pull the session's landing math into a pure `planResize` so a typed edge lands exactly as a drag to that spot would. On release, both handlers open `ResizeConfirm` with a `replan(day, hour)` built from `planResize` plus the resize's own refusals, a `preview` for the bar, and `apply(plan)`, which is the old commit body (no-overlap backstop, one write, one save).
 
 **Other ways considered:**
-- Notice Undo calls the global `undo()`: it restores a whole-schedule snapshot, so a realtime edit from someone else that arrived after the resize would be wiped.
-- Hold Alt to resize: the PRD parked it for later.
-- Extend `toast()` with a button: every toast is click-through and 1.8s by design, and changing that touches 40+ call sites' behavior.
+- The generic confirm modal (`confirmMove`): it only takes a title and a message, so it can't show before/after rows or edit the edge.
+- Typed edits computed separately from the drag: two landings that could disagree. `planResize` is the one the drag already uses.
+- (Built first, replaced by D2) a notice with Undo after the save. See Log 18:40.
 
 ## Decisions
 
 **Needs you**
 - **D1.** Grips are a fixed 6px, and only pills at least 36px wide get them, so the move area is always at least two-thirds of the pill. Narrower pills are move-only. (Treysen, 2026-10-16)
+- **D2.** A resize goes to a confirmation modal instead of the notice and Undo. It shows the changed times, and the user can edit them before confirming. Grip sizes stay as D1. (Treysen, 2026-10-16)
 
 **Calls I made** (veto any)
-- **C1.** Grips show when hovering anywhere on the pill, not only on the grip, so you can see where the edge is before pressing. *Why:* today you can't see the grip until you're already on it.
-- **C2.** The notice sits at the bottom center, stays 6s and holds while hovered (3s after the mouse leaves), and a new one replaces the old. *Why:* it never covers a toast at the top. (Changed in step 3, see Log.)
-- **C3.** Undo from the notice writes its own moveLog entry ("Resize undone") rather than deleting the resize entry. *Why:* history stays append-only, the same as every other move.
-- **C4.** Undo from the notice needs `moveJobs`, the same right as the resize, not `undoHistory`. *Why:* it's reversing a move you just made, not rolling back history.
-- **C5.** Day-view grips keep their fixed 12px. Day-view resizes get the notice and Esc. *Why:* day-view pills are hour-scaled and wide, and the PRD's complaint is the week/month rows.
-- **C6.** The finding goes into [SCHEDULE_MAP.md](SCHEDULE_MAP.md) as #550, per its rule R1.
+- **C1.** Grips show when hovering anywhere on the pill, not only on the grip. *Why:* you can see where the edge is before pressing.
+- **C5.** Day-view grips keep their fixed 12px. Day-view resizes get the confirm and Esc too. *Why:* day-view pills are hour-scaled and wide.
+- **C6.** The finding is [SCHEDULE_MAP.md](SCHEDULE_MAP.md) #550, per its rule R1.
+- **C7.** Only the dragged edge is editable; the other edge stays where the bar is drawn. *Why:* that's what "the changed time" is, and it keeps one landing rule (`planResize`).
+- **C8.** The time editor accepts any time in the work window, not only the week view's whole-day snap. *Why:* editing a time is the point of the modal.
+- **C9.** Confirm re-runs the no-overlap backstop against the latest tasks (`latestTasksRef`), not the tasks from when the drag started. *Why:* the modal can stay open while realtime updates land.
+- (C2–C4 were about the notice and Undo, retired by D2.)
 
 ## Steps
-- [x] **1. Grips are a thin fixed strip, and the middle always moves**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx) (three grips), [SCHEDULE_MAP.md](SCHEDULE_MAP.md)
-  *Why:* this is the accident itself, so it goes first.
-  *Proof:* a new `resize-grip-test` (red first, in `npm run build`) pins the grip width and the no-grip cutoff for 10, 30, 36 and 200px, and checks the three grips read the rule. Then `npm run build` → `✓ built in`. A mutant on the cutoff fails an assertion.
+- [x] **1. Grips are a thin fixed strip, and the middle always moves**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx), [SCHEDULE_MAP.md](SCHEDULE_MAP.md)
+  *Proof:* [resize-grip-test.mjs](scripts/resize-grip-test.mjs) (16, red first); mutant on the cutoff fails 3.
 - [x] **2. Esc cancels a resize with nothing written**: [dragMove.js](src/dragMove.js), both handlers in [TRAQS.jsx](src/TRAQS.jsx)
-  *Why:* a cheap way out of a resize you notice mid-drag.
-  *Proof:* [resize-test.mjs](scripts/resize-test.mjs) drives the real handler: three steps, Esc, release → zero writes, zero undo frames, zero saves.
-- [x] **3. Every resize shows a notice with before and after**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
-  *Why:* "it just does it and i dont always know." This half matters most.
-  *Proof:* suite cases for the notice text: solo op, crew op (team total hours), an end date that moves. Both commit paths raise it (asserted against the source). `npm run build` passes.
-- [x] **4. Undo in the notice reverses only that resize**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
-  *Why:* one click instead of Ctrl+Z through every later move.
-  *Proof:* suite: unchanged op → dates and `hpd` restored exactly, plus one "Resize undone" log entry; op moved since → no reverse plan; a sibling op edited since → left alone. `npm run build` passes.
-- [ ] **5. Seen working in the browser**: localhost:8888, only if your dev server is already running
-  *Why:* the suites can't see hover, the grip, or the notice.
-  *Proof:* screenshots: a short pill with no grip, a resize notice, the pill back to its old length after Undo.
+  *Proof:* [resize-test.mjs](scripts/resize-test.mjs) drives both real handlers through Esc: zero writes, undo frames and saves.
+- [x] **3–4. (Replaced by step 6.)** A notice after every resize, with an Undo. Built, reviewed, then removed on D2.
+- [x] **6. A resize asks first, with the changed edge editable**: [dragMove.js](src/dragMove.js) (`planResize`), [TRAQS.jsx](src/TRAQS.jsx) (`ResizeConfirm`, both handlers)
+  *Why:* D2. Nothing is saved until you've seen the new times.
+  *Proof:* resize-test (59): release opens one confirm with the right before / edge / after; Cancel writes nothing; an edited end (10:30, another day) is exactly what's written; an edit into someone's work shows the refusal and writes nothing; an edge at or before the start is an error; a day-view move still writes with no confirm. Mutants caught: a day resize that skips the confirm (3 fail), `planResize` without its crossing guard (1 fail). `npm run build` passes.
+- [ ] **5. Seen working in the browser**: Treysen, on localhost:8888 (it's running).
 
 ## Won't touch / must keep working
-- From the PRD: no removing resize. Moving is unchanged: snapping, reassigning by dropping on another row, multi-select and group moves. No changes to undo in general. No confirm dialog before a resize.
-- From the PRD: every refusal still runs on resize (time off, a live clock on the op, overlap, the past). One resize = one save and one undo step (#31 #32). PTO bar resizing (its own path) works as today. Pills with worked hours keep their hidden left grip.
-- Technical: no change to stored data shape (the moveLog entry is the existing shape). iOS and Android untouched. The global Ctrl+Z still works on a resize, and on a notice Undo.
+- From the PRD: no removing resize. Moving is unchanged: snapping, reassigning by dropping on another row, multi-select and group moves, all with no confirm. No changes to undo in general. (The PRD's "no confirm dialog before a resize" was overruled by D2.)
+- Every refusal still runs on resize. One confirmed resize = one save and one undo step (#31 #32). PTO bar resizing (its own path) works as today, with no confirm. Pills with worked hours keep their hidden left grip.
+- Technical: no change to stored data shape. iOS and Android untouched.
 
 ## Risks and how I'll catch them
 | Risk | How I'll catch it |
 |---|---|
-| A grip change makes pills harder to move (event order, `stopPropagation`) | existing `drag-move-test`, `person-row-drag-test`, `overrun-drag-test` inside the build, plus step 5 |
-| Notice Undo overwrites an edit that arrived after the resize | step 4 suite case for "moved since"; the reverse plan only applies when the op still matches the resize's result |
-| A toast lands on top of the notice | the notice sits at the bottom and toasts sit at the top; checked in step 5 |
-| Esc also closes a modal or clears a selection mid-resize | the Esc listener lives only while a resize is in progress and stops the event |
+| A grip change makes pills harder to move | `drag-move-test`, `person-row-drag-test`, `overrun-drag-test` in the build, plus the browser check |
+| The modal confirms a landing that differs from what the bar previewed | both read one `replan` result; resize-test checks the preview during the modal |
+| A realtime edit lands while the modal is open | Confirm runs the backstop against `latestTasksRef`; refusals are re-checked on every edit |
+| Esc inside the modal also hits something underneath | the modal's Esc listener runs in the capture phase and stops the event |
 
 ## How you'll test it
-1. localhost:8888 as admin, Schedule, week view. Drag a short pill (a few hours) sideways from near its end: it moves and keeps its length.
-2. On a wide pill, hover it and the end grips show. Drag the right grip out a day. A notice reads "Resized … 8h → 16h, ends … instead of …".
-3. Click Undo in the notice: the pill is back to its old length, and the job's history shows "Resize undone".
-4. Resize again, then move that pill before clicking Undo: the Undo button is gone.
-5. Start a resize and press Esc before letting go: nothing changes.
+1. localhost:8888 as admin, Schedule, week view. Drag a short pill sideways from near its end: it moves and keeps its length, with no modal.
+2. On a wide pill, drag the right grip out a day and let go. "Confirm resize" shows Starts / Ends / Hours, before and after, and the bar behind it shows the new length.
+3. In the Ends row, change the date or time. The After hours update and the bar follows. Pick a weekend, or a time inside someone else's work: a red message shows and Confirm is greyed out.
+4. Click Confirm resize: the pill keeps the new length, and the job's history shows "Resized in schedule".
+5. Resize again and press Cancel (or Esc, or click outside): nothing changes.
 
 ## Log
-- **2026-10-16 16:05 · step 1 · Found:** `npm run build` was red on this Windows checkout before any change here. Four suites read files in ways that only work on LF/POSIX: `clock-access-test` and `lunch-default-test` (CRLF, #376's trap again), plus `status-meaning-test`, and `clock-shift-test` through it (`URL.pathname` gives `C:\C:\`). Test-only fixes, committed on their own ahead of step 1. Production builds on Linux, so nothing deployed was affected. `eol-safety-test` didn't catch the two CRLF ones, so its detector has a gap (not fixed here).
-- **2026-10-16 16:05 · step 1 · Decided:** the overrun tail on a PTO bar keeps its old grip rule too (12px and up, a third of its width), the same as the PTO head.
-- **2026-10-16 16:30 · step 2 · Found:** nothing tested the day view's resize through its real handler. [resize-test.mjs](scripts/resize-test.mjs) now drives `handleTeamDayBarDrag` too, the same way it already drove the week/month one. Esc applies to resizes only, so a day-view move adds no key listener.
-- **2026-10-16 16:55 · step 3 · Changed:** C2's premise was wrong. No "Changes saved" toast fires after a drag (the only generic toast is org settings), so there was nothing to suppress. The notice moved to the bottom center instead, where it can never sit on a top-center toast.
-- **2026-10-16 16:55 · step 3 · Decided:** the notice names the edge that was dragged, not whichever date field differs. A pill drawn pushed (a cursor push or an overrun) lands at its painted start, which would otherwise read as "starts … instead of …" on a right-edge resize.
-- **2026-10-16 17:15 · step 4 · Decided:** if the op changes between the notice appearing and the click (a realtime edit lands mid-hover), Undo does nothing and a toast says "That changed since, so there's nothing to undo". The button is otherwise hidden whenever the op no longer matches. An op stored with no `hpd` gets no Undo button, since there's no old value to put back.
-- **2026-10-16 17:15 · step 4 · Found:** `department-follow-test` pins the number of `applyDragMove` call sites so none can skip `people`. Undo is a seventh, and it passes `people`, so the pin went from 6 to 7.
-- **2026-10-16 17:30 · step 5 · Changed:** skipped. The dev server wasn't running, and resizing a pill there would save to the real org through the live functions, so the browser check is yours (How you'll test it, below).
-- **2026-10-16 17:45 · review · Changed:** `/code-review` found the notice's Undo skipped the resize's refusals and no-overlap backstop. It now runs both. Writing that test turned up a second bug: the reverse plan kept the resize's shorter share, so even the overlap rule would have measured the wrong bar. Also fixed: soft-deleted ops (and ops under a deleted panel or job) no longer offer Undo; Undo checks, builds and writes one value (`latestTasksRef`), so its toast can't claim an undo that didn't happen; an op with no stored estimate reads "set to 24h", not "0h → 24h"; and the Undo check is memoized rather than run on every render.
-- **2026-10-16 17:45 · review · Found, not fixed:** (1) On a pill split across days (a weekend gap), the only right grip is on the last segment, and D1's 36px rule now applies to that segment alone, so a long pill whose last day is short can't be resized from the right. (2) A panel-level resize never offers Undo, because the roll-up rewrites the panel's dates right after the commit. Both are under Needs you.
+- **2026-10-16 16:05 · step 1 · Found:** `npm run build` was red on this Windows checkout before any change here. Four suites only worked on LF/POSIX: `clock-access-test`, `lunch-default-test` (CRLF, #376's trap), `status-meaning-test` and `clock-shift-test` through it (`URL.pathname` gives `C:\C:\`). Test-only fixes, committed on their own. `eol-safety-test` didn't catch the CRLF ones (gap not fixed here).
+- **2026-10-16 16:05 · step 1 · Decided:** the overrun tail on a PTO bar keeps its old grip rule too.
+- **2026-10-16 16:30 · step 2 · Found:** nothing tested the day view's resize through its real handler; resize-test now drives `handleTeamDayBarDrag`. Esc applies to resizes only.
+- **2026-10-16 16:55 · step 3 · Changed:** the notice moved to the bottom center (no "Changes saved" toast fires on drags, so C2's premise was wrong).
+- **2026-10-16 17:15 · step 4 · Found:** `department-follow-test` pins `applyDragMove`'s call sites; Undo made it 7.
+- **2026-10-16 17:30 · step 5 · Changed:** browser check left to Treysen. Resizing on the dev server saves to the real org.
+- **2026-10-16 17:45 · review · Changed:** `/code-review` found Undo skipped the resize's refusals and backstop, and the reverse plan carried the wrong share. Both fixed, along with soft-deleted ops, a toast race, a no-estimate message and an unmemoized check.
+- **2026-10-16 17:45 · review · Found, not fixed:** (1) on a pill split across days, the right grip lives on the last segment, and D1's 36px rule applies to that segment alone; (2) a panel-level resize never offered Undo. (2) is moot now that D2 removed Undo. (1) still stands.
+- **2026-10-16 18:40 · D2 · Changed:** Treysen, after trying it: "pill resizing should go to a confirmation modal ... instead of the undo popup", and "present the changed time and make it so the user can edit the changed times". The notice, `resizeNotice`, the Undo and `undoResizePlan` are gone (none of it was pushed), along with resize-notice-test. The `applyDragMove` call-site pin is back to 6. New: `planResize` (the session now lands through it too) and `ResizeConfirm`. The #75 render-clock suite flagged `Date.now()` in the modal key, so the key is a counter.
 
 ## Outcome
-Steps 1–4 shipped as planned, on local `master` and not pushed: thin fixed grips (6px, 36px+), Esc cancel in both views, a notice after every resize, and an Undo that reverses only that resize and runs the same refusals a resize does. Changes from plan: C2's notice moved to the bottom center; step 5's browser check was left to Treysen; the review added refusal checks to Undo and fixed its share. Follow-ups left out on purpose: the multi-day right grip and panel-level Undo (Log, 17:45), and the `eol-safety-test` gap behind the two CRLF suites (Log, 16:05).
+Shipped on local `master`, not pushed: thin fixed grips (6px, 36px+), Esc cancel in both views, and a confirm modal on every resize showing before and after, with the dragged edge editable and checked by the same rules as the drag. Changes from plan: D2 replaced steps 3–4 (notice and Undo) with the confirm (step 6); the browser check is Treysen's. Left out on purpose: the multi-day right-grip gap (Log 17:45), and the `eol-safety-test` gap (Log 16:05).

@@ -190,8 +190,7 @@ console.log("\n8. EVERY CALLER PASSES people, OR THE REWRITE SILENTLY DOES NOT H
   const calls = [];
   for (let i = CODE.indexOf("applyDragMove("); i >= 0; i = CODE.indexOf("applyDragMove(", i + 1))
     calls.push(CODE.slice(i, i + 300));
-  // Seven since #550: the resize notice's Undo runs the resize backwards through applyDragMove.
-  ok("all seven call sites were found", calls.length, 7);
+  ok("all six call sites were found", calls.length, 6);
   ok("every one passes people", calls.filter(c => !/\bpeople\b/.test(c)).length, 0);
 }
 
