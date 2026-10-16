@@ -15791,13 +15791,23 @@ ${jobsCtx || "No jobs found."}`;
           setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: red ? "#ef4444" : barTask.color, label: barTask.title || "", time: label });
         }
       };
-      const onU = (me) => {
+      const stop = () => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
+        if (mode !== "move") document.removeEventListener("keydown", onK, true);
         isDraggingRef.current = false;
         setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
+      };
+      // Esc cancels a RESIZE with nothing written (#550), as week/month. A move is unchanged.
+      const onK = (ke) => {
+        if (ke.key !== "Escape") return;
+        ke.preventDefault(); ke.stopPropagation();
+        stop();
+      };
+      const onU = (me) => {
+        stop();
         if (!moved) { if (mode === "move") openJobDetailOrEdit(barTask); return; }
         const target = mode === "move" ? getPersonAtY(me.clientY) : null;
         const toOther = !!(target && fromPersonId && !sameId(target.id, fromPersonId));
@@ -15823,6 +15833,7 @@ ${jobsCtx || "No jobs found."}`;
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
+      if (mode !== "move") document.addEventListener("keydown", onK, true);
     };
 
     return <div>
@@ -17535,14 +17546,25 @@ ${jobsCtx || "No jobs found."}`;
                       const _tipDate = new Date(pv.edge.day + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" });
                       setResizeTooltip({ x: me.clientX, y: me.clientY, time: tMode === "month" ? fmTip(pv.edge.hour) : "", date: _tipDate, side });
                     };
-                    const onU = () => {
-                      document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
+                    const stop = () => {
+                      document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); document.removeEventListener("keydown", onK, true);
                       isDraggingRef.current = false;
                       setResizeTooltip(null);
+                    };
+                    const onU = () => {
+                      stop();
                       const r = session.release();
                       if (r.kind === "refused") _refused(r.refusal);
                     };
-                    document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                    // Esc (#550): nothing is written. Capture phase, and stopped, so a modal or a
+                    // selection underneath doesn't also take the key.
+                    const onK = (ke) => {
+                      if (ke.key !== "Escape") return;
+                      ke.preventDefault(); ke.stopPropagation();
+                      stop();
+                      session.cancel();
+                    };
+                    document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU); document.addEventListener("keydown", onK, true);
                   };
                   const ws = !isPto ? _barWS : null;
                   const barLocked = !isPto && bar.task && ws && ws.displayLocked;

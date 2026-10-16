@@ -402,6 +402,8 @@ export function resizeGripPx(renderPx, { pto = false } = {}) {
  *   paintedStart / paintedEnd  { day, hour } where the bar is drawn, the fixed edges (#10)
  *   cfg         day windows; fullCfg = cfg + workDays/holidays (productiveHoursBetween's)
  *   refuse(plan) → refusal | null      onPreview(preview | null)      commit(plan)
+ *
+ * cancel() (Esc, #550) clears the preview and the landing; the handler stops listening after it.
  */
 export function resizeSession({ side, precision = "halfHour", node, teamSize = 1, paintedStart, paintedEnd, cfg, fullCfg, cal, workStartH, workEndH, origPerson, refuse, onPreview, commit }) {
   let last = null, lastKey = null;
@@ -434,7 +436,13 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
     commit(last.plan);
     return { kind: "committed", plan: last.plan };
   };
-  return { move, release };
+  // Esc (#550): drop the preview and forget the landing, so a release after it writes nothing.
+  const cancel = () => {
+    onPreview?.(null);
+    last = null; lastKey = null;
+    return { kind: "cancelled" };
+  };
+  return { move, release, cancel };
 }
 
 /**

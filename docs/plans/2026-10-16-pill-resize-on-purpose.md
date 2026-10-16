@@ -3,7 +3,7 @@
 **Status:** Agreed, building
 **Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16)
 **Where:** `traqs-func` on `master` · **Platforms:** web only. iOS and Android don't drag-resize pills and aren't touched. · **Size:** S
-**Last updated:** 2026-10-16 16:05, step 1 done
+**Last updated:** 2026-10-16 16:30, step 2 done
 
 ## In one breath
 Grabbing a pill anywhere but a thin strip at its very end will always move it. After every
@@ -52,7 +52,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - [x] **1. Grips are a thin fixed strip, and the middle always moves**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx) (three grips), [SCHEDULE_MAP.md](SCHEDULE_MAP.md)
   *Why:* this is the accident itself, so it goes first.
   *Proof:* a new `resize-grip-test` (red first, in `npm run build`) pins the grip width and the no-grip cutoff for 10, 30, 36 and 200px, and checks the three grips read the rule. Then `npm run build` → `✓ built in`. A mutant on the cutoff fails an assertion.
-- [ ] **2. Esc cancels a resize with nothing written**: [dragMove.js](src/dragMove.js), both handlers in [TRAQS.jsx](src/TRAQS.jsx)
+- [x] **2. Esc cancels a resize with nothing written**: [dragMove.js](src/dragMove.js), both handlers in [TRAQS.jsx](src/TRAQS.jsx)
   *Why:* a cheap way out of a resize you notice mid-drag.
   *Proof:* [resize-test.mjs](scripts/resize-test.mjs) drives the real handler: three steps, Esc, release → zero writes, zero undo frames, zero saves.
 - [ ] **3. Every resize shows a notice with before and after**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
@@ -88,5 +88,6 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 ## Log
 - **2026-10-16 16:05 · step 1 · Found:** `npm run build` was red on this Windows checkout before any change here. Four suites read files in ways that only work on LF/POSIX: `clock-access-test` and `lunch-default-test` (CRLF, #376's trap again), plus `status-meaning-test`, and `clock-shift-test` through it (`URL.pathname` gives `C:\C:\`). Test-only fixes, committed on their own ahead of step 1. Production builds on Linux, so nothing deployed was affected. `eol-safety-test` didn't catch the two CRLF ones, so its detector has a gap (not fixed here).
 - **2026-10-16 16:05 · step 1 · Decided:** the overrun tail on a PTO bar keeps its old grip rule too (12px and up, a third of its width), the same as the PTO head.
+- **2026-10-16 16:30 · step 2 · Found:** nothing tested the day view's resize through its real handler. [resize-test.mjs](scripts/resize-test.mjs) now drives `handleTeamDayBarDrag` too, the same way it already drove the week/month one. Esc applies to resizes only, so a day-view move adds no key listener.
 
 ## Outcome

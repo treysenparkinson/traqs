@@ -42,10 +42,10 @@ const octx = overlapContext(settings, "2026-09-30");
 console.log("1. #31 #32 — one resize drag: ONE write, ONE undo snapshot, ONE save, nothing mid-drag");
 // The real undo-recording wrapper, sliced: every setTasks that changes state pushes one deep copy.
 const wrapperSrc = (() => { const a = CUR.indexOf("const setTasks = useCallback((updater) => {"); const s = CUR.indexOf("(updater) =>", a); let i = CUR.indexOf("{", s), d = 0; for (; i < CUR.length; i++) { if (CUR[i] === "{") d++; else if (CUR[i] === "}" && --d === 0) break; } return CUR.slice(s, i + 1); })();
-const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {} }) => {
+const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {}, escape = false }) => {
   let state = tasks0;
   const undoStack = { current: [] }, redoStack = { current: [] }, skipHistory = { current: false }, latestTasksRef = { current: null };
-  let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false;
+  let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false, lastPreview;
   const _setTasks = (fn) => { const next = fn(state); if (next !== state) writes++; if (!released) writesBeforeRelease = writes; state = next; };
   // #338. The wrapper now pushes a STRIPPED snapshot — content without
   // lastModifiedAt — so an undo cannot replay stale stamps into a save. Supplied
@@ -65,11 +65,12 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
     shopDay: () => "2026-09-30", shopHour: () => 10, billingTier: "business", overlapCtx: octx,
     get tasks() { return state; }, tMode, dayWindowCfg: cfg, liveJobCfg: fullCfg, calOf: () => cal,
     workStartH: 8, workEndH: 17, totalWorkH: 9, productiveHoursPerDay: 8,
-    setResizePreview: () => { previews++; }, setResizeTooltip: () => {}, setConfirmMove: () => { refusedShown++; },
+    setResizePreview: (pv) => { previews++; lastPreview = pv; }, setResizeTooltip: () => {}, setConfirmMove: () => { refusedShown++; },
     recalcBounds: (t) => t, enforceNoOverlap: (t) => ({ tasks: t, moved: [], refused: [] }),
     setTasks, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(), TD: "2026-09-30",
     days, isWorkDay: (d) => cal.isWorkDay(d), cW: 100,
-    document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: () => {} },
+    // Removal is real (#550): after Esc the mouseup must reach nothing.
+    document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
     isDraggingRef: { current: false },
     _layoutStart: node.start, _barStartH: node.startHour, _segsEnd: node.end, _barEndHour: node.endHour,
     // the pre-change handler's collaborators (each updTask is exactly one setTasks, as in the app)
@@ -86,9 +87,12 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   const ev = (x) => ({ clientX: x, clientY: 10, preventDefault() {}, stopPropagation() {}, currentTarget: { parentElement: { parentElement: el } } });
   handler(ev(moves[0]), "right");
   for (const x of moves) listeners.mousemove?.(ev(x));
+  let escStopped = false;
+  if (escape) listeners.keydown?.({ key: "Escape", preventDefault() {}, stopPropagation() { escStopped = true; } });
+  const previewAfterEsc = lastPreview;
   released = true;
   listeners.mouseup?.(ev(moves[moves.length - 1]));
-  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown };
+  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown, escStopped, left: Object.keys(listeners), previewAfterEsc };
 };
 // A: Mon 08:00, 4 h (08–12). B: Mon 13:00, 3 h (13–16). Same person, same phase.
 const A = { id: "A", title: "A", start: "2026-10-05", end: "2026-10-05", startHour: 8, endHour: 12, hpd: 4, team: ["w"] };
@@ -105,6 +109,60 @@ const Aw = run.state[0].subs[0].subs.find(o => o.id === "A"), Bw = run.state[0].
 check("the resize landed: A ends 11:00 with 3 h", () => eq([Aw?.end, Aw?.endHour, Aw?.hpd], ["2026-10-05", 11, 3]));
 check("the sibling was never displaced (no mid-drag reflow)", () => eq([Bw.start, Bw.startHour], ["2026-10-05", 13]));
 check("moveLog 'Resized in schedule' with from/to hpd", () => { const l = (Aw?.moveLog || []).at(-1); return eq([l?.reason, l?.fromHpd, l?.toHpd], ["Resized in schedule", 4, 3]); });
+
+console.log("1b. #550 — Esc mid-resize writes nothing (week/month)");
+{
+  const r = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), escape: true });
+  check("no write, no undo frame, no save", () => eq([r.writes, r.snapshots, r.saves], [0, 0, 0]));
+  check("A keeps its 4 h, 08–12", () => { const a = r.state[0].subs[0].subs.find(o => o.id === "A"); return eq([a.endHour, a.hpd, a.moveLog], [12, 4, undefined]); });
+  check("Esc is kept from anything else listening (a modal, a selection)", () => eq(r.escStopped, true));
+  check("the bar stops drawing the preview the moment Esc lands", () => eq(r.previewAfterEsc, null));
+  check("every listener the resize added is gone", () => eq(r.left, []));
+  const plain = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B) });
+  check("…and without Esc the same drag still writes once", () => eq([plain.writes, plain.saves], [1, 1]));
+}
+
+console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real handleTeamDayBarDrag)");
+{
+  const dayRun = ({ mode = "right", from, moves, escape = false }) => {
+    let state = tree(A);
+    let writes = 0, saves = 0, escStopped = false;
+    const listeners = {};
+    const scope = {
+      can: () => true, isDraggingRef: { current: true }, openJobDetailOrEdit: () => {}, denied: () => {}, PERM_VERB: {},
+      dayGrid: { HS: 8, HE: 17, NH: 9 }, tStart: "2026-10-05", isWorkDay: (d) => cal.isWorkDay(d), orgSettings: settings,
+      personShareHours: SM.personShareHours, productiveHoursPerDay: 8, opDaySegments: SM.opDaySegments, dayWindowCfg: cfg, liveJobCfg: fullCfg,
+      workStartH: 8, workEndH: 17, rH: 40, grpH: 30, rowList: [], teamContainerRef: { current: null },
+      calOf: () => cal, blockedByActiveClock: () => false, jobIdOfNode: () => "j", sameId: (a, b) => String(a) === String(b),
+      people: [{ id: "w", name: "Wes", timeOff: [] }], billingTier: "business", get tasks() { return state; }, overlapCtx: octx,
+      shiftStart: D.shiftStart, planDragMove: D.planDragMove, resizeShare: D.resizeShare, refuseDragMove: D.refuseDragMove, refusalMessage: D.refusalMessage,
+      applyDragMove: D.applyDragMove, shopDay: () => "2026-09-30", shopHour: () => 10,
+      setDayDragInfo: () => {}, setTeamDayGhost: () => {}, setDayDragTarget: () => {}, setConfirmMove: () => {},
+      loggedInUser: { name: "T" }, recalcBounds: (t) => t, TD: "2026-09-30", enforceNoOverlap: () => ({ moved: [], refused: [] }),
+      setTasks: (fn) => { const n = fn(state); if (n !== state) writes++; state = n; }, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(),
+      document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
+    };
+    const proxy = new Proxy(scope, { has: () => true, get: (t, k) => (k === Symbol.unscopables ? undefined : (k in t ? t[k] : globalThis[k])) });
+    const src = braceSlice(WEB, "const handleTeamDayBarDrag = (e, barTask, mode = \"move\"").replace(/^const handleTeamDayBarDrag = /, "");
+    const handler = new Function("scope", `with (scope) { return ${src}; }`)(proxy);
+    const el = { getBoundingClientRect: () => ({ left: 0, width: 900, top: 0 }) };
+    const ev = (x) => ({ clientX: x, clientY: 10, preventDefault() {}, stopPropagation() {}, currentTarget: { parentElement: el } });
+    handler(ev(from), A, mode, "w", 8, 12);
+    for (const x of moves) listeners.mousemove?.(ev(x));
+    if (escape) listeners.keydown?.({ key: "Escape", preventDefault() {}, stopPropagation() { escStopped = true; } });
+    listeners.mouseup?.(ev(moves[moves.length - 1]));
+    return { writes, saves, escStopped, left: Object.keys(listeners), a: state[0].subs[0].subs[0] };
+  };
+  // Right edge 12:00 → 11:00 (x = (hour − 8) × 100).
+  const plain = dayRun({ from: 400, moves: [350, 300] });
+  check("without Esc the day resize writes once (the harness drives the real handler)", () => eq([plain.writes, plain.saves, plain.a.hpd], [1, 1, 3]));
+  const esc = dayRun({ from: 400, moves: [350, 300], escape: true });
+  check("with Esc: no write, no save, A keeps 4 h", () => eq([esc.writes, esc.saves, esc.a.hpd], [0, 0, 4]));
+  check("Esc is kept from anything else listening", () => eq(esc.escStopped, true));
+  check("every listener the resize added is gone", () => eq(esc.left, []));
+  const mv = dayRun({ mode: "move", from: 200, moves: [250, 300] });
+  check("a MOVE adds no Esc handler (moving is unchanged)", () => eq(mv.left.includes("keydown"), false));
+}
 
 console.log("2. ruling 1 — a resize that grows into someone's work is refused, and writes nothing");
 {
