@@ -3,7 +3,7 @@
 // tasks-archive.json. ARCHIVE, NOT DROP (Trey, 2026-10-16). DRY RUN BY DEFAULT.
 //
 //   node scripts/archive-deleted-jobs.mjs            show the plan
-//   node scripts/archive-deleted-jobs.mjs --write    execute, guarded on ETag
+//   node scripts/archive-deleted-jobs.mjs --write --expect=N   execute, guarded on ETag and count
 //
 // WHAT STAYS BEHIND: A STUB TOMBSTONE. Each archived job leaves
 // `{ id, title, jobNumber, deletedAt, lastModifiedAt, archivedAt }` in tasks.json.
@@ -168,6 +168,12 @@ console.log(`   every archived job byte-identical in the archive: ${fail.some(f 
 console.log(`   every stub keeps id, deletedAt and lastModifiedAt: ${fail.some(f => f.startsWith("stub")) ? "NO" : "yes"}`);
 if (fail.length) { console.error(`\nREFUSING:\n  ${fail.join("\n  ")}`); process.exit(3); }
 
+// --expect=N: refuse unless exactly N are due — the count that was reviewed. The cutoff is
+// "30 days before now", so a job can cross it between the dry run and the write.
+const EXPECT = process.argv.find(a => a.startsWith("--expect="));
+if (EXPECT && Number(EXPECT.slice(9)) !== due.length) {
+  console.error(`\nREFUSING: ${due.length} are due, --expect said ${EXPECT.slice(9)}. Re-run the dry run.`); process.exit(3);
+}
 if (!WRITE) { console.log("\nDRY RUN — nothing was written. Re-run with --write."); process.exit(0); }
 if (!due.length) { console.log("\nNothing is due. Not writing."); process.exit(0); }
 
