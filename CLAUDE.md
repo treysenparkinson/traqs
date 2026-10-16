@@ -24,6 +24,27 @@ several items and pushes once.
 - When nothing unpushed is user-facing, say so briefly, so the absence is a
   statement rather than an omission.
 
+## Code rules
+
+These are the rules a change is reviewed against (`/code-review` only enforces
+conventions written in a CLAUDE.md). Each one exists because breaking it shipped a bug.
+
+- Person ids are mixed string/number across web and iOS. Compare them with
+  `sameId` / `onTeam` (TRAQS.jsx), never `===` or `.includes()`.
+- No emoji anywhere in the app UI: code-drawn SVG icons or plain text.
+  `scripts/no-emoji-test.mjs` enforces it.
+- Both overwrite guards on S3 data stay intact: the functions refuse an empty array
+  or object over non-empty data with a 409, and `doSave` waits on `dataLoadedRef`
+  until the first fetch succeeds. Bypassing either one repeats the 2026-06-03
+  empty-tasks incident.
+- Functions build every S3 key from `X-Org-Code` under `orgs/{orgCode}/`. A missing or
+  hardcoded org code reads or writes another tenant's data.
+- An authoritative GET is folded back through `mergeFullSlice` (`src/db/sync.js`);
+  `applySlice` alone lets the IndexedDB copy overwrite fresh server state.
+- iOS (`TRAQS Scheduling/`) can't be built on the Windows machine. The Swift-parity
+  suites in `npm run build` are the only check, so say that instead of reporting iOS
+  as working.
+
 ## Before saying a change is ready
 
 - `npm run build` is the project's build: it runs lint first, then every suite,
