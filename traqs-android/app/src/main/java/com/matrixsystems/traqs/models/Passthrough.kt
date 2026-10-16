@@ -31,8 +31,8 @@ import java.lang.reflect.Modifier
 // A declared field that read fine and was then cleared by the app (a dueDate set to
 // null) is NOT in `extras`, so clearing still works.
 //
-// NOT COMPILED: this machine has no JDK or Android SDK. Checked by source shape in
-// scripts/native-id-status-test.mjs only.
+// COMPILED AND RUN 2026-10-16 (#524): PassthroughAdapterFactoryTest round-trips through the
+// app's own Gson. Its first run found the JsonNull bug noted in read() below.
 
 /** A model that carries the JSON keys it doesn't model, see [PassthroughAdapterFactory]. */
 interface Passthrough {
@@ -55,7 +55,9 @@ object PassthroughAdapterFactory : TypeAdapterFactory {
                 val kept = (value as Passthrough).extras
                 if (tree.isJsonObject && kept != null) {
                     val obj = tree.asJsonObject
-                    for ((k, v) in kept.entrySet()) if (!obj.has(k)) obj.add(k, v)
+                    // `toJsonTree` writes through a tree writer that KEEPS nulls, so a field the
+                    // model could not represent is present here as JsonNull — absent, for this.
+                    for ((k, v) in kept.entrySet()) if (obj.get(k)?.isJsonNull != false) obj.add(k, v)
                 }
                 elements.write(out, tree)
             }
@@ -68,8 +70,11 @@ object PassthroughAdapterFactory : TypeAdapterFactory {
                 // missing from this, but non-null in the input, was unrepresentable.
                 val readBack = delegate.toJsonTree(value).let { if (it.isJsonObject) it.asJsonObject else JsonObject() }
                 val keep = JsonObject()
+                // FOUND BY THE FIRST RUN (#524): readBack comes from `toJsonTree`, whose tree
+                // writer serialises nulls, so an unrepresentable enum ("MTX FAT") reads back as
+                // `"status": null` — present — and was never kept. A JsonNull is absence here.
                 for ((k, v) in el.asJsonObject.entrySet()) {
-                    if (k !in declared || (!v.isJsonNull && !readBack.has(k))) keep.add(k, v)
+                    if (k !in declared || (!v.isJsonNull && readBack.get(k)?.isJsonNull != false)) keep.add(k, v)
                 }
                 if (keep.size() > 0) extrasField.set(value, keep)
                 return value

@@ -430,7 +430,7 @@ private fun computeBlocksFor(
     day: Date,
     jobs: List<TRAQSJob>,
     clients: List<com.matrixsystems.traqs.models.Client>,
-    me: Int?,
+    me: String?,
     settings: OrgSettings,
 ): List<ScheduleBlock> {
     val dayStart = startOfDay(day.time)

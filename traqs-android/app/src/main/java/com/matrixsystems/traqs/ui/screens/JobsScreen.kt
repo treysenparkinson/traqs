@@ -313,7 +313,7 @@ data class TaskAssignment(
 
 private fun computeMyTasks(
     jobs: List<TRAQSJob>,
-    me: Int?,
+    me: String?,
     search: String
 ): List<TaskAssignment> {
     if (me == null) return emptyList()
@@ -420,7 +420,7 @@ internal fun overlapsRange(startStr: String, endStr: String, range: LongRange): 
 
 /// True iff the current user is scheduled to a job anywhere — on the job team,
 /// any panel's team, or any op's team. Mirrors iOS isMineJob.
-private fun isMineJob(job: TRAQSJob, me: Int?): Boolean {
+private fun isMineJob(job: TRAQSJob, me: String?): Boolean {
     if (me == null) return false
     if (me in job.team) return true
     for (panel in job.subs) {
@@ -434,7 +434,7 @@ private fun isMineJob(job: TRAQSJob, me: Int?): Boolean {
 /// `range`. Search filters by title + jobNumber. Mirrors iOS otherJobs.
 private fun computeOtherJobs(
     jobs: List<TRAQSJob>,
-    me: Int?,
+    me: String?,
     range: LongRange,
     search: String,
 ): List<TRAQSJob> {

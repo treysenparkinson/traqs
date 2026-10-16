@@ -22,7 +22,8 @@ private object SafeIntDeserializer : JsonDeserializer<Int> {
         try { json.asInt } catch (_: Exception) { 0 }
 }
 
-private val lenientGson = GsonBuilder()
+// internal, not private: PassthroughAdapterFactoryTest round-trips through THIS instance (#524).
+internal val lenientGson = GsonBuilder()
     .registerTypeAdapter(Int::class.javaObjectType, SafeIntDeserializer) // List<Int> uses boxed Integer
     .registerTypeAdapter(Int::class.java, SafeIntDeserializer)           // standalone Int fields
     // Models implementing Passthrough keep the keys they don't model and write them

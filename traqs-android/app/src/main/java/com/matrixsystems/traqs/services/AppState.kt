@@ -190,7 +190,7 @@ class AppState(private val context: Context) : ViewModel() {
                 // Capture optimistic clock state BEFORE overwriting people so a
                 // fresh fetch can't blank out a clock change the user just made.
                 // 12s grace window matches iOS clockChangeAt.
-                val snap: Triple<Int, ActiveJobClock?, ActiveBreak?>? = run {
+                val snap: Triple<String, ActiveJobClock?, ActiveBreak?>? = run {
                     val pid = currentPersonId ?: return@run null
                     if (System.currentTimeMillis() - clockChangeAt >= 12_000) return@run null
                     val cur = _people.value.firstOrNull { it.id == pid } ?: return@run null

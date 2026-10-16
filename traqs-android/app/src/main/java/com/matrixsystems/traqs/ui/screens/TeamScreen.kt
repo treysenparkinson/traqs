@@ -281,7 +281,6 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
 fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) {
     val c = traQSColors
     val isNew = person == null
-    val maxId = appState.people.value.maxOfOrNull { it.id } ?: 0
     var name by remember { mutableStateOf(person?.name ?: "") }
     var role by remember { mutableStateOf(person?.role ?: "") }
     var email by remember { mutableStateOf(person?.email ?: "") }
@@ -331,7 +330,8 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                 val newPin = pinInput.takeIf { it.length == 4 }
                                 val updated = if (isNew) {
                                     appState.people.value + Person(
-                                        id = maxId + 1, name = name, role = role, email = email,
+                                        // A person id is a string in the web's uid() shape (#442), never max+1.
+                                        id = "t" + UUID.randomUUID().toString().replace("-", "").take(8), name = name, role = role, email = email,
                                         cap = cap, color = selectedColor,
                                         userRole = if (isAdmin) "admin" else "user",
                                         isEngineer = isEngineer,
