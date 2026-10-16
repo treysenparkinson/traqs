@@ -45,7 +45,7 @@ const wrapperSrc = (() => { const a = CUR.indexOf("const setTasks = useCallback(
 // #550: a release opens the confirm modal (setResizeConfirm) instead of writing. `confirm` plays
 // the user's answer: true confirms the landing as dropped (or `editTo`, typed in the modal),
 // false cancels. The modal's own replan / apply are the handler's, so this drives the real path.
-const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {}, escape = false, confirm = true, editTo = null }) => {
+const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {}, escape = false, confirm = true, editTo = null, laterTasks = null }) => {
   let state = tasks0;
   const undoStack = { current: [] }, redoStack = { current: [] }, skipHistory = { current: false }, latestTasksRef = { current: null };
   let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false, lastPreview;
@@ -75,6 +75,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
     planResize: D.planResize, latestTasksRef,
     setResizeConfirm: (rc) => {
       confirms.push(rc);
+      if (laterTasks) latestTasksRef.current = laterTasks;   // a realtime update while the modal is open
       rc.answer = (editTo ? rc.replan(editTo.day, editTo.hour) : rc.replan(rc.edge.day, rc.edge.hour));
       rc.preview(rc.answer.plan ? rc.answer : null);
       rc.previewDuring = lastPreview;
@@ -159,6 +160,9 @@ console.log("1d. #550 — Cancel in the confirm writes nothing; an edited time i
   check("edited into someone's work: the modal shows the refusal, nothing written", () => eq([!!into.confirms[0].answer.refusal, into.writes], [true, 0]));
   // Typed before the fixed start: no landing at all.
   const back = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B), editTo: { day: "2026-10-05", hour: 8 } });
+  // B arrives by realtime AFTER the drag started; the modal's re-check must see it.
+  const rt = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A), laterTasks: tree(A, B), editTo: { day: "2026-10-05", hour: 15 } });
+  check("work that arrived while the modal was open still refuses the edit", () => eq([!!rt.confirms[0].answer.refusal, rt.writes], [true, 0]));
   check("edited end at or before the start: an error, no plan, nothing written", () => eq([!!back.confirms[0].answer.error, back.confirms[0].answer.plan, back.writes], [true, undefined, 0]));
 }
 
@@ -227,7 +231,10 @@ console.log("1e. #550 — the confirm modal itself (ResizeConfirm)");
     /const close = \(ok\) => \{ rc\.preview\(null\); if \(ok && canConfirm\) rc\.apply\(r\.plan\); onClose\(\); \};/.test(body)
     && (body.match(/close\(false\)/g) || []).length === 2 && /closeRef\.current\(false\)/.test(body) && (body.match(/close\(true\)/g) || []).length === 1);
   check("every edit re-lands through the handler's replan", () => /return rc\.replan\(edge\.day, edge\.hour\);/.test(body));
-  check("non-work days and out-of-hours times are caught before replanning", () => /rc\.isWorkDay\(edge\.day\)/.test(body) && /edge\.hour < rc\.workStartH \|\| edge\.hour > rc\.workEndH/.test(body));
+  check("non-work days and out-of-range times are caught before replanning", () => /rc\.isWorkDay\(edge\.day\)/.test(body) && /const lo = rc\.minHour \?\? rc\.workStartH, hi = rc\.maxHour \?\? rc\.workEndH;/.test(body) && /edge\.hour < lo \|\| edge\.hour > hi/.test(body));
+  check("the day view allows its whole grid (DHS–DHE), as its drag does", () => /minHour: DHS, maxHour: DHE/.test(RC));
+  check("unmounting the modal any way clears the bar's preview", () => /useEffect\(\(\) => \(\) => rc\.preview\(null\), \[rc\]\);/.test(body));
+  check("Esc goes to an open date picker first", () => /e\.key === "Escape" && !document\.querySelector\("\.anim-ctx"\)/.test(body));
   check("before / after rows for start, end and hours; the dragged edge is the editable one", () =>
     /row\("Starts".*rc\.side === "left" \? editor : null\)/.test(body) && /row\("Ends".*rc\.side === "right" \? editor : null\)/.test(body) && /row\("Hours"/.test(body));
 }

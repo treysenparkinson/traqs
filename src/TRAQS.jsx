@@ -15778,7 +15778,8 @@ ${jobsCtx || "No jobs found."}`;
           grabbed: { id: barTask.id, node: barTask, fromDay: from.day, fromHour: from.hour, shareH: share, hpd: Math.round(share * _teamSize * 100) / 100, isRecord: !!meta.isRecord },
           drop: from, origPerson: fromPersonId, dropPerson: fromPersonId, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH }) };
       };
-      const _refuse = (plan) => refuseDragMove(plan, { ..._refuseCtx, nowDay: shopDay(), nowHour: shopHour() });
+      // tasks: the latest, so the resize confirm's re-checks see realtime changes (#550).
+      const _refuse = (plan) => refuseDragMove(plan, { ..._refuseCtx, tasks: latestTasksRef.current || tasks, nowDay: shopDay(), nowHour: shopHour() });
       const onM = me => {
         const dx = me.clientX - sx;
         if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
@@ -15843,7 +15844,8 @@ ${jobsCtx || "No jobs found."}`;
           key: `${barTask.id}-${++resizeConfirmSeq}`, title: barTask.title || "", who: people.find(x => sameId(x.id, fromPersonId))?.name || "", side: mode,
           before: { start: paintedStart.day, startHour: paintedStart.hour, end: paintedEnd.day, endHour: paintedEnd.hour, hpd: barTask.hpd ?? null },
           edge: mode === "left" ? { day: t0.start, hour: t0.startHour } : { day: t0.end, hour: t0.endHour },
-          workStartH, workEndH, isWorkDay: d => _dayIsWork(d),
+          // The day grid runs past the work window (DHS–DHE) and a drag may land there, so may an edit.
+          workStartH, workEndH, minHour: DHS, maxHour: DHE, isWorkDay: d => _dayIsWork(d),
           replan: (d, hour) => {
             const r = planResize({ side: mode, node: barTask, teamSize: _teamSize, paintedStart, paintedEnd, day: d, hour, cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: _cal, workStartH, workEndH, origPerson: fromPersonId, isRecord: !!meta.isRecord });
             if (!r) return { error: mode === "left" ? "The start has to stay before the end." : "The end has to stay after the start." };
@@ -17507,7 +17509,8 @@ ${jobsCtx || "No jobs found."}`;
                       isOverdue: () => false,
                       timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
                       nowDay: shopDay(), nowHour: shopHour(), business: billingTier === "business",
-                      tasks, overlapCtx, people,
+                      // Latest, not the drag's start: the confirm modal re-runs this while realtime lands.
+                      tasks: latestTasksRef.current || tasks, overlapCtx, people,
                     });
                     const _refused = (r) => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
                       title: r.kind === "past" ? "Can't schedule in the past" : "Can't resize here",
@@ -32180,15 +32183,19 @@ function ResizeConfirm({ rc, onClose }) {
   const r = useMemo(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(edge.day || "")) return { error: "Pick a date." };
     if (!rc.isWorkDay(edge.day)) return { error: "That isn't a work day." };
-    if (edge.hour < rc.workStartH || edge.hour > rc.workEndH) return { error: `Pick a time between ${hhmm(rc.workStartH)} and ${hhmm(rc.workEndH)}.` };
+    const lo = rc.minHour ?? rc.workStartH, hi = rc.maxHour ?? rc.workEndH;
+    if (edge.hour < lo || edge.hour > hi) return { error: `Pick a time between ${hhmm(lo)} and ${hhmm(hi)}.` };
     return rc.replan(edge.day, edge.hour);
   }, [rc, edge]);
   useEffect(() => { rc.preview(r.plan ? r : null); }, [rc, r]);
+  // However the modal goes away, the bar stops previewing a landing nobody confirmed.
+  useEffect(() => () => rc.preview(null), [rc]);
   const canConfirm = !!r.plan && !r.error && !r.refusal;
   const close = (ok) => { rc.preview(null); if (ok && canConfirm) rc.apply(r.plan); onClose(); };
   const closeRef = useRef(close); closeRef.current = close;
   useEffect(() => {
-    const k = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeRef.current(false); } };
+    // An open date picker (its popup is .anim-ctx) takes Esc first; the modal closes on the next.
+    const k = (e) => { if (e.key === "Escape" && !document.querySelector(".anim-ctx")) { e.preventDefault(); e.stopPropagation(); closeRef.current(false); } };
     document.addEventListener("keydown", k, true);
     return () => document.removeEventListener("keydown", k, true);
   }, []);
