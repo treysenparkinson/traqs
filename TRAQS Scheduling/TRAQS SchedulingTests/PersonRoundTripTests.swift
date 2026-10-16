@@ -79,6 +79,19 @@ struct PersonRoundTripTests {
         #expect(perms["approveCompletions"] == nil)
     }
 
+    // #149 — the web can only start giving time-off entries ids once a native roster
+    // save carries them back. `id` is the risky key: the Swift type has a COMPUTED `id`
+    // (Identifiable), so a model that named it would read the span and write that.
+    @Test("#149 a time-off entry's stored id survives a roster save, and is its identity")
+    func timeOffIdSurvives() throws {
+        let json = #"[{"id":"7","name":"W","role":"","timeOff":[{"id":"to_a","start":"2026-11-02","end":"2026-11-02","type":"PTO"},{"id":"to_b","start":"2026-11-02","end":"2026-11-02","type":"PTO"},{"start":"2026-12-01","end":"2026-12-02","type":"UTO"}]}]"#
+        let p = try #require(try JSONDecoder().decode([Person].self, from: Data(json.utf8)).first)
+        #expect(p.timeOff.map(\.id) == ["to_a", "to_b", "2026-12-01-2026-12-02-UTO"])
+        let out = try #require(Self.encode(p)["timeOff"] as? [[String: Any]])
+        #expect(out.map { $0["id"] as? String } == ["to_a", "to_b", nil])
+        #expect(out.first?["start"] as? String == "2026-11-02")
+    }
+
     @Test("a PTO entry keeps the fields iOS doesn't model")
     func timeOffEntrySurvives() throws {
         let off = try #require((try Self.encode(Self.decode())["timeOff"] as? [[String: Any]])?.first)

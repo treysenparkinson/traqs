@@ -856,7 +856,16 @@ struct AdminPerms: Codable, Equatable {
 // MARK: - Time Off
 
 struct TimeOffEntry: Codable, Identifiable {
-    var id: String { "\(start)-\(end)-\(type)" }
+    /// #149 — the entry's stored `id` when it has one, else its span. Entries are
+    /// addressed by array index on the web today; giving them ids needs every native
+    /// roster save to carry the key back, which the `extras` passthrough below does
+    /// (held by PersonRoundTripTests). Not modelled as a property on purpose: iOS
+    /// never mints or edits entries, so the id only has to survive, and a span key
+    /// stays the fallback for the entries that predate it.
+    var id: String {
+        let stored = extras.text("id")
+        return stored.isEmpty ? "\(start)-\(end)-\(type)" : stored
+    }
     var start: String
     var end: String
     var type: String   // "PTO" | "UTO"
