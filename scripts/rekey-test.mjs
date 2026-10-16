@@ -71,8 +71,8 @@ eq("another org's keys are left alone",
   rewriteOrgRefs([{ key: att("OTHERORG", "z") }], OLD, NEW).changed, 0);
 eq("a file with nothing to do reports zero rather than failing",
   rewriteOrgRefs([{ id: "x" }], OLD, NEW).changed, 0);
-eq("both ref-bearing files are named explicitly",
-  REF_BEARING_FILES, ["messages.json", "tasks.json"]);
+eq("every ref-bearing file is named explicitly, the #473 archive included",
+  REF_BEARING_FILES, ["messages.json", "tasks.json", "tasks-archive.json"]);
 
 // ── the acceptance check ─────────────────────────────────────────────────
 // A bucket that contains only the NEW prefix — i.e. the old one has been

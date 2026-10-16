@@ -96,4 +96,5 @@ export async function verifyRefsResolve(refs, exists) {
 // Files whose contents are known to embed org-prefixed keys. Listed explicitly
 // rather than "every json file" so that adding a new one is a decision someone
 // makes, not something a migration silently starts depending on.
-export const REF_BEARING_FILES = ["messages.json", "tasks.json"];
+// tasks-archive.json (#473) holds whole archived jobs, attachments included.
+export const REF_BEARING_FILES = ["messages.json", "tasks.json", "tasks-archive.json"];
