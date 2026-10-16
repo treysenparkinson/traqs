@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
+import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -4297,7 +4297,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // Same accent, roughly two thirds the alpha, so it still separates the button
     // from the card without carrying far enough to meet the card's own rim.
     document.documentElement.style.setProperty("--tq-glow-ring-soft", `${a}2e`);
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} } .tq-pill:hover .grip { opacity: 1 !important; }`;
   }, [T.accent]);
   // Solid chrome color + the translucent tint used by opt-in `.tq-frost` content (job-list sections).
   useEffect(() => {
@@ -16855,11 +16855,10 @@ ${jobsCtx || "No jobs found."}`;
                   // into a stack covering it completely, and since they stopPropagation
                   // every mousedown resized — there was no move target at all.
                   //
-                  // A third of the bar per handle keeps a third free to drag in at any
-                  // zoom, so resizing a 1h job works as soon as you zoom in enough to
-                  // see it: ~6.7px handles at week zoom, the full 10px once a bar is
-                  // 30px or wider. Below 12px there is nothing meaningful to divide
-                  // into three, so those bars are move-only until you zoom in.
+                  // #550 replaced the third-of-the-bar handles: on a 30px pill they were
+                  // two-thirds of it, so moving a pill sideways kept resizing it instead.
+                  // Now a fixed 6px grip, only on bars 36px or wider (resizeGripPx); a
+                  // narrower op bar is move-only until you zoom in. PTO keeps the old rule.
                   // Measured after the floor below, since that is what actually gets
                   // painted and therefore what there is to grab. The floor is 2px, not
                   // 10: a 10px minimum made a 30-minute first day render WIDER than the
@@ -16867,8 +16866,8 @@ ${jobsCtx || "No jobs found."}`;
                   // supposed to communicate. Width is duration; 2px only stops a sliver
                   // rounding away to nothing.
                   const _renderPx = _wFirst > 0 ? Math.max(_barPx, 2) : 0;
-                  const _handleW = Math.max(3, Math.min(10, _renderPx / 3));
-                  const _isNarrowBar = bar.type !== "pto" && _renderPx < 12;
+                  const _handleW = resizeGripPx(_renderPx, { pto: bar.type === "pto" });
+                  const _isNarrowBar = _handleW === 0;
                   // 1px border instead of 1.5: on a 10px bar the heavier border was
                   // most of the bar, which is what made short jobs read as chunky
                   // blobs rather than short bars.
@@ -17867,7 +17866,7 @@ ${jobsCtx || "No jobs found."}`;
                     _loggedH > 0 ? _loggedH.toFixed(1) + "h logged" : null,
                     _loggedH > 0 ? Math.max(0, Math.round((_estPerPerson - _loggedH) * 10) / 10) + "h left" : null,
                   ].filter(Boolean).join("  ·  ");
-                  return [<div key={barKey}
+                  return [<div key={barKey} className="tq-pill"
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-bar-dim={isPto ? undefined : "1"} data-pid={hoverJobKey(bar) ?? undefined} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -17940,6 +17939,8 @@ ${jobsCtx || "No jobs found."}`;
                     // is just enough to guarantee it survives rounding to a real pixel.
                     const _tailPx = Math.max((_tailWNum / 100) * nDays * cW, 2);
                     const isPto2 = bar.type === "pto";
+                    // #550: the same fixed grip as the head. PTO keeps its old rule (12px and up).
+                    const _tailGripW = isPto2 ? (_tailPx >= 12 ? resizeGripPx(_tailPx, { pto: true }) : 0) : resizeGripPx(_tailPx);
                     const bc2 = bar.color;
                     // A tail covers a DIFFERENT span from its parent, so the parent's percentages
                     // put both boundaries in the wrong place on it -- which is why tails rendered
@@ -17958,7 +17959,7 @@ ${jobsCtx || "No jobs found."}`;
                     const _tailTitle = barTextStyle(barGrounds(T, bc2, { ..._tailGroundArgs, side: "label" }));
                     const _tailHoursInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "right" }));
                     const _tailMarkInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "left" }));
-                    return <div key={bar.id + "_t" + si + "_" + seg.start} data-bar-dim={isPto2 ? undefined : "1"} data-pid={hoverJobKey(bar) ?? undefined}
+                    return <div key={bar.id + "_t" + si + "_" + seg.start} className="tq-pill" data-bar-dim={isPto2 ? undefined : "1"} data-pid={hoverJobKey(bar) ?? undefined}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: _tailLane.top, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: _tailLane.height, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
@@ -17967,7 +17968,7 @@ ${jobsCtx || "No jobs found."}`;
                           continuation could hold the title while the lock, the dep link and the badge stayed
                           behind on a head that might be off-screen (#100). */}
                       {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && _furniture(_tailMarkInk, _tailTitle.color, _tailTitle.textShadow, _tailHoursInk)}
-                      {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _tailHoursInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
+                      {isLastSeg && _tailGripW > 0 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _tailGripW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _tailHoursInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     </div>;
                   })];
                 })}

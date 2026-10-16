@@ -374,6 +374,22 @@ export function refusalMessage(r) {
 }
 
 /**
+ * How wide a week/month bar's resize grip is, in px; 0 means the bar has none (#550).
+ *
+ * A fixed strip, and only on a bar wide enough that two-thirds of it is still for MOVING. The
+ * grip used to be a third of the bar (up to 10px) on anything 12px or wider, so a 30px pill was
+ * two-thirds grip and a sideways move near either end resized the op instead — rewriting its
+ * hours and saving without a word. Ruled 2026-10-16: 6px, from 36px up.
+ *
+ * PTO keeps the old widths. Its resize is a separate path and was not the complaint.
+ */
+export const GRIP_PX = 6, GRIP_MIN_BAR_PX = 36;
+export function resizeGripPx(renderPx, { pto = false } = {}) {
+  if (pto) return Math.max(3, Math.min(10, renderPx / 3));
+  return renderPx >= GRIP_MIN_BAR_PX ? GRIP_PX : 0;
+}
+
+/**
  * A week/month RESIZE as a session (root cause 7 C: #31 #32 #33).
  *
  * move() only PREVIEWS — it plans the landing and hands it to onPreview; nothing is written,
