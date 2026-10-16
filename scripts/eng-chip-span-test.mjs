@@ -12,7 +12,9 @@
 //   node scripts/eng-chip-span-test.mjs
 
 import { readFileSync } from "node:fs";
-import { chipSpanPct } from "../src/statsMath.js";
+import { chipSpanPct, engChipWindow } from "../src/statsMath.js";
+import { setOrgStatuses } from "../src/statusMeaning.js";
+if (typeof engChipWindow !== "function") { console.error("engChipWindow is not exported"); process.exit(2); }
 
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
@@ -38,7 +40,31 @@ const code = S.replace(/^\s*\/\/.*$/gm, "");
 const bAt = code.indexOf("if (person && person.isEngineer) {");
 const builder = code.slice(bAt, code.indexOf("bars.sort(", bAt));
 ok("#109 the chip builder no longer looks for an op titled Wire", !/title === "Wire"/.test(builder));
-ok("#109 ...and carries the panel's window", /start: panel\.start/.test(builder) && /chipEnd = panel\.end/.test(builder) && /end: chipEnd/.test(builder));
+// R5: this pinned the builder's spelling (`chipEnd = panel.end`); #108 moved the window into
+// engChipWindow, so the window is now asserted by RUNNING it, and the builder by calling it.
+const ENG = { designed: true, verified: true, sentToPerforex: true };
+const W = (p) => engChipWindow({ engineering: ENG, status: "In Progress", ...p }, DAYS[0], DAYS[6]);
+ok("#109 the chip's window is the panel's start..end", JSON.stringify(W({ start: "2026-10-13", end: "2026-10-15" })) === JSON.stringify({ start: "2026-10-13", end: "2026-10-15" }));
+ok("#109 ...an end before the start collapses to the start day", JSON.stringify(W({ start: "2026-10-13", end: "2026-10-01" })) === JSON.stringify({ start: "2026-10-13", end: "2026-10-13" }));
+ok("#107 no start, no chip", W({ start: null, end: null }) === null);
+ok("a panel outside the window has no chip", W({ start: "2026-09-01", end: "2026-09-05" }) === null);
+ok("a panel with no engineering record is not a panel job — no chip",
+  engChipWindow({ status: "In Progress", start: "2026-10-13", end: "2026-10-15" }, DAYS[0], DAYS[6]) === null);
+ok("#109 the builder takes its window from engChipWindow", /engChipWindow\(panel, _winS, _winE\)/.test(builder));
+
+// #108, ruled 2026-10-16: "the chip goes when the PANEL finishes, not when the last step is
+// signed off" — so an all-done chip stays while the panel is live (#109) and leaves with it.
+setOrgStatuses(null);
+ok("#108 all three steps signed off, panel still live: the chip STAYS", W({ start: "2026-10-13", end: "2026-10-15" }) !== null);
+ok("#108 the panel is Finished: the chip goes", W({ start: "2026-10-13", end: "2026-10-15", status: "Finished" }) === null);
+ok("#108 ...a finished panel mid-steps goes too (it is the panel, not the steps)",
+  engChipWindow({ engineering: { designed: true }, status: "Finished", start: "2026-10-13", end: "2026-10-15" }, DAYS[0], DAYS[6]) === null);
+setOrgStatuses([{ name: "Complete", isFinished: true }, { name: "Finished" }, { name: "In Progress", isActive: true }]);
+ok("#108 'finished' is the ORG's meaning: a renamed finished status removes it",
+  W({ start: "2026-10-13", end: "2026-10-15", status: "Complete" }) === null);
+ok("#108 ...and a 'Finished' the org no longer flags leaves it on",
+  W({ start: "2026-10-13", end: "2026-10-15", status: "Finished" }) !== null);
+setOrgStatuses(null);
 const cAt = code.indexOf('if (bar.type === "eng-chip") {');
 const chip = code.slice(cAt, code.indexOf("</div>;", cAt));
 ok("#109 the chip is positioned by chipSpanPct", /chipSpanPct\(/.test(chip));

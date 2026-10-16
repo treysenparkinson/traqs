@@ -1991,6 +1991,23 @@ export function nowColumnFrac({ nowHour, workStartH, totalWorkH }) {
   return Math.min(1, Math.max(0, (nowHour - workStartH) / totalWorkH));
 }
 
+// WHETHER A PANEL HAS AN ENGINEERING CHIP, AND OVER WHICH DAYS. Null when it has none:
+//   - not a panel job (no `engineering` record);
+//   - the PANEL IS FINISHED (#108, ruled 2026-10-16 — "the chip goes when the PANEL finishes,
+//     not when the last step is signed off"). An all-done chip stays while the panel is live,
+//     which is #109's reading of what a sign-off applies to. "Finished" is the org's meaning
+//     (isFinished), so a renamed finished status removes it too;
+//   - no start (nothing to span — #107), or wholly outside [winS, winE].
+// The end is the panel's, or its start when it has none or ends before it.
+export function engChipWindow(panel, winS, winE) {
+  if (!panel || panel.engineering === undefined) return null;
+  if (isFinished(panel.status)) return null;
+  if (!panel.start) return null;
+  const end = panel.end && panel.end >= panel.start ? panel.end : panel.start;
+  if (end < winS || panel.start > winE) return null;
+  return { start: panel.start, end };
+}
+
 // WHERE AN ENGINEERING CHIP SITS: across its panel's window, in day columns (#109, ruled —
 // "a sign-off applies to the panel for as long as the panel is live, so a span is truer than a
 // date"). `days` is the visible columns in order. Clamped to the window at both edges; null

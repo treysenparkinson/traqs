@@ -44,7 +44,7 @@ import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalize
 import { canClearThread } from "./threadClear.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, outsideLabelOffset, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, engChipWindow, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, outsideLabelOffset, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -15742,21 +15742,18 @@ ${jobsCtx || "No jobs found."}`;
       if (person && person.isEngineer) {
         tasks.forEach(job => {
           (job.subs || []).forEach(panel => {
-            if (panel.engineering === undefined) return; // not a panel job
+            // #109, ruled: the chip SPANS THE PANEL'S WINDOW — a sign-off applies to the panel
+            // for as long as it is live. #108, ruled: so it LEAVES when the panel finishes, not
+            // when the last step is signed off. engChipWindow decides both, and #107's no-start.
+            const chipWin = engChipWindow(panel, _winS, _winE);
+            if (!chipWin) return;
             const e = panel.engineering || {};
             const allDone = !!(e.designed && e.verified && e.sentToPerforex);
-            // #109, ruled: the chip SPANS THE PANEL'S WINDOW — a sign-off applies to the panel
-            // for as long as it is live. It used to sit on one day, the start of the op titled
-            // "Wire" (a display title doing a data job). The panel's dates are its ops' rolled
-            // up. No start, no window, no chip — which also ends #107's NaN position.
-            if (!panel.start) return;
-            const chipEnd = panel.end && panel.end >= panel.start ? panel.end : panel.start;
-            if (chipEnd < _winS || panel.start > _winE) return;
             const activeStep = !e.designed ? "Designed" : !e.verified ? "Verified" : "Perforex";
             bars.push({
               type: "eng-chip",
               id: `eng-${job.id}-${panel.id}`,
-              start: panel.start, end: chipEnd,
+              start: chipWin.start, end: chipWin.end,
               title: `${panel.title} · ${activeStep}`,
               color: allDone ? "#10b981" : "#3b82f6",
               allDone,
