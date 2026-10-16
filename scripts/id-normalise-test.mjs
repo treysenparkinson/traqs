@@ -12,6 +12,9 @@
 import { register } from "module";
 register("./itest-loader-real-timestamps.mjs", import.meta.url);   // real stamping: the like-with-like case is about re-stamps
 const { stringifyTeams } = await import("../netlify/functions/_utils/normalize-ids.js");
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 
 let pass = 0, fail = 0;
 const ok = (label, got, want) => {

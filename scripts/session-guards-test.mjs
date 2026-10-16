@@ -12,6 +12,9 @@
 // Refusals, pins and caps happen only in enforce; log records what would have.
 import { register } from "module";
 register("./timeclock-itest-loader.mjs", import.meta.url);
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 
 let tc, peopleFn;
 try {

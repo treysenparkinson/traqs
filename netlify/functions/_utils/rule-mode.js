@@ -19,6 +19,10 @@
 //    which is exactly how this one nearly took /clients down with it.)
 //   IDENTITY_PROVIDER_MODE — the org's identity-provider allowlist, checked in
 //                         requireOrgMember (tag `identity-provider`)
+//   TIER_RULES_MODE     — the Business tier line on a Basic org (#125, _utils/tier-rules.js):
+//                         job-layer work on /tasks and the job clock's four actions
+//                         (tag `tier-rule`). Built 2026-10-16 to run in log; in enforce
+//                         only /tasks and jobClockIn refuse.
 //
 // Values: off | log | enforce. Unset or unrecognised means log. Read per call,
 // so a change to the Netlify env takes effect on the next deploy without code.

@@ -191,9 +191,15 @@ Sorted by whether a server could refuse the payload:
   overlap rule, is already gated.
 - **The view guard.** Navigation over data the org already owns.
 
-`TIER_RULES_MODE` is still **not built** — `log` by default, tier read server-side from
-`billing.json` and never from the client, recording to `rule-events.json` under a `tier-rule` tag,
-per `org.js:264`. Enforcing a tier against live customer data is a product call.
+`TIER_RULES_MODE` is **built, in log (2026-10-16)** — `netlify/functions/_utils/tier-rules.js`. The
+tier is read server-side from `billing.json` (absent = Basic), never from the client, and each event
+goes to `rule-events.json` under the `tier-rule` tag. Two rules, the two above that a payload can
+show: **job-layer** on `/tasks` (a new or changed job that is `jobType: "panel"` or nests
+job → panel → op; unchanged old data and tombstones are not reported) and **job-clock** on
+`jobClockIn`, `jobClockOut`, `updateJobSession`, `releaseJobSession`. In `enforce` only `/tasks`
+and `jobClockIn` refuse — the other three end or correct a running session and refusing them would
+strand someone on the clock. Departments, approval templates and Clients are not covered yet.
+Enforcing a tier against live customer data is a product call; read the `tier-rule` records first.
 
 ---
 

@@ -27,6 +27,9 @@ import { register } from "module";
 // changedIds to [] so no content difference is ever seen, and the conflict
 // assertions below would pass by never detecting anything.
 register("./itest-loader-real-timestamps.mjs", import.meta.url);
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 
 let tasksFn;
 try { tasksFn = (await import(new URL("../netlify/functions/tasks.js", import.meta.url).href)).handler; }

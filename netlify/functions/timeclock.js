@@ -8,6 +8,7 @@ import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../
 import { openRequest, resolveRequest, pendingFinishOf } from "../../src/finishRequests.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { recordRuleEvents } from "./_utils/rule-log.js";
+import { orgTier, BUSINESS, JOB_CLOCK_ACTIONS, JOB_CLOCK_REFUSABLE } from "./_utils/tier-rules.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
@@ -693,6 +694,21 @@ export async function handler(event) {
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
 
     const { action } = body;
+
+    // #125. The job clock is Business. On a Basic org each of its four actions is recorded
+    // under `tier-rule` (TIER_RULES_MODE, default log); in enforce only CLOCK-IN is refused,
+    // because refusing the other three would strand someone already on the clock. Called
+    // AFTER each action authenticates, so an anonymous request cannot write a rule event.
+    const jobClockTierCheck = async (member) => {
+      if (!JOB_CLOCK_ACTIONS.has(action)) return null;
+      const mode = ruleMode("TIER_RULES_MODE");
+      if (mode === "off" || (await orgTier(orgCode)) === BUSINESS) return null;
+      const refused = mode === "enforce" && JOB_CLOCK_REFUSABLE.has(action);
+      const who = { personId: member?.personId ?? null, isAdmin: !!member?.isAdmin, email: member?.email ?? null };
+      logRule("tier-rule", { mode, rule: "job-clock", action, refused, ...who });
+      await recordRuleEvents(orgCode, [{ tag: "tier-rule", mode, refused, rule: "job-clock", action }], who);
+      return refused ? err(403, "The job clock is part of the Business plan.") : null;
+    };
     if (!action) return err(400, "Missing action");
 
     // Every `date` stamped below is the SHOP's calendar day, not the UTC one.
@@ -1330,6 +1346,7 @@ export async function handler(event) {
     if (action === "jobClockIn") {
       let _jc;
       try { _jc = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      { const tierRefusal = await jobClockTierCheck(_jc); if (tierRefusal) return tierRefusal; }
 
       const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId: jciSessionId, reservoirOpId: jciReservoirOpId, sessionSnapshot: jciSessionSnapshot } = body;
       if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
@@ -1458,6 +1475,7 @@ export async function handler(event) {
       const jcoStatuses = await getOrgStatuses();
       let _jco;
       try { _jco = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      { const tierRefusal = await jobClockTierCheck(_jco); if (tierRefusal) return tierRefusal; }
 
       const { personId: jcoPId } = body;
       if (!jcoPId) return err(400, "Missing personId");
@@ -1674,6 +1692,7 @@ export async function handler(event) {
     if (action === "updateJobSession") {
       let _ujs;
       try { _ujs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      { const tierRefusal = await jobClockTierCheck(_ujs); if (tierRefusal) return tierRefusal; }
 
       const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs, pausedMsAtCheckpoint: ujsPausedMsAtCp, unclosedAt: ujsUnclosedAt } = body;
       if (!ujsPId) return err(400, "Missing personId");
@@ -2010,6 +2029,7 @@ export async function handler(event) {
     if (action === "releaseJobSession") {
       let _rjs;
       try { _rjs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      { const tierRefusal = await jobClockTierCheck(_rjs); if (tierRefusal) return tierRefusal; }
 
       const { personId: rjsPId, sessionId: rjsSessionId, outcome } = body;
       if (!rjsPId) return err(400, "Missing personId");

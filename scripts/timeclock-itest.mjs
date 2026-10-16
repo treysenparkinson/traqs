@@ -9,6 +9,9 @@
 // pause arithmetic and the walk-back, which are easy to break from either side.
 import { register } from "module";
 register("./timeclock-itest-loader.mjs", import.meta.url);
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 const { handler } = await import(new URL("../netlify/functions/timeclock.js", import.meta.url).href);
 
 const K = {

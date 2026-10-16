@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { recordRuleEvents, diffFields } from "./_utils/rule-log.js";
+import { orgTier, BUSINESS, jobLayerViolations } from "./_utils/tier-rules.js";
 import { pendingFinishOf } from "../../src/finishRequests.js";
 import { classifyTaskActions } from "../../src/taskActions.js";
 import { readJson } from "./_utils/s3.js";
@@ -80,11 +81,13 @@ export async function handler(event) {
       // One overlap rule (src/overlapRules.js), Business only — Basic allows a double-booked
       // shift by design. Its own switch, so it can be enforced independently of the rest.
       let overlapMode = ruleMode("OVERLAP_RULE_MODE");
-      if (overlapMode !== "off") {
-        let billing = null;
-        try { billing = await readJson(`orgs/${orgCode}/billing.json`); } catch { billing = null; }
-        if ((billing?.tier || "basic") !== "business") overlapMode = "off";
-      }
+      // #125. The tier line, server-side: on a Basic org, a write that creates or changes
+      // job-layer work (a panel job, or job → panel → op nesting) is recorded under
+      // `tier-rule` — refused only in enforce. The tier is read here, never from the client.
+      const tierMode = ruleMode("TIER_RULES_MODE");
+      const tier = (overlapMode !== "off" || tierMode !== "off") ? await orgTier(orgCode) : null;
+      if (overlapMode !== "off" && tier !== BUSINESS) overlapMode = "off";
+      const tierRulesApply = tierMode !== "off" && tier !== BUSINESS;
       let rulePeople = [], ruleSettings = null;
       if (rulesMode !== "off" || overlapMode !== "off") {
         try { rulePeople = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { rulePeople = []; }
@@ -111,7 +114,7 @@ export async function handler(event) {
         // already on disk read as an edit on every save: re-stamped, logged as a conflict, and
         // refusable in enforce, over a type difference nobody made.
         const existing = Array.isArray(stored) ? stringifyTeams(stored) : stored;
-        attempt = { conflicts: [], violations: [], hpdDefaults: [], overlaps: [], counterKeeps: [] };
+        attempt = { conflicts: [], violations: [], hpdDefaults: [], overlaps: [], counterKeeps: [], tierViolations: [] };
 
         // THE EMPTY-TASKS GUARD MOVED FROM SHAPE TO INTENT (#339) — see
         // _utils/write-guard.js for the reasoning and the three properties the
@@ -247,6 +250,15 @@ export async function handler(event) {
         }
 
         // ── Overlap: a person doing two things at once, on units this write changed ──
+        if (tierRulesApply) {
+          // Against the RAW incoming jobs: a job-layer shape is the client's, whatever the
+          // guards above repaired.
+          attempt.tierViolations = jobLayerViolations(tasks, existing);
+          if (tierMode === "enforce" && attempt.tierViolations.length) {
+            return { abort: json(403, { error: "Jobs, panels and operations are part of the Business plan.",
+              tierRule: "job-layer", jobIds: attempt.tierViolations.map(v => v.jobId) }) };
+          }
+        }
         if (overlapMode !== "off") {
           const octx = overlapContext(ruleSettings || {}, localDay(new Date(), ruleSettings?.timeZone || null));
           attempt.overlaps = overlapViolations(incoming, prev, octx);
@@ -321,6 +333,11 @@ export async function handler(event) {
         // keeping is WHICH client is doing it: the point of #301 is to find the build that
         // decodes a missing hpd as 7.5, and the User-Agent is the only thing that names it.
         durable.push({ tag: "hpd-default-write", mode: null, refused: false, id, userAgent: ua });
+      }
+      for (const v of attempt.tierViolations || []) {
+        logRule("tier-rule", { mode: tierMode, rule: "job-layer", reason: v.reason, jobId: v.jobId, isNew: v.isNew, ...who });
+        durable.push({ tag: "tier-rule", mode: tierMode, refused: tierMode === "enforce",
+          rule: "job-layer", reason: v.reason, jobId: v.jobId, isNew: v.isNew });
       }
       for (const v of attempt.overlaps) {
         logRule("schedule-rule", { mode: overlapMode, rule: v.rule, id: v.id, jobId: v.jobId, withId: v.withId, personId: v.personId, day: v.day, detail: v.detail, by: who.personId, isAdmin: who.isAdmin });

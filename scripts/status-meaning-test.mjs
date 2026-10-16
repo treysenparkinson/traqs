@@ -19,6 +19,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as M from "../src/statusMeaning.js";
 import { statusLiteralViolations } from "../src/statusText.js";
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 
 let pass = 0, fail = 0;
 const ok = (label, got, want) => {

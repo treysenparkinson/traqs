@@ -31,6 +31,9 @@
 import { register } from "module";
 import { readFileSync } from "node:fs";
 register("./itest-loader-real-timestamps.mjs", import.meta.url);
+// #125: pinned, never inherited (#529) — the tier rule is tier-rules-test's, and here it would
+// add rule events this suite does not expect, or refuse its Basic test org in enforce.
+process.env.TIER_RULES_MODE = "off";
 const { handler } = await import(new URL("../netlify/functions/timeclock.js", import.meta.url).href);
 const { can, PERM_KEYS } = await import(new URL("../netlify/functions/_utils/can.js", import.meta.url).href);
 
