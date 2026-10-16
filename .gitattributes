@@ -14,3 +14,7 @@
 # braces, because the failure is silent in one direction and misleading in the
 # other.
 fixtures/*.json text eol=lf
+
+# Git hooks are run by sh, which reads a CRLF line as a command ending in "\r".
+# The copy in scripts/git-hooks/ is what gets installed, so it stays LF on checkout.
+scripts/git-hooks/* text eol=lf
