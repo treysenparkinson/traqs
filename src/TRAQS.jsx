@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx, resizeNotice } from "./dragMove.js";
+import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx, resizeNotice, undoResizePlan } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -7916,6 +7916,25 @@ Extraction rules:
     setResizeNote({ ...n, key: `${Date.now()}-${Math.random()}`, plan, side });
     holdResizeNote(6000);
   }, [holdResizeNote]);
+  // The notice's Undo: that resize only, and only while the op still looks as it left it
+  // (undoResizePlan). Anything since — a move, a new estimate, another user's edit to it — and
+  // the button is gone, because restoring would wipe that out. Same right as the resize (C4).
+  const _noteUndo = resizeNote && can("moveJobs") ? undoResizePlan(tasks, resizeNote.plan) : null;
+  const undoResizeNote = () => {
+    const note = resizeNote;
+    if (!note) return;
+    if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
+    const rev0 = undoResizePlan(tasks, note.plan);
+    holdResizeNote(0); setResizeNote(null);
+    if (!rev0) { toast("That changed since, so there's nothing to undo"); return; }
+    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+    setTasks(prev => {
+      const rev = undoResizePlan(prev, note.plan);
+      return rev ? recalcBounds(applyDragMove(prev, rev, { date: TD, movedBy: movedByName, people, reason: "Resize undone" }), movedByName) : prev;
+    });
+    setTimeout(() => doSaveRef.current(), 0);
+    toast("Resize undone");
+  };
   // A refused action says so. A missing control reads as a bug; a message reads as a policy.
   const denied = (action) => toast(`You don't have permission to ${action}.`);
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
@@ -32138,6 +32157,7 @@ ${jobsCtx || "No jobs found."}`;
     <div key={resizeNote.key} role="status" onMouseEnter={() => holdResizeNote(0)} onMouseLeave={() => holdResizeNote(3000)}
       style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 12, maxWidth: "min(640px, calc(100vw - 32px))", padding: "10px 12px 10px 18px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 100000, animation: "fadeIn 0.18s ease-out both" }}>
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resizeNote.text}</span>
+      {_noteUndo && <button onClick={undoResizeNote} style={{ flexShrink: 0, padding: "5px 12px", borderRadius: 999, border: "none", background: T.accentText, color: T.accent, fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>Undo</button>}
     </div>, document.body)}
   </TooltipCtx.Provider>;
 }

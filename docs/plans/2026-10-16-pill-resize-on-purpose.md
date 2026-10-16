@@ -3,7 +3,7 @@
 **Status:** Agreed, building
 **Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16)
 **Where:** `traqs-func` on `master` · **Platforms:** web only. iOS and Android don't drag-resize pills and aren't touched. · **Size:** S
-**Last updated:** 2026-10-16 16:55, step 3 done
+**Last updated:** 2026-10-16 17:15, step 4 done
 
 ## In one breath
 Grabbing a pill anywhere but a thin strip at its very end will always move it. After every
@@ -58,7 +58,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - [x] **3. Every resize shows a notice with before and after**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
   *Why:* "it just does it and i dont always know." This half matters most.
   *Proof:* suite cases for the notice text: solo op, crew op (team total hours), an end date that moves. Both commit paths raise it (asserted against the source). `npm run build` passes.
-- [ ] **4. Undo in the notice reverses only that resize**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
+- [x] **4. Undo in the notice reverses only that resize**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
   *Why:* one click instead of Ctrl+Z through every later move.
   *Proof:* suite: unchanged op → dates and `hpd` restored exactly, plus one "Resize undone" log entry; op moved since → no reverse plan; a sibling op edited since → left alone. `npm run build` passes.
 - [ ] **5. Seen working in the browser**: localhost:8888, only if your dev server is already running
@@ -91,5 +91,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - **2026-10-16 16:30 · step 2 · Found:** nothing tested the day view's resize through its real handler. [resize-test.mjs](scripts/resize-test.mjs) now drives `handleTeamDayBarDrag` too, the same way it already drove the week/month one. Esc applies to resizes only, so a day-view move adds no key listener.
 - **2026-10-16 16:55 · step 3 · Changed:** C2's premise was wrong. No "Changes saved" toast fires after a drag (the only generic toast is org settings), so there was nothing to suppress. The notice moved to the bottom center instead, where it can never sit on a top-center toast.
 - **2026-10-16 16:55 · step 3 · Decided:** the notice names the edge that was dragged, not whichever date field differs. A pill drawn pushed (a cursor push or an overrun) lands at its painted start, which would otherwise read as "starts … instead of …" on a right-edge resize.
+- **2026-10-16 17:15 · step 4 · Decided:** if the op changes between the notice appearing and the click (a realtime edit lands mid-hover), Undo does nothing and a toast says "That changed since, so there's nothing to undo". The button is otherwise hidden whenever the op no longer matches. An op stored with no `hpd` gets no Undo button, since there's no old value to put back.
+- **2026-10-16 17:15 · step 4 · Found:** `department-follow-test` pins the number of `applyDragMove` call sites so none can skip `people`. Undo is a seventh, and it passes `people`, so the pin went from 6 to 7.
 
 ## Outcome

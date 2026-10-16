@@ -467,6 +467,38 @@ export function resizeNotice(plan, { side, who = "", fmtDay, fmtHour }) {
 }
 
 /**
+ * The notice's Undo (#550): the resize's own plan run backwards, or null when it can't be undone
+ * cleanly. Only while the unit STILL looks exactly as the resize left it (dates, hours and hpd).
+ * Moved, re-estimated or deleted since, there is no Undo: putting back the old values would wipe
+ * out the later edit, which is worse than the accident. Nothing else in the tree is touched, so
+ * a sibling's or another user's edit in the meantime survives (the global undo stack would
+ * restore the whole schedule over it).
+ *
+ * Feed the result to applyDragMove with reason "Resize undone": history stays append-only.
+ */
+export function undoResizePlan(tasks, plan) {
+  const m = plan?.[0];
+  if (!m || m.to?.hpd == null || m.from?.hpd == null) return null;
+  let node = null;
+  for (const j of tasks || []) {
+    if (same(j.id, m.id)) { node = j; break; }
+    for (const p of j.subs || []) {
+      if (same(p.id, m.id)) { node = p; break; }
+      const o = (p.subs || []).find(x => same(x.id, m.id));
+      if (o) { node = o; break; }
+    }
+    if (node) break;
+  }
+  if (!node) return null;
+  const t = m.to;
+  const stillAsResized = node.start === t.start && node.end === t.end
+    && (node.startHour ?? null) === (t.startHour ?? null) && (node.endHour ?? null) === (t.endHour ?? null)
+    && (node.hpd ?? null) === t.hpd;
+  if (!stillAsResized) return null;
+  return [{ ...m, node, from: { ...t, team: node.team || [] }, to: { ...m.from, team: node.team || [] }, reassigned: false }];
+}
+
+/**
  * THE split (root cause 7 D: #44 #45 #46 #47 #48). One op becomes two: the part that STAYS
  * keeps the original id (its sessions, attachments, chat and history point at it) and the
  * part that GOES is a new op carrying `splitFrom`, so the server knows its people were
