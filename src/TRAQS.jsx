@@ -7919,19 +7919,31 @@ Extraction rules:
   // The notice's Undo: that resize only, and only while the op still looks as it left it
   // (undoResizePlan). Anything since — a move, a new estimate, another user's edit to it — and
   // the button is gone, because restoring would wipe that out. Same right as the resize (C4).
-  const _noteUndo = resizeNote && can("moveJobs") ? undoResizePlan(tasks, resizeNote.plan) : null;
+  const _noteUndoPlan = useMemo(() => (resizeNote ? undoResizePlan(tasks, resizeNote.plan) : null), [resizeNote, tasks]);
+  const _noteUndo = _noteUndoPlan && can("moveJobs");
   const undoResizeNote = () => {
     const note = resizeNote;
     if (!note) return;
     if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
-    const rev0 = undoResizePlan(tasks, note.plan);
     holdResizeNote(0); setResizeNote(null);
-    if (!rev0) { toast("That changed since, so there's nothing to undo"); return; }
-    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-    setTasks(prev => {
-      const rev = undoResizePlan(prev, note.plan);
-      return rev ? recalcBounds(applyDragMove(prev, rev, { date: TD, movedBy: movedByName, people, reason: "Resize undone" }), movedByName) : prev;
+    // Checked, built and written against ONE value — the latest tasks the setTasks wrapper holds —
+    // so the toast at the end says what was actually written.
+    const cur = latestTasksRef.current || tasks;
+    const rev = undoResizePlan(cur, note.plan);
+    if (!rev) { toast("That changed since, so there's nothing to undo"); return; }
+    // The resize's own refusals and backstop. Putting the old length back can now land on work,
+    // leave or a live clock that wasn't there when the resize was made.
+    const refusal = refuseDragMove(rev, {
+      isLocked: () => false, isLive: n => blockedByActiveClock(jobIdOfNode(n.id), n.id), isOverdue: () => false,
+      timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
+      nowDay: shopDay(), nowHour: shopHour(), business: billingTier === "business", tasks: cur, overlapCtx, people,
     });
+    if (refusal) { toast(`Can't undo: ${refusalMessage(refusal)}`); return; }
+    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+    const next = recalcBounds(applyDragMove(cur, rev, { date: TD, movedBy: movedByName, people, reason: "Resize undone" }), movedByName);
+    const { moved: _bumped, refused: _stuck } = enforceNoOverlap(next, rev.map(m => m.id));
+    if (_bumped.length || _stuck.length) { toast(`Can't undo: ${refusalMessage({ kind: "overlap", title: rev[0].node?.title || "", other: null })}`); return; }
+    setTasks(next);
     setTimeout(() => doSaveRef.current(), 0);
     toast("Resize undone");
   };

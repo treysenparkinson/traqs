@@ -101,12 +101,72 @@ console.log("undoResizePlan: the notice's Undo reverses only that resize (step 4
   });
 }
 
-console.log("TRAQS.jsx: the notice's Undo");
-check("the button only shows while the op still matches the resize", () => count(WEB, "const _noteUndo = resizeNote && can(\"moveJobs\") ? undoResizePlan(tasks, resizeNote.plan) : null;") === 1
-  && count(WEB, "{_noteUndo && <button") === 1);
-check("it lands through applyDragMove, logged 'Resize undone'", () => count(WEB, "applyDragMove(prev, rev, { date: TD, movedBy: movedByName, people, reason: \"Resize undone\" })") === 1);
-check("it re-checks against the state it writes into", () => count(WEB, "const rev = undoResizePlan(prev, note.plan);") === 1);
-check("it is gated on moveJobs, as the resize was (C4)", () => count(WEB, "if (!can(\"moveJobs\")) return denied(PERM_VERB.moveJobs);\n    const rev0 = undoResizePlan(tasks, note.plan);") === 1);
+console.log("undoResizePlan / resizeNotice: review follow-ups");
+{
+  const W0 = { ...W, moveLog: [] };
+  const p = plan({ node: W0, fromDay: "2026-10-05", fromHour: 8, shareH: 24, hpd: 24 });
+  const after = D.applyDragMove([{ id: "j", title: "J", subs: [{ id: "p", title: "P", subs: [W0] }] }], p, { date: "x", movedBy: "T", people: [] });
+  const soft = (f) => after.map(j => f({ ...j, subs: j.subs.map(pn => ({ ...pn, subs: pn.subs.map(o => ({ ...o })) })) }));
+  check("a soft-deleted op (deletedAt) has no Undo", () => eq(D.undoResizePlan(soft(j => { j.subs[0].subs[0].deletedAt = "2026-10-16"; return j; }), p), null));
+  check("an op under a soft-deleted panel has no Undo", () => eq(D.undoResizePlan(soft(j => { j.subs[0].deletedAt = "2026-10-16"; return j; }), p), null));
+  check("an op under a soft-deleted job has no Undo", () => eq(D.undoResizePlan(soft(j => ({ ...j, deletedAt: "2026-10-16" })), p), null));
+  const N = { ...W0, hpd: undefined };
+  const pn = plan({ node: N, fromDay: "2026-10-05", fromHour: 8, shareH: 24, hpd: 24 });
+  check("no stored estimate before: 'set to 24h', not '0h → 24h'", () => eq(D.resizeNotice(pn, { side: "right", who: "", fmtDay, fmtHour }).text, "Resized Panel 3 wiring: set to 24h, ends Wed instead of Tue"));
+}
+
+console.log("TRAQS.jsx: the notice's Undo, driving the real undoResizeNote");
+{
+  const { overlapContext } = await import(pathToFileURL(path.join(root, "src/overlapRules.js")).href);
+  const octx = overlapContext(settings, "2026-09-30");
+  const braceSlice = (src, sig) => {
+    const a = src.indexOf(sig); if (a < 0 || src.indexOf(sig, a + 1) >= 0) throw new Error("anchor not unique: " + sig);
+    let i = src.indexOf("{", src.indexOf("=>", a)), d = 0;
+    for (; i < src.length; i++) { if (src[i] === "{") d++; else if (src[i] === "}" && --d === 0) break; }
+    return src.slice(a, i + 1);
+  };
+  const SRC = braceSlice(WEB, "const undoResizeNote = () =>").replace(/^const undoResizeNote = /, "");
+  // A: Mon 08–12 (4 h), resized to 08–11 (3 h). The notice holds that plan.
+  const A = { id: "A", title: "A", start: "2026-10-05", end: "2026-10-05", startHour: 8, endHour: 12, hpd: 4, team: ["w"], moveLog: [] };
+  const tree = (...ops) => [{ id: "j", title: "J", subs: [{ id: "p", title: "P", subs: ops }] }];
+  const pA = plan({ node: A, fromDay: "2026-10-05", fromHour: 8, shareH: 3, hpd: 3 });
+  const resized = D.applyDragMove(tree(A), pA, { date: "x", movedBy: "T", reason: "Resized in schedule", people: [] });
+  const run = ({ tasks0, perm = true, bump = false }) => {
+    let state = tasks0, writes = 0, saves = 0;
+    const toasts = [], ref = { current: tasks0 };
+    const scope = {
+      resizeNote: { plan: pA }, can: () => perm, denied: (v) => toasts.push("denied " + v), PERM_VERB: { moveJobs: "move jobs" },
+      holdResizeNote: () => {}, setResizeNote: () => {}, latestTasksRef: ref, tasks: tasks0, toast: (m) => toasts.push(m),
+      refuseDragMove: D.refuseDragMove, refusalMessage: D.refusalMessage, applyDragMove: D.applyDragMove, undoResizePlan: D.undoResizePlan,
+      blockedByActiveClock: () => false, jobIdOfNode: () => "j", sameId: (a, b) => String(a) === String(b),
+      people: [{ id: "w", name: "Wes", timeOff: [] }], shopDay: () => "2026-09-30", shopHour: () => 10, billingTier: "business", overlapCtx: octx,
+      loggedInUser: { name: "T" }, recalcBounds: (t) => t, TD: "2026-10-16",
+      enforceNoOverlap: () => ({ moved: bump ? ["B"] : [], refused: [] }),
+      setTasks: (v) => { const n = typeof v === "function" ? v(state) : v; if (n !== state) writes++; state = n; ref.current = n; },
+      setTimeout: (f) => f(), doSaveRef: { current: () => { saves++; } },
+    };
+    const proxy = new Proxy(scope, { has: () => true, get: (t, k) => (k === Symbol.unscopables ? undefined : (k in t ? t[k] : globalThis[k])) });
+    new Function("scope", `with (scope) { return ${SRC}; }`)(proxy)();
+    return { state, writes, saves, toasts, a: state[0].subs[0].subs.find(o => o.id === "A") };
+  };
+  const ok = run({ tasks0: resized });
+  check("Undo: one write, one save, A back to 08–12 / 4 h", () => eq([ok.writes, ok.saves, ok.a.endHour, ok.a.hpd], [1, 1, 12, 4]));
+  check("…logged 'Resize undone', and the toast says so", () => eq([ok.a.moveLog.at(-1).reason, ok.toasts], ["Resize undone", ["Resize undone"]]));
+  // B moved into the freed 11–12 slot after the resize. A is untouched, so Undo is offered — and must refuse.
+  const B = { id: "B", title: "B", start: "2026-10-05", end: "2026-10-05", startHour: 11, endHour: 12, hpd: 1, team: ["w"] };
+  const withB = resized.map(j => ({ ...j, subs: j.subs.map(pn => ({ ...pn, subs: [...pn.subs, B] })) }));
+  const ov = run({ tasks0: withB });
+  check("work placed in the freed time since: refused, nothing written", () => eq([ov.writes, ov.saves, ov.a.hpd], [0, 0, 3]));
+  check("…with the overlap message, not 'Resize undone'", () => (ov.toasts.length === 1 && /^Can't undo: .*overlap/.test(ov.toasts[0]) ? true : ov.toasts));
+  const bump = run({ tasks0: resized, bump: true });
+  check("the no-overlap backstop refuses too", () => eq([bump.writes, bump.saves, /^Can't undo/.test(bump.toasts[0])], [0, 0, true]));
+  const moved = run({ tasks0: resized.map(j => ({ ...j, subs: j.subs.map(pn => ({ ...pn, subs: pn.subs.map(o => ({ ...o, startHour: 9 })) })) })) });
+  check("changed since: nothing written, says so", () => eq([moved.writes, moved.toasts], [0, ["That changed since, so there's nothing to undo"]]));
+  const noPerm = run({ tasks0: resized, perm: false });
+  check("without moveJobs: refused, as the resize was (C4)", () => eq([noPerm.writes, noPerm.toasts], [0, ["denied move jobs"]]));
+  check("the button reads the memoised check, gated on moveJobs", () => count(WEB, "const _noteUndoPlan = useMemo(() => (resizeNote ? undoResizePlan(tasks, resizeNote.plan) : null), [resizeNote, tasks]);") === 1
+    && count(WEB, "const _noteUndo = _noteUndoPlan && can(\"moveJobs\");") === 1 && count(WEB, "{_noteUndo && <button") === 1);
+}
 
 console.log("TRAQS.jsx: both commit paths raise it");
 check("week/month: the resize commit raises the notice", () => count(WEB, "noteResize(plan, side, p.name);") === 1);

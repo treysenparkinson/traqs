@@ -463,7 +463,9 @@ export function resizeNotice(plan, { side, who = "", fmtDay, fmtHour }) {
     fd !== td ? `, ${word} ${fmtDay(td)} instead of ${fmtDay(fd)}`
       : fh != null && th != null && fh !== th ? `, ${word} ${fmtHour(th)} instead of ${fmtHour(fh)}` : "";
   const moved = side === "left" ? edge("starts", f.start, t.start, f.startHour, t.startHour) : edge("ends", f.end, t.end, f.endHour, t.endHour);
-  return { id: m.id, text: `Resized ${m.node?.title || "Untitled"}${who ? ` (${who})` : ""}: ${r1(f.hpd)}h → ${r1(t.hpd)}h${moved}` };
+  // No stored estimate before: say what it is now rather than "0h →", which reads as "had none".
+  const hours = f.hpd == null ? `set to ${r1(t.hpd)}h` : `${r1(f.hpd)}h → ${r1(t.hpd)}h`;
+  return { id: m.id, text: `Resized ${m.node?.title || "Untitled"}${who ? ` (${who})` : ""}: ${hours}${moved}` };
 }
 
 /**
@@ -479,23 +481,28 @@ export function resizeNotice(plan, { side, who = "", fmtDay, fmtHour }) {
 export function undoResizePlan(tasks, plan) {
   const m = plan?.[0];
   if (!m || m.to?.hpd == null || m.from?.hpd == null) return null;
+  // Deletes are soft (deletedAt), so a deleted unit is still in the tree: it, or a deleted
+  // panel/job above it, counts as gone.
   let node = null;
   for (const j of tasks || []) {
     if (same(j.id, m.id)) { node = j; break; }
     for (const p of j.subs || []) {
-      if (same(p.id, m.id)) { node = p; break; }
+      if (same(p.id, m.id)) { node = j.deletedAt ? { deletedAt: j.deletedAt } : p; break; }
       const o = (p.subs || []).find(x => same(x.id, m.id));
-      if (o) { node = o; break; }
+      if (o) { node = j.deletedAt || p.deletedAt ? { deletedAt: j.deletedAt || p.deletedAt } : o; break; }
     }
     if (node) break;
   }
-  if (!node) return null;
+  if (!node || node.deletedAt) return null;
   const t = m.to;
   const stillAsResized = node.start === t.start && node.end === t.end
     && (node.startHour ?? null) === (t.startHour ?? null) && (node.endHour ?? null) === (t.endHour ?? null)
     && (node.hpd ?? null) === t.hpd;
   if (!stillAsResized) return null;
-  return [{ ...m, node, from: { ...t, team: node.team || [] }, to: { ...m.from, team: node.team || [] }, reassigned: false }];
+  // shareH is the OLD per-person share (resizeSession wrote hpd = share × team), because the
+  // overlap rule measures a landing by it: the resize's own shareH would check the shorter bar.
+  const shareH = m.from.hpd / Math.max(1, (node.team || []).length);
+  return [{ ...m, node, shareH, from: { ...t, team: node.team || [] }, to: { ...m.from, team: node.team || [] }, reassigned: false }];
 }
 
 /**

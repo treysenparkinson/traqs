@@ -1,9 +1,9 @@
 # Moving a pill never changes its length unless you meant it to
 
-**Status:** Agreed, building
+**Status:** Done (step 5 left for Treysen, see Log)
 **Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16)
 **Where:** `traqs-func` on `master` · **Platforms:** web only. iOS and Android don't drag-resize pills and aren't touched. · **Size:** S
-**Last updated:** 2026-10-16 17:15, step 4 done
+**Last updated:** 2026-10-16 17:45, review fixes in, handed back
 
 ## In one breath
 Grabbing a pill anywhere but a thin strip at its very end will always move it. After every
@@ -93,5 +93,9 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - **2026-10-16 16:55 · step 3 · Decided:** the notice names the edge that was dragged, not whichever date field differs. A pill drawn pushed (a cursor push or an overrun) lands at its painted start, which would otherwise read as "starts … instead of …" on a right-edge resize.
 - **2026-10-16 17:15 · step 4 · Decided:** if the op changes between the notice appearing and the click (a realtime edit lands mid-hover), Undo does nothing and a toast says "That changed since, so there's nothing to undo". The button is otherwise hidden whenever the op no longer matches. An op stored with no `hpd` gets no Undo button, since there's no old value to put back.
 - **2026-10-16 17:15 · step 4 · Found:** `department-follow-test` pins the number of `applyDragMove` call sites so none can skip `people`. Undo is a seventh, and it passes `people`, so the pin went from 6 to 7.
+- **2026-10-16 17:30 · step 5 · Changed:** skipped. The dev server wasn't running, and resizing a pill there would save to the real org through the live functions, so the browser check is yours (How you'll test it, below).
+- **2026-10-16 17:45 · review · Changed:** `/code-review` found the notice's Undo skipped the resize's refusals and no-overlap backstop. It now runs both. Writing that test turned up a second bug: the reverse plan kept the resize's shorter share, so even the overlap rule would have measured the wrong bar. Also fixed: soft-deleted ops (and ops under a deleted panel or job) no longer offer Undo; Undo checks, builds and writes one value (`latestTasksRef`), so its toast can't claim an undo that didn't happen; an op with no stored estimate reads "set to 24h", not "0h → 24h"; and the Undo check is memoized rather than run on every render.
+- **2026-10-16 17:45 · review · Found, not fixed:** (1) On a pill split across days (a weekend gap), the only right grip is on the last segment, and D1's 36px rule now applies to that segment alone, so a long pill whose last day is short can't be resized from the right. (2) A panel-level resize never offers Undo, because the roll-up rewrites the panel's dates right after the commit. Both are under Needs you.
 
 ## Outcome
+Steps 1–4 shipped as planned, on local `master` and not pushed: thin fixed grips (6px, 36px+), Esc cancel in both views, a notice after every resize, and an Undo that reverses only that resize and runs the same refusals a resize does. Changes from plan: C2's notice moved to the bottom center; step 5's browser check was left to Treysen; the review added refusal checks to Undo and fixed its share. Follow-ups left out on purpose: the multi-day right grip and panel-level Undo (Log, 17:45), and the `eol-safety-test` gap behind the two CRLF suites (Log, 16:05).
