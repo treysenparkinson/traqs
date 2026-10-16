@@ -1984,8 +1984,7 @@ export function scheduleBarPasses(b, f) {
 
 // HOW FAR ACROSS TODAY'S COLUMN "NOW" IS: the fraction of the working day that has passed,
 // clamped to the column (#129). Before work start it is the left edge, after work end the right.
-// The split gantt drew its today line at half a column whatever the hour. The schedule's own
-// cursor uses the same arithmetic inline.
+// The schedule's now cursor reads it. (Its first reader, the split gantt, is deleted — #130.)
 export function nowColumnFrac({ nowHour, workStartH, totalWorkH }) {
   if (!Number.isFinite(nowHour) || !(totalWorkH > 0)) return 0;
   return Math.min(1, Math.max(0, (nowHour - workStartH) / totalWorkH));

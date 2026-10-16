@@ -5625,8 +5625,6 @@ Extraction rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, sidebarTimeOpen, sidebarSettingsOpen, settingsMode, settingsSection]);
   const [timeOffModal, setTimeOffModal] = useState(false);
-  const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
-  const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
   const [ctxMenu, setCtxMenu] = useState(null);
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
@@ -5944,10 +5942,6 @@ Extraction rules:
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
   const [collapsedOps, setCollapsedOps] = useState({});
-  const [gZoom, setGZoom] = useState(1);
-  const [showGanttSplit, setShowGanttSplit] = useState(false);
-  const [splitRatio, setSplitRatio] = useState(55);
-  const [splitGanttExpanded, setSplitGanttExpanded] = useState(new Set());
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = usePersistedUI("pmSectionsCollapsed", {});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
@@ -9578,43 +9572,8 @@ Extraction rules:
     hide: () => { clearTimeout(appTooltipTimer.current); setAppTooltip(null); },
   }), []); // eslint-disable-line
   const teamCWRef = useRef(8);
-  const splitContainerRef = useRef(null);
-  const splitGanttRef = useRef(null);
-  const [splitGanttPaneWidth, setSplitGanttPaneWidth] = useState(600);
   const teamWheelAcc = useRef(0);
 
-  // The pane's width, observed for exactly as long as the pane exists (#312). This was a
-  // useEffect with NO dependency array: after every render it disconnected, built a new
-  // observer and wrote the width twice — the integer clientWidth, then the fractional
-  // contentRect.width — two values for one box, the shape of a render loop. A callback ref
-  // runs when the pane mounts and when it unmounts, and not otherwise. One measure, the
-  // observer's, so the two values cannot disagree.
-  const splitGanttRoRef = useRef(null);
-  const splitGanttPaneRef = useCallback((el) => {
-    splitGanttRoRef.current?.disconnect();
-    splitGanttRoRef.current = null;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => { for (const e of entries) setSplitGanttPaneWidth(e.contentRect.width || 600); });
-    ro.observe(el);
-    splitGanttRoRef.current = ro;
-  }, []);
-
-  const handleDividerMouseDown = (e) => {
-    e.preventDefault();
-    const container = splitContainerRef.current;
-    if (!container) return;
-    const onMove = (ev) => {
-      const rect = container.getBoundingClientRect();
-      const ratio = Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100));
-      setSplitRatio(ratio);
-    };
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
 
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
@@ -12870,188 +12829,6 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ GANTT ═══════════════════
 
-  // ═══════════════════ SPLIT GANTT ═══════════════════
-  const renderSplitGantt = (jobs) => {
-    if (!gStart || !gEnd) return null;
-    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
-    const paneW = splitGanttPaneWidth || 600;
-    const cW = Math.max(14, (paneW / Math.max(days.length, 1)) * gZoom);
-    const totalWidth = days.length * cW;
-    const dToX = d => diffD(gStart, d) * cW;
-
-    // Build flat rows array — 3 levels deep
-    const rows = [];
-    jobs.forEach(job => {
-      rows.push({ ...job, _level: 0, _jobColor: "#94a3b8" });
-      if (splitGanttExpanded.has(job.id)) {
-        (job.subs || []).forEach(panel => {
-          const panelColor = panel.color || "#94a3b8";
-          rows.push({ ...panel, _level: 1, _jobColor: panelColor, _jobId: job.id });
-          if (splitGanttExpanded.has(panel.id)) {
-            (panel.subs || []).forEach(op => {
-              rows.push({ ...op, _level: 2, _jobColor: panelColor, _jobId: job.id, _panelId: panel.id });
-            });
-          }
-        });
-      }
-    });
-
-    // Build group headers (months or weeks)
-    const groups = [];
-    days.forEach(day => {
-      const dt = new Date(day + "T12:00:00");
-      if (gMode === "month") {
-        const key = `${dt.getFullYear()}-${dt.getMonth()}`;
-        if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, label: dt.toLocaleDateString(DATE_LOCALE, { month: "long", year: "numeric" }), span: 1 });
-        else groups[groups.length - 1].span++;
-      } else {
-        const wk = new Date(dt); wk.setDate(wk.getDate() - wk.getDay());
-        const key = toDS(wk);
-        if (!groups.length || groups[groups.length - 1].key !== key) {
-          const wkEnd = new Date(wk); wkEnd.setDate(wkEnd.getDate() + 6);
-          groups.push({ key, label: `${wk.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })} – ${wkEnd.toLocaleDateString(DATE_LOCALE, { month: "short", day: "numeric" })}`, span: 1 });
-        } else groups[groups.length - 1].span++;
-      }
-    });
-
-    const btnBase = { padding: "3px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" };
-
-    const toggleRow = (id) => setSplitGanttExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: T.bg, overflow: "hidden" }}>
-        {/* Controls */}
-        <div style={{ padding: "5px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 5, flexShrink: 0, flexWrap: "wrap" }}>
-          {["week", "month"].map(m => (
-            <button key={m} onClick={() => setGMode(m)} style={{ ...btnBase, ...(gMode === m ? { border: `1px solid ${T.accent}66`, background: T.accent + "15", color: T.accent, fontWeight: 700 } : {}) }}>
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-          <div style={{ width: 1, height: 16, background: hexA(T.text, 0.22), margin: "0 4px" }} />
-          <button onClick={() => setGZoom(z => Math.min(4, +(z * 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-          <button onClick={() => setGZoom(z => Math.max(0.25, +(z / 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-        </div>
-        {/* Scrollable body */}
-        <div ref={splitGanttRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto" }}>
-          <div style={{ width: totalWidth, position: "relative", minWidth: "100%" }}>
-            {/* Group header — sticky */}
-            <div style={{ display: "flex", height: 26, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
-              {groups.map(g => (
-                <div key={g.key} style={{ minWidth: g.span * cW, maxWidth: g.span * cW, overflow: "hidden", borderRight: `1px solid ${T.border}`, padding: "0 6px", display: "flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", whiteSpace: "nowrap" }}>
-                  {g.label}
-                </div>
-              ))}
-            </div>
-            {/* Day header — sticky */}
-            <div style={{ display: "flex", height: 22, borderBottom: `2px solid ${T.border}`, position: "sticky", top: 26, zIndex: 5, background: T.surface }}>
-              {days.map(d => {
-                const isToday = d === TD;
-                return (
-                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : !isWorkDay(d, orgSettings.workDays) ? T.textDim + "55" : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : !isWorkDay(d, orgSettings.workDays) ? T.bg + "88" : "transparent" }}>
-                    {cW > 20 ? new Date(d + "T12:00:00").getDate() : ""}
-                  </div>
-                );
-              })}
-            </div>
-            {/* Rows */}
-            {rows.map(r => {
-              const level = r._level;
-              const jobColor = r._jobColor;
-              const hasSubs = level < 2 && (r.subs || []).length > 0;
-              const isExpanded = splitGanttExpanded.has(r.id);
-              const rowH = level === 0 ? 40 : level === 1 ? 34 : 28;
-              const barH = level === 0 ? 24 : level === 1 ? 20 : 16;
-              // #128. The bar painted barColor+"dd" over a row already tinted barColor+"07", so its
-              // ground was a COMPOSITE no text colour could rescue: white on it measured 1.96-3.24:1
-              // across the themes, and even the right polarity topped out at 3.16 on the dark ones,
-              // because the ground itself moved with the page. Opaque, and stepped if the colour
-              // cannot carry a label, the ground is the colour -- and then the ink follows from it.
-              // #126. Jobs and ops go through the SAME paint as the schedule's bars: elColor (the
-              // System Elements mode) and the legibility step via barFillColor, barPaint's finished
-              // mute, and for a finished one doneBarFill's fade toward the ground — in the FILL, as
-              // the schedule does it since #95/#96, never as element opacity, which composites the
-              // label with its ground and is what #128 measured failing. An op is the same op in
-              // both views, coloured from the same panel, and was painted differently in each.
-              // A PANEL keeps its status colour: deliberate since March, left for a ruling.
-              const _paintedJobColor = barPaint(r, barFillColor(jobColor));
-              const barColor = level === 1
-                ? legibleBarColor(staColorOf(r.status) || jobColor)
-                : (isFinished(r.status) ? doneBarFill(T, _paintedJobColor, T.bg) : _paintedJobColor);
-              const barTextInk = barInk([barColor]);
-              const itemTeam = (r.team || []).map(id => people.find(p => p.id === id)).filter(Boolean);
-              // Bar position — clamp to visible range
-              const hasRange = r.start && r.end;
-              const inRange = hasRange && r.start <= gEnd && r.end >= gStart;
-
-              return (
-                <div key={r.id} style={{ display: "flex", height: rowH, borderBottom: `1px solid ${T.border}${level === 0 ? "44" : "22"}`, position: "relative", background: level === 0 && isExpanded ? jobColor + "07" : level === 1 ? jobColor + "04" : level === 2 ? jobColor + "02" : "transparent" }}>
-                  {/* Left indent stripe for sub-levels */}
-                  {level === 1 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor + "66", zIndex: 2 }} />}
-                  {level === 2 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: jobColor + "33", zIndex: 2 }} />}
-                  {/* Day cells */}
-                  {days.map(d => (
-                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : !isWorkDay(d, orgSettings.workDays) ? T.bg + "88" : "transparent" }} />
-                  ))}
-                  {/* Bar — split at non-working days */}
-                  {inRange && (() => {
-                    const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
-                    const ws = deriveWorkedState(r, producedFor(r), liveOpHours(r));
-                    const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
-                    let _workedRemainingDays = ws.workedFraction * _totalCalDays;
-                    return segs.map((seg, si, allSegs) => {
-                    const sL = Math.max(0, dToX(seg.start));
-                    const sR = Math.min(dToX(seg.end) + cW - 2, totalWidth);
-                    // No barH floor: a segment ends where its last working day ends, so
-                    // padding a narrow one out to bar-height put the bar on the
-                    // non-working column that closed the segment. Segments are a full
-                    // day wide unless the window edge clipped them, and a clipped
-                    // segment reading narrow is correct.
-                    const sW = Math.max(0, sR - sL);
-                    const isFirst = si === 0, isLast = si === allSegs.length - 1;
-                    const _segCalDays = diffD(seg.start, seg.end) + 1;
-                    const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
-                    _workedRemainingDays = Math.max(0, _workedRemainingDays - _segWorkedDays);
-                    return (
-                      <div
-                        key={si}
-                        onClick={hasSubs ? () => toggleRow(r.id) : undefined}
-                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor, borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed ${hexA(barTextInk, 0.55)}` : undefined, borderLeft: !isFirst ? `2px dashed ${hexA(barTextInk, 0.55)}` : undefined, zIndex: 3 }}
-                      >
-                        {isFirst && hasSubs && (
-                          <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: barTextInk, flexShrink: 0, marginLeft: 5 }}>
-                            <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        )}
-                        {(isFirst || sW > 80) && <span style={{ fontSize: level === 0 ? 11 : 10, color: barTextInk, fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: (isFirst && hasSubs) ? 4 : 7, flex: 1, minWidth: 0 }}>
-                          {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
-                        </span>}
-                        {isFirst && itemTeam.length > 0 && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
-                            {itemTeam.slice(0, 3).map(p => (
-                              <div key={p.id} title={p.name} style={{ display: "flex", flexShrink: 0 }}>
-                                <PersonAvatar person={p} size={level === 0 ? 17 : 14} ring={T.border} />
-                              </div>
-                            ))}
-                            {itemTeam.length > 3 && <span style={{ fontSize: 8, color: barTextInk, fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  });
-                  })()}
-                </div>
-              );
-            })}
-            {/* Today line — faint. At the hour, not mid-column (#129). */}
-            {TD >= gStart && TD <= gEnd && (
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW * nowColumnFrac({ nowHour: shopHour(), workStartH, totalWorkH }), width: 1, background: T.accent + "33", pointerEvents: "none", zIndex: 4 }} />
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ═══════════════════ ANALYTICS ═══════════════════
 
   // ═══════════════════ TASKS ═══════════════════
@@ -14626,25 +14403,6 @@ ${jobsCtx || "No jobs found."}`;
             </FrostCard>;
           })()}
         </div>;
-        if (showGanttSplit && !isMobile) return (
-          <div ref={splitContainerRef} style={{ display: "flex", height: "calc(100vh - 220px)", gap: 0, overflow: "hidden", borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
-            {/* List pane */}
-            <div style={{ width: `${splitRatio}%`, overflowY: "auto", overflowX: "auto", flexShrink: 0, borderRight: `1px solid ${T.border}` }}>
-              {listContent}
-            </div>
-            {/* Draggable divider */}
-            <div
-              onMouseDown={handleDividerMouseDown}
-              style={{ width: 5, background: T.border, cursor: "col-resize", flexShrink: 0, transition: "background 0.15s" }}
-              onMouseEnter={e => e.currentTarget.style.background = T.accent}
-              onMouseLeave={e => e.currentTarget.style.background = T.border}
-            />
-            {/* Gantt pane */}
-            <div ref={splitGanttPaneRef} style={{ flex: 1, overflow: "hidden", minWidth: 0 }}>
-              {renderSplitGantt(activeTasks)}
-            </div>
-          </div>
-        );
         return listContent;
       })()}
       {!isMobile && jobsLnav}
@@ -15554,7 +15312,7 @@ ${jobsCtx || "No jobs found."}`;
     })();
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     // NOW, ONCE (#74): one position for every bar's cursor and for the today line, at the
-    // render's instant (#75), by the rule the split gantt uses (nowColumnFrac). The bars and the
+    // render's instant (#75), by nowColumnFrac. The bars and the
     // line each had their own formula, and the line read the clock afresh. Outside the window it
     // deliberately falls beyond 0..100: a bar left of a past cursor must read as fully behind it.
     const _nowDayR = shopDay(_renderNowMs);

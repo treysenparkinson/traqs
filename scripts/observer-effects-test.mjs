@@ -48,11 +48,10 @@ for (const m of S.matchAll(/\buseEffect\(/g)) {
 }
 ok(`the scan found the component's effects (${effects})`, effects > 50);
 ok(`#312 no ResizeObserver is built in an effect without dependencies (found at lines ${JSON.stringify(offenders)})`, offenders.length === 0);
-const cbAt = S.indexOf("const splitGanttPaneRef = useCallback(");
-ok("#312 the split-gantt pane's observer is attached by a callback ref", cbAt > 0);
-// A callback ref with no deps is a NEW function every render, and React then detaches and
-// re-attaches it every render — the same rebuild, moved. It must be stable.
-ok("#312 ...and that ref is stable (useCallback with a dependency array)", cbAt > 0 && effectArgs(S, cbAt + "const splitGanttPaneRef = ".length).args === 2);
+// The pane #312 was found on — the split gantt — is DELETED (#130, 2026-10-16), so the two
+// assertions on its callback ref went with it. The scan above is the rule, and it stays: it
+// is over every effect, so the next observer written without deps fails here.
+ok("#130 the split-gantt pane and its observer are gone", !/splitGanttPane/.test(S));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
