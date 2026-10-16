@@ -91,7 +91,9 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
   const st = { tasks: EDITED, people: SERVER.people, clients: SERVER.clients, error: null };
   const log = { fetchTasks: 0, readSlice: 0 };
   const saveStatusRef = { current: "saved" };
+  const timers = [];   // what doSave hands setTimeout; settle() runs the ones that are due
   const deps = {
+    setTimeout: (fn, ms = 0) => { timers.push({ fn, ms }); return timers.length; },
     stripDerived,
     jobKeys, buildDelta, missingFromDelta,
     console: { log() {}, warn() {}, error() {} },
@@ -137,11 +139,23 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
   };
   if (src.rollback) deps.rollbackToServerRef = { current: build(src.rollback, deps) };
   deps.busy = build(src.busy, deps);
-  return { st, log, deps, saveStatusRef,
+  return { st, log, deps, saveStatusRef, timers,
     doSave: build(src.doSave, deps), refetch: build(src.refetch, deps), applySlice: build(src.applySlice, deps) };
 }
 const rejectWith = (status) => async () => { const e = new Error(`saveTasks failed (${status})`); e.status = status; e.endpoint = "saveTasks"; throw e; };
-const settle = () => new Promise(r => setTimeout(r, 700));   // doSave's 600ms "saved" timer
+// Stands in for 700 ms passing: doSave's 600 ms "saved" timer is due, nothing longer is.
+// It used to be a real 700 ms wait, twelve times over, which made this the slowest suite in
+// the build at 9 s. The harness's fakes never touch I/O, so a macrotask turn lets every
+// promise chain doSave left running finish, as the real wait did; then the due timers fire.
+const SETTLE_MS = 700;
+const turn = () => new Promise((r) => setImmediate(r));
+const settle = async (c) => {
+  await turn();
+  for (const t of c.timers.splice(0)) {
+    if (t.ms <= SETTLE_MS) t.fn(); else c.timers.push({ ...t, ms: t.ms - SETTLE_MS });
+  }
+  await turn();
+};
 const ticks = async (c) => { for (let i = 0; i < 10; i++) { await c.refetch(); await c.applySlice("tasks"); } };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,7 +163,7 @@ console.log("\n1. Save rejected 403 (a worker without editJobs)");
 {
   const c = client({ saveTasks: rejectWith(403) });
   c.saveStatusRef.current = "unsaved";          // the autosave effect, J:8835
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("status is no longer \"unsaved\"", c.saveStatusRef.current !== "unsaved", true);
   ok("local tasks replaced by the server's copy (rolled back)", c.st.tasks, SERVER.tasks);
   ok("the next save would POST the server's copy, not the rejected change", c.deps.latestTasksRef.current, SERVER.tasks);
@@ -164,7 +178,7 @@ console.log("\n2. Other 4xx rejections roll back the same way");
 for (const status of [400, 409, 422]) {
   const c = client({ saveTasks: rejectWith(status) });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok(`${status}: rolled back and not "unsaved"`, [c.st.tasks, c.saveStatusRef.current !== "unsaved"], [SERVER.tasks, true]);
 }
 
@@ -172,7 +186,7 @@ console.log("\n3. 401 and 5xx keep the edit for the retry");
 for (const status of [401, 500, 503]) {
   const c = client({ saveTasks: rejectWith(status) });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok(`${status}: edit kept, still "unsaved", banner up`, [c.st.tasks, c.saveStatusRef.current, c.st.error?.status], [EDITED, "unsaved", status]);
 }
 
@@ -181,7 +195,7 @@ console.log("\n4. An edit made during the rollback fetch is not clobbered");
   const NEWER = [{ id: "j1", title: "Renamed while rolling back", status: "Not Started", subs: [] }];
   const c = client({ saveTasks: rejectWith(403), onRollbackFetch: (d) => { d.setTasks(NEWER); d.setSaveStatus("unsaved"); } });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("the newer edit survives and its own save is left to run", [c.st.tasks, c.saveStatusRef.current], [NEWER, "unsaved"]);
 }
 
@@ -191,7 +205,7 @@ console.log("\n4b. A save that lands with conflicts (TASK_CONFLICT_MODE=enforce)
   // server's copy IS the result: roll back to it and say which jobs were kept.
   const c = client({ saveTasks: async () => ({ ok: true, conflicts: ["j1"] }) });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("local tasks replaced by the server's copy", c.st.tasks, SERVER.tasks);
   ok("not \"unsaved\"", c.saveStatusRef.current !== "unsaved", true);
   ok("banner names the conflict", [c.st.error?.endpoint, c.st.error?.status, /changed/i.test(c.st.error?.message || "")], ["saveTasks", 409, true]);
@@ -199,7 +213,7 @@ console.log("\n4b. A save that lands with conflicts (TASK_CONFLICT_MODE=enforce)
 {
   const c = client({ saveTasks: async () => ({ ok: true, conflicts: [] }) });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("control: an empty conflicts list is a plain success", [c.saveStatusRef.current, c.st.tasks, c.st.error], ["saved", EDITED, null]);
 }
 
@@ -211,7 +225,7 @@ console.log("\n4c. A user without manageClients never POSTs /clients");
   const c = client({ saveTasks: async () => ({ ok: true }), canManageClients: false,
     saveClients: async () => { clientPosts++; const e = new Error("saveClients failed (403)"); e.status = 403; e.endpoint = "saveClients"; throw e; } });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("no clients POST", clientPosts, 0);
   ok("the save succeeds, no banner, edit kept", [c.saveStatusRef.current, c.st.error, c.st.tasks], ["saved", null, EDITED]);
 }
@@ -219,7 +233,7 @@ console.log("\n4c. A user without manageClients never POSTs /clients");
   let clientPosts = 0;
   const c = client({ saveTasks: async () => ({ ok: true }), canManageClients: true, saveClients: async () => { clientPosts++; return {}; } });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("control: a user with manageClients still POSTs clients", clientPosts, 1);
 }
 
@@ -227,7 +241,7 @@ console.log("\n5. Control: a save that succeeds");
 {
   const c = client({ saveTasks: async () => ({ ok: true }) });
   c.saveStatusRef.current = "unsaved";
-  await c.doSave(); await settle();
+  await c.doSave(); await settle(c);
   ok("saved, edit kept, no banner", [c.saveStatusRef.current, c.st.tasks, c.st.error], ["saved", EDITED, null]);
   await ticks(c);
   ok("poll keeps fetching", c.log.fetchTasks, 10);
