@@ -169,5 +169,33 @@ console.log("9. the web uses the one landing (TRAQS.jsx)");
   check("the drop is refused, never pushed (ruling 1)", () => (!/setConfirmPush\(/.test(H) ? true : "push dialog in the move"));
 }
 
+console.log("\n#309 — a member moves from where it is DRAWN");
+{
+  check("memberOrigin is exported", () => typeof D.memberOrigin === "function" || "missing");
+  const node = op("M", "2026-10-05", "2026-10-05", 9, 3, ["7"]);
+  // Person 8's copy is drawn EARLIER than the grabbed row's, so "grabbed row wins" and "earliest" disagree.
+  const painted = new Map([["M", [{ personId: "8", day: "2026-10-06", hour: 9 }, { personId: "7", day: "2026-10-06", hour: 10 }]]]);
+  check("the grabbed bar's row wins", () => eq(D.memberOrigin({ id: "M", node, painted, origPerson: "7", workStartH: 8 }), { day: "2026-10-06", hour: 10, painted: true }));
+  check("...else the earliest drawn position (a crew on other rows)", () => eq(D.memberOrigin({ id: "M", node, painted, origPerson: "1", workStartH: 8 }), { day: "2026-10-06", hour: 9, painted: true }));
+  check("...earliest by hour within a day", () => eq(D.memberOrigin({ id: "M", node, painted: new Map([["M", [{ personId: "8", day: "2026-10-06", hour: 14 }, { personId: "9", day: "2026-10-06", hour: 11 }]]]), origPerson: "1", workStartH: 8 }), { day: "2026-10-06", hour: 11, painted: true }));
+  check("a member drawn nowhere (off-screen) falls back to its stored start", () => eq(D.memberOrigin({ id: "M", node, painted: new Map(), origPerson: "7", workStartH: 8 }), { day: "2026-10-05", hour: 9, painted: false }));
+  check("...and an unset start hour to the work start", () => eq(D.memberOrigin({ id: "M", node: { ...node, startHour: undefined }, painted: null, origPerson: "7", workStartH: 8 }).hour, 8));
+  // The case the entry is about: the member is stored Mon 09:00 but DRAWN Tue 10:00 (pushed).
+  // Dragging the grabbed bar one working day later must land the member Wed 10:00 — one day
+  // after where the person SAW it — not Tue 09:00, one day after where it was stored.
+  const g = op("G", "2026-10-05", "2026-10-05", 8, 2, ["7"]);
+  const at = D.memberOrigin({ id: "M", node, painted, origPerson: "7", workStartH: 8 });
+  const plan = D.planDragMove({ grabbed: { id: "G", node: g, fromDay: "2026-10-05", fromHour: 8, shareH: 2 },
+    members: [{ id: "M", node, day: at.day, hour: at.hour, shareH: 3 }], drop: { day: "2026-10-06", hour: 8 }, origPerson: "7", ...base });
+  check("a pushed member lands one day after where it was DRAWN", () => eq([plan[1].to.start, plan[1].to.startHour], ["2026-10-07", 10]));
+  const SRC = fs.readFileSync(process.env.DRAG_WEB_SRC || path.join(root, "src/TRAQS.jsx"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  const mi = SRC.slice(SRC.indexOf("const _memberInputs = (() => {"), SRC.indexOf("const _dragCal = "));
+  check("the drag's member inputs come from memberOrigin over this render's drawn positions",
+    () => (/memberOrigin\(\{ id: m\.id, node: m\.node, painted: _paintedAt, origPerson, workStartH \}\)/.test(mi) ? true : "not wired"));
+  check("...and no longer from the stored start", () => (!/day: m\.origStart/.test(mi) ? true : "still stored"));
+  check("every drawn task bar records its painted start on its row",
+    () => (/_paintedAt\.get\(_pk\)\.push\(\{ personId: p\.id, day: _layoutStart, hour: _barStartH \}\)/.test(SRC) ? true : "not recorded"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
+import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -15270,6 +15270,10 @@ ${jobsCtx || "No jobs found."}`;
     else { const d = new Date(TD + "T12:00:00"); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
   };
   const renderTeam = () => {
+    // #309. Every task bar's DRAWN start, per row, filled as the rows render. A group or
+    // multi-select drag moves each member from here (memberOrigin), not from its stored start —
+    // the grab happens after the render, so every row's entry is in by then.
+    const _paintedAt = new Map();
     // ONE INSTANT PER RENDER (#75). Every bar used to read the clock for itself — about eight
     // reads per bar — so the push, the cursor, the hatch and the shrink in one paint were each
     // measured at a slightly different "now", and a bar could be pushed by one instant and
@@ -16728,6 +16732,11 @@ ${jobsCtx || "No jobs found."}`;
                   const _barStartH = _rpv ? _rpv.startHour : _anchored
                     ? _anchored.hour
                     : (_pushH > 0 ? _pushedStartH : _baseStartH);
+                  if (bar.type === "task" && !bar.crossRow && bar.task?.id != null) {
+                    const _pk = String(bar.task.id);
+                    if (!_paintedAt.has(_pk)) _paintedAt.set(_pk, []);
+                    _paintedAt.get(_pk).push({ personId: p.id, day: _layoutStart, hour: _barStartH });
+                  }
                   // The single source of truth for this bar's length. Walking the day and
                   // stepping over only the lunch/breaks the work actually reaches replaces
                   // three separate approximations that disagreed with each other:
@@ -17045,7 +17054,9 @@ ${jobsCtx || "No jobs found."}`;
                       const seen = new Set([String(bar.task.id)]);
                       return [...(isGroupDrag && depsMode === "locked" ? groupMembers : []), ...multiDragMembers]
                         .filter(m => m.node && !seen.has(String(m.id)) && seen.add(String(m.id)))
-                        .map(m => ({ id: m.id, node: m.node, day: m.origStart, hour: m.origStartHour ?? workStartH,
+                        .map(m => ({ id: m.id, node: m.node,
+                          // #309: from where the member is DRAWN, as the grabbed bar is (#25).
+                          ...(({ day, hour }) => ({ day, hour }))(memberOrigin({ id: m.id, node: m.node, painted: _paintedAt, origPerson, workStartH })),
                           shareH: (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay }));
                     })();
                     const _dragCal = calOf(orgSettings.workDays, orgSettings.holidays);

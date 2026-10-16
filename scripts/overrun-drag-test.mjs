@@ -7,8 +7,9 @@
 // land somewhere other than where it was dropped. That reason is gone — since #25 the drag
 // anchors on where the bar is painted (`_paintedDay = _layoutStart`), and resize works from the
 // painted start and end. Only cross-row RECORD bars stay held (a synthetic id, not this row's
-// work). NOT changed: a multi-drag MEMBER running over is still refused by name — it moves from
-// its stored position (#309), so it would land somewhere it is not drawn.
+// work). NOT changed: a multi-drag MEMBER running over is still refused by name (#20's rule).
+// The reason given here was that it moved from its stored position; #309 (2026-10-16) moves
+// members from where they are drawn, so that reason is gone and the refusal stands on #20 alone.
 //
 // Scoped, comments stripped (R4).
 //
@@ -24,7 +25,7 @@ ok("the drag block is found", block.length > 0);
 ok("#102 an overrunning bar is no longer held", !/_isOverrunning/.test(block));
 ok("...a cross-row record still is", /bar\.crossRow/.test(block));
 ok("the reason it is safe: the drag anchors on the painted position", /const _paintedDay = _layoutStart, _paintedHour = _barStartH;/.test(S));
-ok("a multi-drag member running over is still refused by name (#309)", /isOverdue: n => _overdueIds\.has\(String\(n\?\.id\)\)/.test(S));
+ok("a multi-drag member running over is still refused by name (#20)", /isOverdue: n => _overdueIds\.has\(String\(n\?\.id\)\)/.test(S));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

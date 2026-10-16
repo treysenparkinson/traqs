@@ -43,6 +43,26 @@ export function shiftStart({ day, hour }, { bdDelta, hourDelta }, { workStartH, 
 }
 
 /**
+ * #309: where a group or multi-select MEMBER starts, as the user sees it — the same rule as the
+ * grabbed bar's own origin (#25). A member pushed at the cursor, or behind an overrunning
+ * neighbour, is drawn later than it is stored; moving it by the drag's delta from the STORED
+ * start landed it somewhere the person never pointed at.
+ *
+ * painted: Map(id → [{ personId, day, hour }]) — every task bar this render drew, per row. An op
+ * on a crew sits on several rows and can be pushed differently on each: the grabbed bar's row
+ * wins (that is the row being dragged), else the EARLIEST drawn position (the crew rule ruled
+ * for #130). A member drawn nowhere — off-screen — falls back to its stored start.
+ */
+export function memberOrigin({ id, node, painted, origPerson, workStartH }) {
+  const at = painted?.get(sid(id)) || [];
+  const onRow = at.find(a => same(a.personId, origPerson));
+  const earliest = [...at].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.hour - b.hour))[0];
+  const pick = onRow || earliest;
+  if (pick) return { day: pick.day, hour: pick.hour, painted: true };
+  return { day: node?.start, hour: node?.startHour ?? workStartH, painted: false };
+}
+
+/**
  * Every mover's landing.
  *
  * grabbed: { id, node, fromDay, fromHour, shareH, hpd?, isRecord? }
