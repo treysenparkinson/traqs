@@ -408,16 +408,23 @@ struct MessagesView: View {
     private func threadRow(_ t: MessageThread, divider: Bool) -> some View {
         let isSelected = selectedKeys.contains(t.key)
         if selectMode {
+            // #297: a thread the server won't clear for you (any DM; a job,
+            // panel or op thread unless you're an admin; someone else's group)
+            // can't be selected for deletion, so the count never promises a
+            // delete that would be refused.
+            let clearable = appState.canClearThread(t.key)
             Button {
                 if isSelected { selectedKeys.remove(t.key) }
                 else { selectedKeys.insert(t.key) }
             } label: {
                 ChannelRow(thread: t, people: appState.people,
                            groups: appState.groups,
-                           selectMode: true, isSelected: isSelected,
+                           selectMode: clearable, isSelected: isSelected,
                            divider: divider)
             }
             .buttonStyle(.plain)
+            .disabled(!clearable)
+            .opacity(clearable ? 1 : 0.4)
         } else {
             NavigationLink(value: t.key) {
                 ChannelRow(thread: t, people: appState.people,
@@ -444,7 +451,7 @@ struct MessagesView: View {
     /// Long-press a row (when not already selecting) to enter select mode with
     /// that row pre-selected. A haptic confirms the mode switch.
     private func enterSelectMode(selecting key: String) {
-        guard !selectMode else { return }
+        guard !selectMode, appState.canClearThread(key) else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         withAnimation(.easeInOut(duration: 0.2)) {
             selectMode = true

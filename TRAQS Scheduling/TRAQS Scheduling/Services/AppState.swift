@@ -2173,10 +2173,18 @@ class AppState {
         }
     }
 
-    /// Delete an entire message thread (DM, job, panel, op, or group).
-    /// Server removes every message with that threadKey from messages.json.
+    /// #297 — whether the server would clear this thread for the current user
+    /// (`ThreadClearRule`, a port of src/threadClear.js).
+    func canClearThread(_ threadKey: String) -> Bool {
+        ThreadClearRule.canClear(threadKey: threadKey, viewerId: currentPersonId,
+                                 isAdmin: isAdmin, groups: groups)
+    }
+
+    /// Delete an entire message thread (a job, panel or op thread, or a group).
+    /// Server tombstones every message with that threadKey in messages.json.
+    /// A DM can't be cleared by anyone (#297).
     func deleteThread(threadKey: String) async {
-        guard let api else { return }
+        guard let api, canClearThread(threadKey) else { return }
         // Optimistic local removal so the inbox doesn't keep showing the
         // thread while the network call is in flight.
         await performOptimistic({

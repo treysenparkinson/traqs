@@ -41,6 +41,7 @@ import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, 
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState, requestStatusOf } from "./finishRequests.js";
+import { canClearThread } from "./threadClear.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, clampStartHour, snapWorkHourPosition, cursorAnchorStart, segmentsForBar, opDaySegments, dayViewBlocks, dayGridHours, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { hoverJobKey, scheduleBarPasses, nowColumnFrac, chipSpanPct, durationDays, isAutoSchedulable, autoScheduleFlags, jobMoveWindow, producedHoursByScope, lastWorkedByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, outsideLabelOffset, flushRightWidthPct, flushRightBar, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
@@ -12373,10 +12374,6 @@ ${jobsCtx || "No jobs found."}`;
   const canApprove = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true || loggedInUser.isEngineer === true);
   // A group is changed, deleted or cleared by its creator or an admin — the server's rule.
   const canManageGroup = (g) => !!g && (isAdmin || (g.createdBy != null && sameId(g.createdBy, loggedInUser?.id)));
-  const groupOfThread = (threadKey) => {
-    const ref = String(threadKey || "").startsWith("group:") ? String(threadKey).slice(6) : null;
-    return ref == null ? null : (groups || []).find(g => String(g.id) === ref || String(g.name) === ref) || null;
-  };
   // Engineering steps are the server's canEngineer: admins and engineers, not sign-off holders.
   const canEngineer = !!loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.isEngineer === true);
   // Approval Queue page visibility: tighter than canApprove — only admins or users with the
@@ -30563,11 +30560,12 @@ ${jobsCtx || "No jobs found."}`;
           localStorage.setItem("tq_pinned_threads", JSON.stringify(updated));
           setThreadCtxMenu(null);
         }} animIdx={0} />
+        {canClearThread(threadCtxMenu.threadKey, { viewerId: loggedInUser?.id, isAdmin }, groups) && <>
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {(String(threadCtxMenu.threadKey || "").startsWith("group:") ? canManageGroup(groupOfThread(threadCtxMenu.threadKey)) : can("editJobs")) && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
-        </div>}
+        </div></>}
       </div>
     </div>}</FadeOnClose>
 
@@ -30585,11 +30583,6 @@ ${jobsCtx || "No jobs found."}`;
           localStorage.setItem("tq_pinned_threads", JSON.stringify(updated));
           setDmCtxMenu(null);
         }} animIdx={0} />
-        <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 0ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-          <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
-          <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Conversation</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this chat</div></div>
-        </div>
       </div>
     </div>}</FadeOnClose>
 

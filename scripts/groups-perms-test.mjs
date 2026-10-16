@@ -81,7 +81,9 @@ seed(as(8));
 seed(as(8));
 {
   const res = await clear("dm:7_8");
-  ok("clearing a DM they're in is unchanged", [res.statusCode, liveMsgs("dm:7_8")], [200, 0]);
+  // RE-RULED by #297 (2026-10-16): a DM is nobody's to clear, participant or not.
+  // This asserted the opposite; thread-clear-test now owns the whole rule.
+  ok("clearing a DM they're in is refused (#297)", [res.statusCode, liveMsgs("dm:7_8")], [403, 1]);
 }
 
 console.log("\n2. The creator, and an admin");

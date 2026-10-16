@@ -7,6 +7,7 @@ import { nowIso, softDelete } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
+import { canClearThread } from "../../src/threadClear.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -363,30 +364,22 @@ export async function handler(event) {
     const threadKey = event.queryStringParameters?.threadKey;
     if (!threadKey) return err(400, "threadKey query param required");
     try {
-      const [existing, people, jobs, groups] = await Promise.all([
+      const [existing, people, groups] = await Promise.all([
         readJson(messagesKey).then(v => v ?? []),
         readJson(orgKey(event, "people.json")).then(v => filterLive(v ?? [])),
-        readJson(orgKey(event, "tasks.json")).then(v => filterLive(v ?? [])),
         readJson(orgKey(event, "groups.json")).then(v => filterLive(v ?? [])),
       ]);
       const r = await resolveViewerId(event, people);
       if (r.error) return err(r.error, r.message);
-      // Only participants can delete a thread. Without this, any
-      // authenticated user with the org code could erase any
-      // conversation in the org.
-      // A group's history is its creator's or an admin's to clear — any member
-      // wiping it was the same class as the people-delete hole. Other threads
-      // (DMs, job threads) keep the participant rule.
+      // #297. Who may clear is one shared rule (src/threadClear.js), so the
+      // web's Clear Chat is offered exactly where this allows it: a group is its
+      // creator's or an admin's, a job/panel/op thread is an admin's (it has no
+      // creator), and a DM is nobody's.
       const viewerIsAdmin = people.some(p => String(p.id) === String(r.viewerId) && p.userRole === "admin");
-      if (threadKey.startsWith("group:")) {
-        const ref = threadKey.slice(6);
-        const g = groups.find(g => String(g.name) === ref || String(g.id) === ref);
-        const isCreator = !!g && g.createdBy != null && String(g.createdBy) === String(r.viewerId);
-        if (!r.viewerId || !g || !(viewerIsAdmin || isCreator)) {
-          return err(403, "Only the group's creator or an admin can clear this chat");
-        }
-      } else if (!r.viewerId || !canViewThread(threadKey, r.viewerId, jobs, groups)) {
-        return err(403, "Not a participant in this thread");
+      if (!canClearThread(threadKey, { viewerId: r.viewerId, isAdmin: viewerIsAdmin }, groups)) {
+        if (threadKey.startsWith("dm:")) return err(403, "Direct messages can't be cleared");
+        if (threadKey.startsWith("group:")) return err(403, "Only the group's creator or an admin can clear this chat");
+        return err(403, "Only an admin can clear this chat");
       }
       // Soft-delete: tombstone the thread's messages (deletedAt + lastModifiedAt)
       // but keep them in the array so /sync can tell clients to drop them from

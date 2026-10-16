@@ -114,7 +114,9 @@ check("No-approvers fallback uses approveCompletions (as the audience)", SRC, { 
 
 console.log("\n4. Chat groups — creator or admin");
 check("Group menu Edit / Delete need creator or admin", SRC, { has: ["{canManageGroup(groups.find(g => g.id === groupCtxMenu.groupId)) && <>"] });
-check("Clear Chat on a group needs creator or admin", SRC, { has: ["canManageGroup(groupOfThread(threadCtxMenu.threadKey))"] });
+// #297 moved this gate onto the shared rule (src/threadClear.js), which keeps a group
+// creator-or-admin; thread-clear-test pins what the rule DOES for every thread kind.
+check("Clear Chat on a group needs creator or admin", SRC, { has: ["canClearThread(threadCtxMenu.threadKey, { viewerId: loggedInUser?.id, isAdmin }, groups)"] });
 
 console.log("\n5. A refused action says so — a toast, never a silent no-op or a hidden control");
 check("denied() helper toasts \"You don't have permission to <action>.\"", SRC, { has: ["const denied = (action) => toast(`You don't have permission to ${action}.`);"] });
