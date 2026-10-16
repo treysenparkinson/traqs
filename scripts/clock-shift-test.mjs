@@ -12,16 +12,21 @@
 // moving the clock forward keeps it past. The last clock below is in 2098, so any near
 // "future" date a suite depends on fails here, today, rather than on the day it arrives.
 //
-// There is no list of clock-sensitive suites to keep up to date: the suites are read from
-// `npm run build` itself, and every one of them is rerun at every clock. A suite that starts
-// reading the server's clock tomorrow is covered without anyone remembering to add it.
+// There is no list of clock-sensitive suites to keep up to date: the suites are the ones
+// `npm run build` runs (scripts/suites.mjs), and every one of them is rerun at every clock. A
+// suite that starts reading the server's clock tomorrow is covered without anyone remembering
+// to add it.
+//
+// It runs before a push (`npm run check:push`, from scripts/git-hooks/pre-push), not in every
+// build: 573 suite runs made it a third of the build's suite time on every commit, and a
+// fixture that goes stale with the date only has to be caught before it reaches Netlify.
 //
 //   node scripts/clock-shift-test.mjs
 
-import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
+import { SUITES, TIMED } from "./suites.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 // A file:// URL, NOT a filesystem path. `--import` goes through the ESM loader,
@@ -40,9 +45,8 @@ const CLOCKS = [
   ["2098-06-15", "2098-06-15T12:00:00.000Z"],
 ];
 
-const build = String(JSON.parse(readFileSync(`${ROOT}package.json`, "utf8")).scripts?.build || "");
-const suites = [...build.matchAll(/node (scripts\/[a-zA-Z0-9._-]+\.mjs)/g)].map((m) => m[1]).filter((s) => s !== SELF);
-if (suites.length < 10) { console.error(`clock-shift: found only ${suites.length} suites in the build script — the parse is broken`); process.exit(2); }
+const suites = SUITES.filter((s) => s !== SELF);
+if (suites.length < 10) { console.error(`clock-shift: found only ${suites.length} suites in scripts/suites.mjs — the list is broken`); process.exit(2); }
 
 const run = (args, to) => new Promise((resolve) => {
   const env = { ...process.env, CLOCK_SHIFT_TO: to, NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --import ${JSON.stringify(SHIM)}`.trim() };
@@ -66,14 +70,20 @@ for (const [label, to] of CLOCKS) {
 
 const jobs = CLOCKS.flatMap(([label, to]) => suites.map((suite) => ({ label, to, suite })));
 const failures = [];
+const parallel = jobs.filter((j) => !TIMED.includes(j.suite));
 let next = 0;
-await Promise.all(Array.from({ length: Math.max(1, Math.floor(availableParallelism() / 2)) }, async () => {
-  while (next < jobs.length) {
-    const job = jobs[next++];
+await Promise.all(Array.from({ length: availableParallelism() }, async () => {
+  while (next < parallel.length) {
+    const job = parallel[next++];
     const { code, out } = await run([job.suite], job.to);
     if (code !== 0) failures.push({ ...job, out });
   }
 }));
+// Suites with a wall-clock budget run alone, after the pool (see TIMED in suites.mjs).
+for (const job of jobs.filter((j) => TIMED.includes(j.suite))) {
+  const { code, out } = await run([job.suite], job.to);
+  if (code !== 0) failures.push({ ...job, out });
+}
 
 if (failures.length) {
   console.error(`\n${failures.length} suite run${failures.length === 1 ? "" : "s"} failed with the clock moved forward:\n`);
