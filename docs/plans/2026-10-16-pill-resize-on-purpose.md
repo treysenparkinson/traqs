@@ -3,7 +3,7 @@
 **Status:** Agreed, building
 **Source:** [PRD](2026-10-16-pill-resize-PRD.md) (Treysen, 2026-10-16)
 **Where:** `traqs-func` on `master` · **Platforms:** web only. iOS and Android don't drag-resize pills and aren't touched. · **Size:** S
-**Last updated:** 2026-10-16 16:30, step 2 done
+**Last updated:** 2026-10-16 16:55, step 3 done
 
 ## In one breath
 Grabbing a pill anywhere but a thin strip at its very end will always move it. After every
@@ -42,7 +42,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 
 **Calls I made** (veto any)
 - **C1.** Grips show when hovering anywhere on the pill, not only on the grip, so you can see where the edge is before pressing. *Why:* today you can't see the grip until you're already on it.
-- **C2.** The notice sits where the toast does (top center), stays about 6s and holds while hovered, and a new one replaces the old. It also counts as a "specific" toast, so "Changes saved" doesn't stack on it. *Why:* one place for notices, and no doubled message.
+- **C2.** The notice sits at the bottom center, stays 6s and holds while hovered (3s after the mouse leaves), and a new one replaces the old. *Why:* it never covers a toast at the top. (Changed in step 3, see Log.)
 - **C3.** Undo from the notice writes its own moveLog entry ("Resize undone") rather than deleting the resize entry. *Why:* history stays append-only, the same as every other move.
 - **C4.** Undo from the notice needs `moveJobs`, the same right as the resize, not `undoHistory`. *Why:* it's reversing a move you just made, not rolling back history.
 - **C5.** Day-view grips keep their fixed 12px. Day-view resizes get the notice and Esc. *Why:* day-view pills are hour-scaled and wide, and the PRD's complaint is the week/month rows.
@@ -55,7 +55,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - [x] **2. Esc cancels a resize with nothing written**: [dragMove.js](src/dragMove.js), both handlers in [TRAQS.jsx](src/TRAQS.jsx)
   *Why:* a cheap way out of a resize you notice mid-drag.
   *Proof:* [resize-test.mjs](scripts/resize-test.mjs) drives the real handler: three steps, Esc, release → zero writes, zero undo frames, zero saves.
-- [ ] **3. Every resize shows a notice with before and after**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
+- [x] **3. Every resize shows a notice with before and after**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
   *Why:* "it just does it and i dont always know." This half matters most.
   *Proof:* suite cases for the notice text: solo op, crew op (team total hours), an end date that moves. Both commit paths raise it (asserted against the source). `npm run build` passes.
 - [ ] **4. Undo in the notice reverses only that resize**: [dragMove.js](src/dragMove.js), [TRAQS.jsx](src/TRAQS.jsx)
@@ -75,7 +75,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 |---|---|
 | A grip change makes pills harder to move (event order, `stopPropagation`) | existing `drag-move-test`, `person-row-drag-test`, `overrun-drag-test` inside the build, plus step 5 |
 | Notice Undo overwrites an edit that arrived after the resize | step 4 suite case for "moved since"; the reverse plan only applies when the op still matches the resize's result |
-| "Changes saved" toast lands on top of the notice | step 3: the notice marks the toast clock; checked in step 5 |
+| A toast lands on top of the notice | the notice sits at the bottom and toasts sit at the top; checked in step 5 |
 | Esc also closes a modal or clears a selection mid-resize | the Esc listener lives only while a resize is in progress and stops the event |
 
 ## How you'll test it
@@ -89,5 +89,7 @@ Pull the grip-width rule into a small pure function in [dragMove.js](src/dragMov
 - **2026-10-16 16:05 · step 1 · Found:** `npm run build` was red on this Windows checkout before any change here. Four suites read files in ways that only work on LF/POSIX: `clock-access-test` and `lunch-default-test` (CRLF, #376's trap again), plus `status-meaning-test`, and `clock-shift-test` through it (`URL.pathname` gives `C:\C:\`). Test-only fixes, committed on their own ahead of step 1. Production builds on Linux, so nothing deployed was affected. `eol-safety-test` didn't catch the two CRLF ones, so its detector has a gap (not fixed here).
 - **2026-10-16 16:05 · step 1 · Decided:** the overrun tail on a PTO bar keeps its old grip rule too (12px and up, a third of its width), the same as the PTO head.
 - **2026-10-16 16:30 · step 2 · Found:** nothing tested the day view's resize through its real handler. [resize-test.mjs](scripts/resize-test.mjs) now drives `handleTeamDayBarDrag` too, the same way it already drove the week/month one. Esc applies to resizes only, so a day-view move adds no key listener.
+- **2026-10-16 16:55 · step 3 · Changed:** C2's premise was wrong. No "Changes saved" toast fires after a drag (the only generic toast is org settings), so there was nothing to suppress. The notice moved to the bottom center instead, where it can never sit on a top-center toast.
+- **2026-10-16 16:55 · step 3 · Decided:** the notice names the edge that was dragged, not whichever date field differs. A pill drawn pushed (a cursor push or an overrun) lands at its painted start, which would otherwise read as "starts … instead of …" on a right-edge resize.
 
 ## Outcome

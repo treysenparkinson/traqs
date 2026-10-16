@@ -17,7 +17,7 @@ import { templateOpFromNode, nodesFromTemplate } from "./copyRules.js";
 import { liveOpsOf } from "./liveTree.js";
 import { fieldEdits, applyFieldEdits, SETTINGS_FIELDS, PERMISSION_FIELDS } from "./rosterEdits.js";
 import { countsAsLeave, leaveEntries, leaveOn } from "./timeOff.js";
-import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx } from "./dragMove.js";
+import { planDragMove, memberOrigin, refuseDragMove, applyDragMove, departmentFollow, moveLogEntry, placementEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, landUnit, resizeGripPx, resizeNotice } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, capacityWarnings, unitBlocks, blocksOverlap, nextFreeStart, schedulerAvailability, takesPart, withPerson, withoutPerson } from "./overlapRules.js";
 import { movesSchedule } from "./settle.js";
 import { businessOnlyVisible } from "./tierVisibility.js";
@@ -7899,6 +7899,23 @@ Extraction rules:
     setEditToast({ msg, key });
     setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
   }, []);
+  // #550. A committed resize says what it did: an accidental one used to save silently. Its own
+  // notice rather than a toast, because it stays long enough to read and (step 4) to act on.
+  // Bottom centre, so it never sits on a toast. A new one replaces the last; hovering holds it.
+  const [resizeNote, setResizeNote] = useState(null);   // { key, id, text, plan, side }
+  const resizeNoteTimer = useRef(null);
+  const holdResizeNote = useCallback((ms) => {
+    clearTimeout(resizeNoteTimer.current);
+    if (ms) resizeNoteTimer.current = setTimeout(() => setResizeNote(null), ms);
+  }, []);
+  const noteResize = useCallback((plan, side, who) => {
+    const fmtDay = (d) => new Date(d + "T12:00:00").toLocaleDateString(DATE_LOCALE, { weekday: "short", month: "short", day: "numeric" });
+    const fmtHour = (h) => { const H = Math.floor(h), M = Math.round((h - H) * 60); return `${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`; };
+    const n = resizeNotice(plan, { side, who, fmtDay, fmtHour });
+    if (!n) return;
+    setResizeNote({ ...n, key: `${Date.now()}-${Math.random()}`, plan, side });
+    holdResizeNote(6000);
+  }, [holdResizeNote]);
   // A refused action says so. A missing control reads as a bug; a message reads as a policy.
   const denied = (action) => toast(`You don't have permission to ${action}.`);
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
@@ -15830,6 +15847,7 @@ ${jobsCtx || "No jobs found."}`;
         }
         setTasks(prev => build(prev));
         setTimeout(() => doSaveRef.current(), 0);
+        if (mode !== "move") noteResize(plan, mode, people.find(x => sameId(x.id, fromPersonId))?.name);
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -17507,6 +17525,7 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         setTasks(prev => build(prev));
                         setTimeout(() => doSaveRef.current(), 0);
+                        noteResize(plan, side, p.name);
                       },
                     });
                     // The cursor as a (day, hour) on the grid. Month: the half hour under it. Week:
@@ -32114,6 +32133,11 @@ ${jobsCtx || "No jobs found."}`;
         </svg>
       </div>
       <span>{editToast.msg}</span>
+    </div>, document.body)}
+  {resizeNote && createPortal(
+    <div key={resizeNote.key} role="status" onMouseEnter={() => holdResizeNote(0)} onMouseLeave={() => holdResizeNote(3000)}
+      style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 12, maxWidth: "min(640px, calc(100vw - 32px))", padding: "10px 12px 10px 18px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 100000, animation: "fadeIn 0.18s ease-out both" }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{resizeNote.text}</span>
     </div>, document.body)}
   </TooltipCtx.Provider>;
 }

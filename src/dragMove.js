@@ -446,6 +446,27 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
 }
 
 /**
+ * What a committed resize did, in words (#550): "Resized <op> (<who>): 16h → 24h, ends Wed
+ * instead of Tue". A resize used to save without a word, so an accidental one went unnoticed.
+ *
+ * Hours are the op's hpd — the TEAM's total, as the estimate is. The edge named is the one that
+ * was dragged (`side`), not whichever field differs: a bar drawn pushed (a cursor push, an
+ * overrun) lands at its painted start, which would read as a start that moved. The day is named
+ * when it changed, else the hour. Null for a plan that is not a resize (no hpd written).
+ */
+export function resizeNotice(plan, { side, who = "", fmtDay, fmtHour }) {
+  const m = plan?.[0];
+  if (!m || m.to?.hpd == null) return null;
+  const f = m.from, t = m.to;
+  const r1 = (h) => Math.round((h || 0) * 10) / 10;
+  const edge = (word, fd, td, fh, th) =>
+    fd !== td ? `, ${word} ${fmtDay(td)} instead of ${fmtDay(fd)}`
+      : fh != null && th != null && fh !== th ? `, ${word} ${fmtHour(th)} instead of ${fmtHour(fh)}` : "";
+  const moved = side === "left" ? edge("starts", f.start, t.start, f.startHour, t.startHour) : edge("ends", f.end, t.end, f.endHour, t.endHour);
+  return { id: m.id, text: `Resized ${m.node?.title || "Untitled"}${who ? ` (${who})` : ""}: ${r1(f.hpd)}h → ${r1(t.hpd)}h${moved}` };
+}
+
+/**
  * THE split (root cause 7 D: #44 #45 #46 #47 #48). One op becomes two: the part that STAYS
  * keeps the original id (its sessions, attachments, chat and history point at it) and the
  * part that GOES is a new op carrying `splitFrom`, so the server knows its people were

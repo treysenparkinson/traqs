@@ -46,6 +46,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   let state = tasks0;
   const undoStack = { current: [] }, redoStack = { current: [] }, skipHistory = { current: false }, latestTasksRef = { current: null };
   let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false, lastPreview;
+  const notes = [];
   const _setTasks = (fn) => { const next = fn(state); if (next !== state) writes++; if (!released) writesBeforeRelease = writes; state = next; };
   // #338. The wrapper now pushes a STRIPPED snapshot — content without
   // lastModifiedAt — so an undo cannot replay stale stamps into a save. Supplied
@@ -58,7 +59,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   const days = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"];
   const scope = {
     can: () => true, isPto: false, _someoneOnIt: false, PERM_VERB: {}, denied: () => {},
-    bar: { id: "bar-" + node.id, type: "task", task: node }, p: { id: "w" },
+    bar: { id: "bar-" + node.id, type: "task", task: node }, p: { id: "w", name: "Wes" },
     people: [{ id: "w", name: "Wes", timeOff: [] }], orgSettings: settings, loggedInUser: { name: "T" },
     refuseDragMove: D.refuseDragMove, applyDragMove: D.applyDragMove, refusalMessage: D.refusalMessage, resizeSession: D.resizeSession,
     blockedByActiveClock: () => false, jobIdOfNode: () => "j", sameId: (a, b) => String(a) === String(b),
@@ -68,6 +69,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
     setResizePreview: (pv) => { previews++; lastPreview = pv; }, setResizeTooltip: () => {}, setConfirmMove: () => { refusedShown++; },
     recalcBounds: (t) => t, enforceNoOverlap: (t) => ({ tasks: t, moved: [], refused: [] }),
     setTasks, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(), TD: "2026-09-30",
+    noteResize: (...a) => { notes.push(a); },
     days, isWorkDay: (d) => cal.isWorkDay(d), cW: 100,
     // Removal is real (#550): after Esc the mouseup must reach nothing.
     document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
@@ -92,7 +94,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   const previewAfterEsc = lastPreview;
   released = true;
   listeners.mouseup?.(ev(moves[moves.length - 1]));
-  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown, escStopped, left: Object.keys(listeners), previewAfterEsc };
+  return { state, writes, writesBeforeRelease, snapshots: undoStack.current.length, saves, previews, refusedShown, escStopped, left: Object.keys(listeners), previewAfterEsc, notes };
 };
 // A: Mon 08:00, 4 h (08–12). B: Mon 13:00, 3 h (13–16). Same person, same phase.
 const A = { id: "A", title: "A", start: "2026-10-05", end: "2026-10-05", startHour: 8, endHour: 12, hpd: 4, team: ["w"] };
@@ -104,6 +106,7 @@ check("nothing is written while the mouse moves", () => eq(run.writesBeforeRelea
 check("ONE write for the whole drag", () => eq(run.writes, 1));
 check("ONE undo snapshot — one undo reverts it", () => eq(run.snapshots, 1));
 check("ONE save", () => eq(run.saves, 1));
+check("#550: ONE notice, for that plan, naming the row's person and the side", () => eq([run.notes.length, run.notes[0]?.[0]?.[0]?.id, run.notes[0]?.[1], run.notes[0]?.[2]], [1, "A", "right", "Wes"]));
 check("the bar was previewed on every step instead", () => (run.previews >= 5 ? true : run.previews));
 const Aw = run.state[0].subs[0].subs.find(o => o.id === "A"), Bw = run.state[0].subs[0].subs.find(o => o.id === "B");
 check("the resize landed: A ends 11:00 with 3 h", () => eq([Aw?.end, Aw?.endHour, Aw?.hpd], ["2026-10-05", 11, 3]));
@@ -118,6 +121,7 @@ console.log("1b. #550 — Esc mid-resize writes nothing (week/month)");
   check("Esc is kept from anything else listening (a modal, a selection)", () => eq(r.escStopped, true));
   check("the bar stops drawing the preview the moment Esc lands", () => eq(r.previewAfterEsc, null));
   check("every listener the resize added is gone", () => eq(r.left, []));
+  check("no notice: nothing was resized", () => eq(r.notes.length, 0));
   const plain = harness({ node: A, moves: [45, 50, 35], tasks0: tree(A, B) });
   check("…and without Esc the same drag still writes once", () => eq([plain.writes, plain.saves], [1, 1]));
 }
@@ -127,7 +131,7 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
   const dayRun = ({ mode = "right", from, moves, escape = false }) => {
     let state = tree(A);
     let writes = 0, saves = 0, escStopped = false;
-    const listeners = {};
+    const listeners = {}, notes = [];
     const scope = {
       can: () => true, isDraggingRef: { current: true }, openJobDetailOrEdit: () => {}, denied: () => {}, PERM_VERB: {},
       dayGrid: { HS: 8, HE: 17, NH: 9 }, tStart: "2026-10-05", isWorkDay: (d) => cal.isWorkDay(d), orgSettings: settings,
@@ -140,6 +144,7 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
       setDayDragInfo: () => {}, setTeamDayGhost: () => {}, setDayDragTarget: () => {}, setConfirmMove: () => {},
       loggedInUser: { name: "T" }, recalcBounds: (t) => t, TD: "2026-09-30", enforceNoOverlap: () => ({ moved: [], refused: [] }),
       setTasks: (fn) => { const n = fn(state); if (n !== state) writes++; state = n; }, doSaveRef: { current: () => { saves++; } }, setTimeout: (f) => f(),
+      noteResize: (...a) => { notes.push(a); },
       document: { addEventListener: (k, f) => { listeners[k] = f; }, removeEventListener: (k, f) => { if (listeners[k] === f) delete listeners[k]; } },
     };
     const proxy = new Proxy(scope, { has: () => true, get: (t, k) => (k === Symbol.unscopables ? undefined : (k in t ? t[k] : globalThis[k])) });
@@ -151,7 +156,7 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
     for (const x of moves) listeners.mousemove?.(ev(x));
     if (escape) listeners.keydown?.({ key: "Escape", preventDefault() {}, stopPropagation() { escStopped = true; } });
     listeners.mouseup?.(ev(moves[moves.length - 1]));
-    return { writes, saves, escStopped, left: Object.keys(listeners), a: state[0].subs[0].subs[0] };
+    return { writes, saves, escStopped, left: Object.keys(listeners), a: state[0].subs[0].subs[0], notes };
   };
   // Right edge 12:00 → 11:00 (x = (hour − 8) × 100).
   const plain = dayRun({ from: 400, moves: [350, 300] });
@@ -160,7 +165,10 @@ console.log("1c. #550 — Esc mid-resize writes nothing (day view, the real hand
   check("with Esc: no write, no save, A keeps 4 h", () => eq([esc.writes, esc.saves, esc.a.hpd], [0, 0, 4]));
   check("Esc is kept from anything else listening", () => eq(esc.escStopped, true));
   check("every listener the resize added is gone", () => eq(esc.left, []));
+  check("the committed day resize raises ONE notice, side and person named", () => eq([plain.notes.length, plain.notes[0]?.[1], plain.notes[0]?.[2]], [1, "right", "Wes"]));
+  check("Esc: no notice", () => eq(esc.notes.length, 0));
   const mv = dayRun({ mode: "move", from: 200, moves: [250, 300] });
+  check("a committed MOVE raises no resize notice", () => eq([mv.writes, mv.notes.length], [1, 0]));
   check("a MOVE adds no Esc handler (moving is unchanged)", () => eq(mv.left.includes("keydown"), false));
 }
 
@@ -169,6 +177,7 @@ console.log("2. ruling 1 — a resize that grows into someone's work is refused,
   const r = harness({ node: A, moves: [45, 60, 75], tasks0: tree(A, B) });   // to 13:30, 14:00, 15:00 — into B
   check("refused, with a message", () => eq(r.refusedShown, 1));
   check("…and nothing was written", () => eq([r.writes, r.snapshots, r.saves], [0, 0, 0]));
+  check("…and no resize notice (#550)", () => eq(r.notes.length, 0));
 }
 
 console.log("3. #33 — a week-view resize changes the bar's length (whole days)");
