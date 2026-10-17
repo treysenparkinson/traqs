@@ -1,0 +1,2596 @@
+{
+ "area": "people",
+ "recordedAt": "frozen",
+ "scenarios": [
+  {
+   "name": "people GET as admin: full live list, decrypted pins, hasPin",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": true,
+       "pin": "4321"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": true,
+       "pin": "1111"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false,
+       "pin": ""
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false,
+       "pin": ""
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false,
+       "pin": ""
+      }
+     ],
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people GET as worker: no pins",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": true
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": true
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z",
+       "hasPin": false
+      }
+     ],
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people GET with no token: public projection + header",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json",
+      "X-People-Projection": "public"
+     },
+     "body": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "color": "#2563eb",
+       "department": "Engineering",
+       "userRole": "admin",
+       "clockStatus": "offline"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "color": "#16a34a",
+       "department": "Wiring",
+       "userRole": "user",
+       "clockStatus": "offline"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "color": "#f97316",
+       "department": "Fabrication",
+       "userRole": "user",
+       "clockStatus": "offline"
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "color": "#db2777",
+       "department": "Engineering",
+       "userRole": "admin",
+       "clockStatus": "offline"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "color": "#0891b2",
+       "userRole": "admin",
+       "clockStatus": "offline"
+      }
+     ],
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people GET with a failing token: an error, never the projection",
+   "steps": [
+    {
+     "status": 401,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Token expired"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: admin edits a name, stamps returned",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "1": "2026-10-14T15:30:00.000Z",
+       "7": "2026-10-14T15:30:00.000Z",
+       "12": "2026-10-14T15:30:00.000Z",
+       "14": "2026-10-14T15:30:00.000Z",
+       "15": "2026-09-01T00:00:00.000Z",
+       "99": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "1",
+          "7",
+          "99",
+          "12",
+          "14"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "e1$oACH+/dHnLht/nR9$LxDQuA==$pozr7vv0q3GXLr2LJarvhg==",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "7",
+       "name": "Wendy W.",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "e1$I2c/J30RZcRJMApt$IvjO/Q==$gXFPuBDLT+Zd88aooLg3xA==",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null,
+       "department": "Wiring"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: admin adds a person",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "1": "2026-10-14T15:30:00.000Z",
+       "7": "2026-10-14T15:30:00.000Z",
+       "12": "2026-10-14T15:30:00.000Z",
+       "14": "2026-10-14T15:30:00.000Z",
+       "15": "2026-09-01T00:00:00.000Z",
+       "99": "2026-10-14T15:30:00.000Z",
+       "t9newbie": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "1",
+          "7",
+          "99",
+          "12",
+          "14",
+          "t9newbie"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "e1$oACH+/dHnLht/nR9$LxDQuA==$pozr7vv0q3GXLr2LJarvhg==",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "e1$I2c/J30RZcRJMApt$IvjO/Q==$gXFPuBDLT+Zd88aooLg3xA==",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null,
+       "department": "Wiring"
+      },
+      {
+       "id": "t9newbie",
+       "name": "New Bie",
+       "email": "nb@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#123456",
+       "timeOff": [],
+       "department": "Wiring",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: omission deletes nobody",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "1": "2026-10-14T15:30:00.000Z",
+       "7": "2026-10-14T15:30:00.000Z",
+       "12": "2026-10-14T15:30:00.000Z",
+       "14": "2026-10-14T15:30:00.000Z",
+       "15": "2026-09-01T00:00:00.000Z",
+       "99": "2026-10-01T12:00:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "1",
+          "7",
+          "12",
+          "14"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "e1$oACH+/dHnLht/nR9$LxDQuA==$pozr7vv0q3GXLr2LJarvhg==",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "e1$I2c/J30RZcRJMApt$IvjO/Q==$gXFPuBDLT+Zd88aooLg3xA==",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null,
+       "department": "Wiring"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: empty array refused",
+   "steps": [
+    {
+     "status": 400,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Refusing to overwrite people with empty array"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: worker edits own color only",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "1": "2026-10-14T15:30:00.000Z",
+       "7": "2026-10-14T15:30:00.000Z",
+       "12": "2026-10-01T12:00:00.000Z",
+       "14": "2026-10-14T15:30:00.000Z",
+       "15": "2026-09-01T00:00:00.000Z",
+       "99": "2026-10-01T12:00:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "1",
+          "7",
+          "14"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "e1$oACH+/dHnLht/nR9$LxDQuA==$pozr7vv0q3GXLr2LJarvhg==",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#000000",
+       "pin": "e1$I2c/J30RZcRJMApt$IvjO/Q==$gXFPuBDLT+Zd88aooLg3xA==",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "department": "Wiring"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: worker tries to make self admin",
+   "steps": [
+    {
+     "status": 403,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Only admins can change user roles"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people POST: server-owned activeClockIn is pinned",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "1": "2026-10-14T15:30:00.000Z",
+       "7": "2026-10-14T15:30:00.000Z",
+       "12": "2026-10-14T15:30:00.000Z",
+       "14": "2026-10-14T15:30:00.000Z",
+       "15": "2026-09-01T00:00:00.000Z",
+       "99": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "1",
+          "7",
+          "99",
+          "12",
+          "14"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "e1$oACH+/dHnLht/nR9$LxDQuA==$pozr7vv0q3GXLr2LJarvhg==",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "e1$I2c/J30RZcRJMApt$IvjO/Q==$gXFPuBDLT+Zd88aooLg3xA==",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "activeClockIn": null,
+       "activeJobClock": null,
+       "activeBreak": null,
+       "pushToken": null,
+       "department": "Wiring"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people fields: set canClockInOut and a pin",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "ids": [
+       "99"
+      ]
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "99"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "4321",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "1111",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": true,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "pin": "e1$oACH+/dHnLht/nR9$IhPbuQ==$HRwpc+JYsd8S591akFhxrA=="
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people fields: restricted admin without manageTeam refused",
+   "steps": [
+    {
+     "status": 403,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Your account does not have permission to add, edit & remove team members"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people PATCH: worker sets own phone (null clears)",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "id": "7",
+      "name": "Wendy Wirer",
+      "email": "wendy@testpanels.example",
+      "role": "Wiring",
+      "department": "Wiring",
+      "userRole": "user",
+      "cap": 8,
+      "color": "#16a34a",
+      "payType": "hourly",
+      "phone": "555-0199",
+      "teamNumber": 2,
+      "timeOff": [
+       {
+        "start": "2026-10-20",
+        "end": "2026-10-21",
+        "type": "PTO",
+        "reason": "Dentist",
+        "reqId": "to_a1"
+       }
+      ],
+      "iosOnlyFlag": {
+       "kept": true
+      },
+      "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+      "image": null,
+      "hasPin": true
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "7"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "4321",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "1111",
+       "payType": "hourly",
+       "phone": "555-0199",
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "image": null
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people PATCH: worker cannot patch someone else",
+   "steps": [
+    {
+     "status": 403,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Can only modify your own profile"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "people DELETE ?id: admin soft-deletes",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "99"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "4321",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "pin": "1111",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "pushToken": null,
+       "deletedAt": "2026-10-14T15:30:00.000Z"
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "people DELETE: self-delete",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "7"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/people.json": [
+      {
+       "id": 1,
+       "name": "Ada Admin",
+       "email": "ada@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "cap": 8,
+       "color": "#2563eb",
+       "pin": "4321",
+       "timeOff": [],
+       "isEngineer": true,
+       "canSignOff": true,
+       "payType": "salary",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "7",
+       "name": "Wendy Wirer",
+       "email": "wendy@testpanels.example",
+       "role": "Wiring",
+       "department": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#16a34a",
+       "payType": "hourly",
+       "phone": null,
+       "teamNumber": 2,
+       "timeOff": [
+        {
+         "start": "2026-10-20",
+         "end": "2026-10-21",
+         "type": "PTO",
+         "reason": "Dentist",
+         "reqId": "to_a1"
+        }
+       ],
+       "iosOnlyFlag": {
+        "kept": true
+       },
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "pushToken": null,
+       "deletedAt": "2026-10-14T15:30:00.000Z"
+      },
+      {
+       "id": 99,
+       "name": "Sam Shop",
+       "email": "sam@testpanels.example",
+       "role": "Fabrication",
+       "department": "Fabrication",
+       "userRole": "user",
+       "cap": 7.5,
+       "color": "#f97316",
+       "payType": "hourly",
+       "canClockInOut": false,
+       "timeOff": [],
+       "noAutoSchedule": true,
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "12",
+       "name": "Rita Restricted",
+       "email": "rita@testpanels.example",
+       "role": "Engineering",
+       "department": "Engineering",
+       "userRole": "admin",
+       "adminPerms": {
+        "editJobs": true,
+        "moveJobs": true,
+        "reassign": false,
+        "manageTeam": false,
+        "manageClients": false,
+        "undoHistory": false,
+        "orgSettings": false,
+        "approveCompletions": true,
+        "approveTimeOff": false,
+        "manageTimeclock": false,
+        "confirmTimesheet": false
+       },
+       "cap": 8,
+       "color": "#db2777",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "14",
+       "name": "Nora Null",
+       "email": "nora@testpanels.example",
+       "role": "Wiring",
+       "userRole": "admin",
+       "adminPerms": null,
+       "cap": 8,
+       "color": "#0891b2",
+       "timeOff": [],
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "15",
+       "name": "Gone Person",
+       "email": "gone@testpanels.example",
+       "role": "Wiring",
+       "userRole": "user",
+       "cap": 8,
+       "color": "#999999",
+       "timeOff": [],
+       "deletedAt": "2026-09-01T00:00:00.000Z",
+       "lastModifiedAt": "2026-09-01T00:00:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "clients GET",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": [
+      {
+       "id": "c_acme",
+       "name": "Acme Water",
+       "contact": "Pat",
+       "email": "pat@acme.example",
+       "phone": "555-0100",
+       "color": "#0ea5e9",
+       "notes": "",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "c_bolt",
+       "name": "Bolt Mining",
+       "contact": "",
+       "email": "",
+       "phone": "",
+       "color": "#f43f5e",
+       "notes": "net 45",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      }
+     ],
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "clients POST: admin adds one",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "c_acme": "2026-10-01T12:00:00.000Z",
+       "c_bolt": "2026-10-01T12:00:00.000Z",
+       "c_new": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "clients",
+        {
+         "ids": [
+          "c_new"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "clients"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/clients.json": [
+      {
+       "id": "c_acme",
+       "name": "Acme Water",
+       "contact": "Pat",
+       "email": "pat@acme.example",
+       "phone": "555-0100",
+       "color": "#0ea5e9",
+       "notes": "",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "c_bolt",
+       "name": "Bolt Mining",
+       "contact": "",
+       "email": "",
+       "phone": "",
+       "color": "#f43f5e",
+       "notes": "net 45",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "c_new",
+       "name": "New Co",
+       "contact": "",
+       "email": "",
+       "phone": "",
+       "color": "#111111",
+       "notes": "",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "clients POST: omission tombstones",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "c_acme": "2026-10-01T12:00:00.000Z",
+       "c_bolt": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "clients",
+        {
+         "ids": [
+          "c_bolt"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "clients"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/clients.json": [
+      {
+       "id": "c_acme",
+       "name": "Acme Water",
+       "contact": "Pat",
+       "email": "pat@acme.example",
+       "phone": "555-0100",
+       "color": "#0ea5e9",
+       "notes": "",
+       "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+      },
+      {
+       "id": "c_bolt",
+       "name": "Bolt Mining",
+       "contact": "",
+       "email": "",
+       "phone": "",
+       "color": "#f43f5e",
+       "notes": "net 45",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "deletedAt": "2026-10-14T15:30:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "clients POST: worker refused",
+   "steps": [
+    {
+     "status": 403,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Admins only — you do not have permission to add, edit & delete clients"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "clients POST: empty refused unless force",
+   "steps": [
+    {
+     "status": 409,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Refusing to overwrite non-empty clients with empty array"
+     },
+     "effects": []
+    },
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true,
+      "stamps": {
+       "c_acme": "2026-10-14T15:30:00.000Z",
+       "c_bolt": "2026-10-14T15:30:00.000Z"
+      }
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "clients",
+        {
+         "ids": [
+          "c_acme",
+          "c_bolt"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "clients"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/clients.json": [
+      {
+       "id": "c_acme",
+       "name": "Acme Water",
+       "contact": "Pat",
+       "email": "pat@acme.example",
+       "phone": "555-0100",
+       "color": "#0ea5e9",
+       "notes": "",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "deletedAt": "2026-10-14T15:30:00.000Z"
+      },
+      {
+       "id": "c_bolt",
+       "name": "Bolt Mining",
+       "contact": "",
+       "email": "",
+       "phone": "",
+       "color": "#f43f5e",
+       "notes": "net 45",
+       "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+       "deletedAt": "2026-10-14T15:30:00.000Z"
+      }
+     ]
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "settings GET",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "timeZone": "America/Denver",
+      "hpd": 8,
+      "workStart": "07:00",
+      "workEnd": "15:30",
+      "workDays": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ],
+      "holidays": [
+       "2026-11-26"
+      ],
+      "lunch": {
+       "time": "12:00",
+       "durationMinutes": 30
+      },
+      "breaks": [
+       {
+        "time": "10:00",
+        "durationMinutes": 15
+       }
+      ],
+      "roles": [
+       "Wiring",
+       "Fabrication",
+       "Engineering"
+      ],
+      "statusOpts": [
+       {
+        "name": "Not Started",
+        "color": "#94a3b8",
+        "icon": "circle"
+       },
+       {
+        "name": "In Progress",
+        "color": "#3b82f6",
+        "icon": "play",
+        "isActive": true
+       },
+       {
+        "name": "MTX FAT",
+        "color": "#a855f7",
+        "icon": "flag"
+       },
+       {
+        "name": "Finished",
+        "color": "#22c55e",
+        "icon": "check",
+        "isFinished": true
+       }
+      ],
+      "priOpts": [
+       {
+        "name": "High",
+        "color": "#ef4444"
+       },
+       {
+        "name": "Medium",
+        "color": "#f59e0b"
+       },
+       {
+        "name": "Low",
+        "color": "#10b981"
+       }
+      ],
+      "customCols": [
+       {
+        "id": "cc1",
+        "label": "Shop Order",
+        "type": "text"
+       },
+       {
+        "id": "cc2",
+        "label": "Stage",
+        "type": "select",
+        "options": [
+         {
+          "name": "Kit",
+          "color": "#ccc",
+          "icon": ""
+         }
+        ]
+       }
+      ],
+      "conditions": [],
+      "signOffTemplates": [
+       {
+        "id": "so1",
+        "name": "QC",
+        "steps": [
+         "Torque",
+         "Label"
+        ]
+       }
+      ],
+      "approvalQueueLabel": "Approval Queue",
+      "approvalSteps": [
+       "Review",
+       "Approve",
+       "Release"
+      ],
+      "approverLabel": "Approver",
+      "payPeriodType": "biweekly",
+      "payPeriodStart": "2026-01-04",
+      "payDates": [
+       5,
+       20
+      ],
+      "payMode": "setdate",
+      "payPeriodHourCap": 80,
+      "trackLunch": true,
+      "trackBreaks": false,
+      "iosPayClockEnabled": true,
+      "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "settings POST: admin replaces, keys omitted are dropped",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true
+     },
+     "effects": [
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "settings",
+        {
+         "ids": [
+          "*"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "settings"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/settings.json": {
+      "timeZone": "America/Denver",
+      "workDays": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "hpd": 9,
+      "lastModifiedAt": "2026-10-14T15:30:00.000Z"
+     }
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "settings POST: empty work week refused",
+   "steps": [
+    {
+     "status": 400,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "workDays must include at least one working day (0 = Sunday … 6 = Saturday)"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "settings POST: restricted admin refused",
+   "steps": [
+    {
+     "status": 403,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "Your account does not have permission to access organization settings"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  },
+  {
+   "name": "user-settings GET and merge POST",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "themeMode": "dark",
+      "hiddenCols": [
+       "poNumber"
+      ],
+      "colWidths": [
+       120,
+       80
+      ],
+      "tMode": "week",
+      "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+     },
+     "effects": []
+    },
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true
+     },
+     "effects": []
+    },
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "themeMode": "dark",
+      "hiddenCols": [
+       "poNumber"
+      ],
+      "colWidths": [
+       120,
+       80
+      ],
+      "tMode": "month",
+      "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+      "colSort": {
+       "title": "asc"
+      }
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/user-settings/ada_testpanels.example.json": {
+      "themeMode": "dark",
+      "hiddenCols": [
+       "poNumber"
+      ],
+      "colWidths": [
+       120,
+       80
+      ],
+      "tMode": "month",
+      "lastModifiedAt": "2026-10-14T15:30:00.000Z",
+      "colSort": {
+       "title": "asc"
+      }
+     }
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "user-settings for a user with none yet",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {},
+     "effects": []
+    },
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "ok": true
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {
+     "orgs/TESTORG/user-settings/wendy_testpanels.example.json": {
+      "themeMode": "light",
+      "lastModifiedAt": "2026-10-14T15:30:00.000Z"
+     }
+    },
+    "deleted": []
+   }
+  },
+  {
+   "name": "billing GET and an upgrade request",
+   "steps": [
+    {
+     "status": 200,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "tier": "business",
+      "requestedTier": null,
+      "requestedAt": null,
+      "requestedBy": null,
+      "lastModifiedAt": "2026-10-01T12:00:00.000Z"
+     },
+     "effects": []
+    },
+    {
+     "status": 409,
+     "headers": {
+      "Content-Type": "application/json"
+     },
+     "body": {
+      "error": "This organization is already on Business"
+     },
+     "effects": []
+    }
+   ],
+   "store": {
+    "writes": {},
+    "deleted": []
+   }
+  }
+ ]
+}

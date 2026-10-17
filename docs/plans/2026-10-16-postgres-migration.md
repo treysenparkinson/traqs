@@ -59,9 +59,9 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 ## Steps (phase 1)
 - [x] **1. Local Postgres in the build**: `db/`, `scripts/db/`, [package.json](../../package.json)
   *Why:* everything after this runs on it. *Proof:* a `db-smoke-test` in `npm run build` starts a cluster, applies an empty migration, runs `select 1`, stops; `✓ built in`.
-- [ ] **2. Golden snapshots of today's behaviour**: `scripts/golden/`, `fixtures/golden/`
+- [x] **2. Golden snapshots of today's behaviour**: `scripts/golden/`, `fixtures/golden/`
   *Why:* the "before" picture has to exist before storage changes. A recorder runs every endpoint and timeclock action against the current code with S3 faked at the SDK level and writes request, response and resulting store state. *Proof:* a `golden-test` replays them on S3 and passes; mutating one handler response fails it.
-- [ ] **3. The schema**: `db/migrations/001_*.sql` … per [schema-design.md](../db/schema-design.md)
+- [x] **3. The schema**: `db/migrations/001_*.sql` … per [schema-design.md](../db/schema-design.md)
   *Why:* the tables, keys, constraints, audit triggers. *Proof:* `schema-test` applies it to an empty cluster and checks every table, constraint and trigger; the move log refuses an UPDATE; `change_log` records an actor.
 - [ ] **4. Lossless codecs, proven on real data**: `netlify/functions/_utils/store/codecs/`
   *Why:* one `decode(json) → rows` / `encode(rows) → json` per S3 file is the migration. *Proof:* `codec-roundtrip-test` (fixtures, in the build) and `tools/db/verify-snapshot.mjs` (the D2 snapshot) show `encode(decode(x))` equals `x` for every file; a profile report lists dangling references, which settles the **(FK?)** relations.
@@ -99,5 +99,9 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 
 ## Log
 - **2026-10-16 19:55 · step 1 · Decided:** one cluster per build (`scripts/db/with-pg.mjs` wraps `run-suites.mjs`), a migrated template database, and a clone per suite (`scripts/db/test-db.mjs`); a suite run on its own starts its own cluster. Cluster start + migrate is 4.2 s; the full build went to about 45 s. Postgres 17.10 (`embedded-postgres@17.10.0-beta.17`, `pg@8.23.1`, both pinned).
+- **2026-10-16 20:40 · step 3 · Done:** done ahead of step 2 while the golden scenarios were being written in parallel. 47 tables in 7 migrations; `db-schema-test` (20) in the build, and a mutant without the append-only trigger fails 2. The production snapshot (D2) is in `db/snapshots/2026-10-17/`: 57 JSON files, about 2 MB, 5 orgs plus `_index`, pulled read-only by `tools/db/pull-snapshot.mjs`.
+- **2026-10-16 20:40 · step 3 · Changed:** panel approvals, `pendingSession` and `planned*`/`actual*` stay in `nodes.extra` for phase 1 instead of their own tables (web-only, nothing queries them). Mixed-type ids inside lists are `json`. Both are recorded in [schema-design.md](../db/schema-design.md) under "Where the SQL differs".
+- **2026-10-16 21:30 · step 2 · Done:** 356 scenarios across 6 areas: people/clients/settings 29, pay clock 65, job clock 60, tasks 69, chat/groups/time off 60, org/sync/invites/attachments/misc 73. Every endpoint is covered, every timeclock action, and all 15 handlers that had no suite. The five areas after people were written by parallel agents against the shared harness (`scripts/golden/`); I reviewed their reports and fixed two harness gaps they found (binary read shape, env leaking between scenarios). `golden-test` is in the build, and a mutated status in settings.js fails it with `recorded 400 | now 422`.
+- **2026-10-16 21:30 · step 2 · Found:** recording turned up 16 behaviours that look wrong; they're logged as SCHEDULE_MAP #557–#572 and pinned as-is (the swap must not change them silently). The payroll-visible ones: a reopened shift clocks out with `hours: null` (#557), the kiosk ignores `canClockInOut` (#558), a refused finish request still freezes sessions (#560), and time-off decisions don't check the current status (#563).
 
 ## Outcome

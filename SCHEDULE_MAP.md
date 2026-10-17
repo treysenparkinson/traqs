@@ -3295,3 +3295,37 @@ The upsert is the sharper half. The chat path carries a comment explaining why i
 555. [LOGGED 2026-10-16 — same survey] **A PUNCH EDIT LEAVES NO RECORD OF WHO OR WHAT.** `adminEditEntry` rewrites clockIn, clockOut, hours and date in place (timeclock.js:848-853) with no editedBy/editedAt or previous values; the only history is S3 object versioning and daily backups. Payroll-relevant. The Postgres plan's `change_log` covers it.
 
 556. [LOGGED 2026-10-16 — same survey] messages.js authenticates on its own path (validateToken, emailForToken, roster lookup, :27) instead of `requireOrgMember`, so it skips the `config.deletedAt` check, the adminEmails bootstrap and the `org_id` claim path that every other authenticated endpoint applies.
+
+**#557–#572 were found recording the Postgres-migration goldens (fixtures/golden/*.json, 2026-10-16).** Each is pinned AS-IS by a golden, so the storage swap reproduces it; fixing one means re-recording that golden on purpose. None fixed.
+
+557. [LOGGED 2026-10-16, goldens timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out"] **A REOPENED SHIFT CLOCKS OUT WITH `hours: null`.** adminReopenEntry rebuilds `activeClockIn.events` as `{type, at}` (timeclock.js:1171); every reader expects `{type, ts}` (`pausedMsFromEvents`, :151), so the clock-out computes NaN and stores null in payhours. Payroll-visible.
+
+558. [LOGGED 2026-10-16, goldens timeclock-pay] The kiosk PIN clockIn checks only salary (timeclock.js:2431-2434), not `canClockInOut`, which payClockIn does refuse (:2201). A person blocked from clocking in can still do it at the kiosk.
+
+559. [LOGGED 2026-10-16, goldens timeclock-pay] payClockIn has no admin exemption from the worker's PIN (:2232-2244) while payClockOut does (:2279): an admin can clock a worker out but not in.
+
+560. [LOGGED 2026-10-16, goldens timeclock-job] **A REFUSED finishRequest STILL FREEZES SESSIONS.** The freeze write (timeclock.js:2685-2698) runs before the not-on-team 403 (:2704) and the op-not-found 404 (:2708), so anyone clocked into that opId gets `frozenAtMs` even though no request was made.
+
+561. [LOGGED 2026-10-16, goldens timeclock-job] jobClockOut's dedupe on (personId, opId, clockIn) skips only the productionhours row (:1584-1592); the loggedHours counters on op, panel and job are still incremented (:1613-1661). Reachable only with existing data, since a retry 409s first.
+
+562. [LOGGED 2026-10-16, goldens timeclock-job] adminJobHours' "Invalid hours" 400 (:1906) is unreachable: `Number(hours) || 0` (:1905) turns "abc" into 0, which returns 200 `credited: 0`.
+
+563. [LOGGED 2026-10-16, goldens chat] **TIME-OFF DECISIONS DON'T CHECK THE CURRENT STATUS.** approve (timeoff.js:454-510) re-approves an approved request (re-stamping decidedAt) and approves a CANCELLED one, re-adding the person.timeOff entry; deny on an APPROVED request (:512-535) leaves its person.timeOff entry in place. The 409 precondition (`commitRequest`, :118-131) only compares against the status read moments earlier in the same request.
+
+564. [LOGGED 2026-10-16, goldens chat] messages DELETE treats anyone with `userRole === "admin"` as admin (messages.js:378) and ignores `adminPerms`, so a restricted admin can clear job threads.
+
+565. [LOGGED 2026-10-16, goldens tasks] **A DELTA WRITE IS JUDGED AS IF EVERY UNMENTIONED JOB WERE DELETED.** Permissions and the schedule/overlap rules compare only the upsert list with the stored tree (tasks.js:234, :243, :264): an empty `{upsert:[],delete:[]}` from a worker is 403 editJobs, a moveJobs-only admin upserting just j1 is 403 editJobs, and in enforce, upserting j2 while someone is clocked into an op of j1 is 422 "removed". iOS always sends the envelope.
+
+566. [LOGGED 2026-10-16, goldens tasks] In TASK_CONFLICT_MODE enforce, when any job conflicts, the other jobs are taken from the raw request instead of the guarded copy (tasks.js:203), so server-owned guards (loggedHours) are skipped for them while rule-events still logs the field as refused.
+
+567. [LOGGED 2026-10-16, goldens tasks] The moveLog repair keeps the client's key order (_utils/move-log-guard.js:73) and `isAppend` compares JSON strings (src/taskActions.js:73), so a worker sending a thinner, harmless entry is refused 403 editJobs. A shortened moveLog is repaired but never logged (move-log-guard.js:64, :69). The finish-request merge also adds `pendingFinish:false` to an op that never had it (tasks.js:705), turning a no-op save into a 403 for a worker.
+
+568. [LOGGED 2026-10-16, goldens org] forgot-org with no body throws `TypeError` (forgot-org.js:22: `JSON.parse(null).email`), a 500.
+
+569. [LOGGED 2026-10-16, goldens org] org-lookup returns soft-deleted orgs (no deletedAt check, org-lookup.js:51-75) and matches only `adminEmail`, never `adminEmails`. Its matches, like forgot-org's, come back in Promise.all completion order (org-lookup.js:72, forgot-org.js:63), not a stable order.
+
+570. [LOGGED 2026-10-16, goldens org] The public invite view `GET /invite?token=&org=` returns 200 for an EXPIRED invite (invite.js:55); only revoked and accepted are 404, while accept refuses expired with 403.
+
+571. [LOGGED 2026-10-16, goldens org] org-config's founding-admin self-provision lookup doesn't skip tombstoned rows (org-config.js:43): an admin whose only row is deleted resolves to it (isMember true) and nothing is provisioned. `personFromAdmin` names every founding admin after `config.adminName` (_utils/invite.js:135).
+
+572. [LOGGED 2026-10-16, goldens, minor, batched] adminLunch/Break responses show activeClockIn from before the event (timeclock.js:1342). confirmTimesheet re-stamps already-confirmed rows (:1267-1276). A kiosk action for a person with no PIN counts as a failed attempt (:2424-2425). The clock-in push goes to every `userRole === "admin"` incl. restricted ones (:409). Clocking into an op you aren't on still pushes the op and panel to In Progress (:1452-1460). org PATCH with no recognised field returns the "changing the organization code" 503 (org.js). org POST keeps `adminEmail` as typed while lowercasing `adminEmails`. Rule events (incl. ai-action) are written for requests later refused 403 (tasks.js:381); finish-request repairs are collected but never logged (tasks.js:166). A no-op messages DELETE or groups POST still rewrites the file and publishes (messages.js:397, groups.js:298). Groups and bubbles created by timeoff have no lastModifiedAt (see #554).
