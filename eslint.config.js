@@ -35,7 +35,7 @@ export default [
     rules: { "no-undef": "error", "no-dupe-keys": "error" },
   },
   {
-    files: ["netlify/**/*.js", "scripts/**/*.mjs", "tools/**/*.mjs"],
+    files: ["netlify/**/*.js", "scripts/**/*.mjs", "tools/**/*.mjs", "db/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",

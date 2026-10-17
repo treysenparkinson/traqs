@@ -1,6 +1,12 @@
 # Dependencies
 node_modules/
 
+# Postgres migration (docs/plans/2026-10-16-postgres-migration.md, D2): production snapshots
+# hold emails, encrypted PINs and pay hours, and never leave this machine. local-data is the
+# dev server's database cluster.
+db/snapshots/
+db/local-data/
+
 # Build output
 dist/
 

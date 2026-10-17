@@ -1,6 +1,6 @@
 # TRAQS runs on Postgres, proven identical to today before anyone relies on it
 
-**Status:** Planning
+**Status:** Agreed, building
 **Source:** Brayden (helping Treysen) in chat, 2026-10-16: "setup a relational database and migrate everything over to it locally, running a local DB as part of the build, and test the shit out of every functionality … snapshot current functionality and test cases … AWS to host the DB … get all that built locally for now"
 **Where:** `traqs-func` on `feature/postgres` (off `master`) · **Platforms:** server only. iOS, Android and web keep calling the same Netlify Functions with the same bodies; none of them change. · **Size:** L, phased
 **Last updated:** 2026-10-16 19:30, plan written
@@ -44,8 +44,8 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 ## Decisions
 
 **Needs you**
-- **D1. Local Postgres.** **My pick:** `embedded-postgres` (real Postgres 17 binaries from npm, the same engine as AWS RDS), started by the build and by `npm run db:up`. **Other:** PGlite (Postgres compiled to WASM, in-process, no ports: fastest tests, but not the exact engine production runs, and one connection only); or install Postgres/Docker yourself.
-- **D2. Real data for migration testing.** **My pick:** pull a read-only snapshot of production S3 (`orgs/**` JSON, no attachments) into a git-ignored `db/snapshots/` on this machine, used only to prove the round-trip and seed local dev. It has emails, encrypted PINs and pay hours, and stays on this machine. **Other:** synthetic fixtures only (no production data leaves S3, but the migration is never tested against what it will actually move).
+- **D1.** Local Postgres is `embedded-postgres` (real Postgres 17 binaries from npm), started by the build and by `npm run db:up`. (Brayden, 2026-10-16)
+- **D2.** A read-only snapshot of production S3 (`orgs/**` JSON, no attachments) goes into a git-ignored `db/snapshots/` on this machine, used only to prove the round-trip and seed local dev. Never committed. (Brayden, 2026-10-16)
 - **D3. AWS hosting (decide before phase 3, not now).** **My pick:** Aurora Serverless v2 for Postgres with the RDS Data API (HTTP + IAM, so Netlify Functions need no VPC, static IP or connection pooler). **Other:** RDS Postgres + RDS Proxy (more conventional, but Netlify's changing IPs mean a public endpoint or a VPC bridge).
 
 **Calls I made** (veto any)
@@ -57,7 +57,7 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 - **C6.** The audit actor (person, email, source) is set per request with `SET LOCAL`, and triggers write `change_log`; no handler has to remember to log.
 
 ## Steps (phase 1)
-- [ ] **1. Local Postgres in the build**: `db/`, `scripts/db/`, [package.json](../../package.json)
+- [x] **1. Local Postgres in the build**: `db/`, `scripts/db/`, [package.json](../../package.json)
   *Why:* everything after this runs on it. *Proof:* a `db-smoke-test` in `npm run build` starts a cluster, applies an empty migration, runs `select 1`, stops; `✓ built in`.
 - [ ] **2. Golden snapshots of today's behaviour**: `scripts/golden/`, `fixtures/golden/`
   *Why:* the "before" picture has to exist before storage changes. A recorder runs every endpoint and timeclock action against the current code with S3 faked at the SDK level and writes request, response and resulting store state. *Proof:* a `golden-test` replays them on S3 and passes; mutating one handler response fails it.
@@ -98,5 +98,6 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 3. Clock someone in and out from the web time clock; the punch appears, and `npm run db:audit -- --table time_punches` shows who did it.
 
 ## Log
+- **2026-10-16 19:55 · step 1 · Decided:** one cluster per build (`scripts/db/with-pg.mjs` wraps `run-suites.mjs`), a migrated template database, and a clone per suite (`scripts/db/test-db.mjs`); a suite run on its own starts its own cluster. Cluster start + migrate is 4.2 s; the full build went to about 45 s. Postgres 17.10 (`embedded-postgres@17.10.0-beta.17`, `pg@8.23.1`, both pinned).
 
 ## Outcome

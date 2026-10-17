@@ -122,6 +122,7 @@ export const SUITES = [
   "scripts/drop-flash-order-test.mjs",
   "scripts/resize-test.mjs",
   "scripts/resize-grip-test.mjs",
+  "scripts/db-smoke-test.mjs",
   "scripts/split-test.mjs",
   "scripts/basic-lanes-test.mjs",
   "scripts/clock-atomicity-test.mjs",
