@@ -119,6 +119,7 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
   - (2) The audit actor leaked between requests. With no per-request boundary, a later or concurrent request (a kiosk clock-in) could inherit the previous caller, and a test showed Sam's write attributed to Ada. Every handler is now wrapped in `withRequest` (`_utils/request-context.js`, one mechanical line per function file), and a write with no identified caller records no actor.
   - Also fixed: `listOrgCodes` sorts in byte order like S3 (`collate "C"`), and `dev:pg` stops the whole dev-server tree on Windows.
   - Left as follow-ups: per-row write round trips and the Postgres golden replay doubling the build (~107 s). A push-subs or reads file holding one empty entry falls back to raw storage, losslessly.
+- **2026-10-16 20:19 · golden defects · Fixed:** #557, a reopened shift's clock-out stored `hours: null`. Reopen now writes `{type, ts}`, and the hours reader also accepts the old `at` for a shift reopened before the fix that is still open. One golden re-recorded on purpose (timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out": events keyed `ts`, punch `hours` null -> 26.08); nothing else moved.
 
 ## Outcome
 Phase 1 is built and committed on `feature/postgres`, local only. Nothing is deployed, nothing is pushed, and production S3 was only ever read.

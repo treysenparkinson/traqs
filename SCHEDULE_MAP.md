@@ -3296,9 +3296,9 @@ The upsert is the sharper half. The chat path carries a comment explaining why i
 
 556. [LOGGED 2026-10-16 — same survey] messages.js authenticates on its own path (validateToken, emailForToken, roster lookup, :27) instead of `requireOrgMember`, so it skips the `config.deletedAt` check, the adminEmails bootstrap and the `org_id` claim path that every other authenticated endpoint applies.
 
-**#557–#572 were found recording the Postgres-migration goldens (fixtures/golden/*.json, 2026-10-16).** Each is pinned AS-IS by a golden, so the storage swap reproduces it; fixing one means re-recording that golden on purpose. None fixed.
+**#557–#572 were found recording the Postgres-migration goldens (fixtures/golden/*.json, 2026-10-16).** Each is pinned AS-IS by a golden, so the storage swap reproduces it; fixing one means re-recording that golden on purpose. None fixed when recorded; a later fix is marked on its entry.
 
-557. [LOGGED 2026-10-16, goldens timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out"] **A REOPENED SHIFT CLOCKS OUT WITH `hours: null`.** adminReopenEntry rebuilds `activeClockIn.events` as `{type, at}` (timeclock.js:1171); every reader expects `{type, ts}` (`pausedMsFromEvents`, :151), so the clock-out computes NaN and stores null in payhours. Payroll-visible.
+557. [FIXED 2026-10-16 — reopen writes `{type, ts}` and `pausedMsFromEvents` also reads a stored `at` (`eventTs`), so a shift reopened before the fix and still open closes correctly too; `scripts/reopen-events-test.mjs` (18), red first, 3 mutants caught; golden re-recorded, `hours` null -> 26.08.] [LOGGED 2026-10-16, goldens timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out"] **A REOPENED SHIFT CLOCKS OUT WITH `hours: null`.** adminReopenEntry rebuilds `activeClockIn.events` as `{type, at}` (timeclock.js:1171); every reader expects `{type, ts}` (`pausedMsFromEvents`, :151), so the clock-out computes NaN and stores null in payhours. Payroll-visible.
 
 558. [LOGGED 2026-10-16, goldens timeclock-pay] The kiosk PIN clockIn checks only salary (timeclock.js:2431-2434), not `canClockInOut`, which payClockIn does refuse (:2201). A person blocked from clocking in can still do it at the kiosk.
 
