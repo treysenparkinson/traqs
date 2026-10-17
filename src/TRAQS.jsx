@@ -35,6 +35,7 @@ import { LIGHT, DARK } from "./themeTokens.js";
 import { paintPress, syncRail, isNavActive } from "./railPress.js";
 import { normalizeAppearance, appearanceTheme, ACCENTS, DEFAULT_PREFS } from "./appearance.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
+import { alertsSetting } from "./alertsSetting.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows, mergeInOrder } from "./db/sync.js";
@@ -7850,12 +7851,18 @@ Extraction rules:
   const notifRef = useRef(null);
   const profileRef = useRef(null);
   // Desktop Web Push (Windows toast notifications). pushPerm tracks the
-  // browser Notification permission so the "Enable alerts" button can hide
-  // once granted. canWebPush is false on native (Capacitor → OneSignal) and
-  // unsupported browsers.
+  // browser Notification permission for Settings → Account's Desktop alerts
+  // row, the one place alerts are turned on (the rail button is gone). canWebPush
+  // is false on native (Capacitor → OneSignal) and unsupported browsers.
   const canWebPush = pushSupported();
   const [pushPerm, setPushPerm] = useState(() => pushPermission());
   const [pushBusy, setPushBusy] = useState(false);
+  const enableAlerts = async () => {
+    setPushBusy(true);
+    await registerAndSubscribe(getToken, orgCode);
+    setPushPerm(pushPermission());
+    setPushBusy(false);
+  };
   const pushAutoAskedRef = useRef(false); // guard: auto-prompt at most once per page load
   const chatBottomRef = useRef(null);
   const chatScrollRef = useRef(null);       // the messages scroll container
@@ -8151,6 +8158,20 @@ Extraction rules:
     return watchTheme(getToken, orgCode);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgCode, loggedInUser?.id]);
+
+  // Notification permission can change outside the page (the browser's own site
+  // settings, the padlock menu), and nothing tells the page. Re-read it whenever
+  // the person comes back to the tab, so the Desktop alerts row is never stale.
+  useEffect(() => {
+    if (!canWebPush) return;
+    const rereadPush = () => setPushPerm(pushPermission());
+    window.addEventListener("focus", rereadPush);
+    document.addEventListener("visibilitychange", rereadPush);
+    return () => {
+      window.removeEventListener("focus", rereadPush);
+      document.removeEventListener("visibilitychange", rereadPush);
+    };
+  }, [canWebPush]);
 
   // When a desktop toast is clicked, the service worker focuses the tab and
   // posts the payload here — route to the right page by push type.
@@ -26265,6 +26286,7 @@ ${jobsCtx || "No jobs found."}`;
       : null;
     const sample = new Date(TD + "T12:00:00");
     const sampleOf = loc => sample.toLocaleDateString(loc, { month: "short", day: "numeric", year: "numeric" });
+    const alerts = alertsSetting(canWebPush, pushPerm);
     return (
       <div className="rv-scol">
         {sRow("Profile photo", "Shown on your clock-ins, messages and the schedule.", <>
@@ -26302,6 +26324,13 @@ ${jobsCtx || "No jobs found."}`;
             <option value="intl">{sampleOf("en-GB")}</option>
           </select>)}
         </div>)}
+        {/* Applies at once, like Logo: a browser permission, not part of the draft. */}
+        {sRow("Desktop alerts", alerts.note,
+          <div className="rv-ctl flat">
+            <span>This browser<small>New messages and job updates</small></span>
+            <span className={`rv-chip${alerts.kind ? " " + alerts.kind : ""}`}>{alerts.chip}</span>
+            {alerts.canEnable && <button type="button" className="rv-pill pri" disabled={pushBusy} onClick={enableAlerts}>{pushBusy ? "Turning on…" : "Turn on alerts"}</button>}
+          </div>)}
         {sRow("Sign-in", provider ? "You sign in with your work account. No password is stored." : "You sign in with your email address.",
           <div className="rv-ctl flat">
             <span>{provider || "Email"}<small>{auth0User?.email || d.email || "—"}</small></span>
@@ -27286,21 +27315,7 @@ ${jobsCtx || "No jobs found."}`;
            centred, stacked) so it takes the same spacing. Two columns drawing one
            rail should not be spaced differently. */}
        <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: RAIL_NAV_GAP, padding: 7 }}>
-        {/* Enable desktop (Windows) notifications — only on web, until granted */}
-        {canWebPush && pushPerm !== "granted" && (
-          <button onClick={async (e) => {
-            e.stopPropagation();
-            railTipOff();
-            setPushBusy(true);
-            await registerAndSubscribe(getToken, orgCode);
-            setPushPerm(pushPermission());
-            setPushBusy(false);
-          }} disabled={pushBusy} aria-label="Enable alerts"
-            onMouseEnter={hoverIn(pushBusy ? "Enabling…" : "Get Windows notifications for new messages & job updates")} onMouseLeave={hoverOut()}
-            style={navBtn(false, { extra: { cursor: pushBusy ? "default" : "pointer", opacity: pushBusy ? 0.6 : 1 } })}>
-            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </button>
-        )}
+        {/* Desktop alerts are turned on in Settings → Account, not here. */}
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative", zIndex: 1 }}>
           <button onClick={e => { e.stopPropagation(); railTipOff(); setNotifOpen(p => !p); }} aria-label="Notifications"
