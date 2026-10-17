@@ -96,6 +96,10 @@ export async function handler(event) {
       // these, not on comparing emails locally.
       isMember: personId != null,
       isAdmin: member.isAdmin,
+      // WHICH PERSON THIS TOKEN IS — the caller's own row id, nothing about anyone else. App.jsx
+      // checks it against the name tapped on the roster, which since #385 carries no email to
+      // compare (scripts/wrong-account-test.mjs).
+      personId: personId != null ? String(personId) : null,
     });
   } catch (e) {
     console.error("org-config GET error:", e);

@@ -8,6 +8,7 @@ import { UL_LOGO_WHITE } from "./logo.js";
 import { BRAND_BARS, TraqsBars } from "./brand.jsx";
 import { liquidCss } from "./liquidWash.js";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople, acceptInvite } from "./api.js";
+import { isWrongAccount } from "./wrongAccount.js";
 // The same constant the invite email reads, so the two can't point at
 // different places. Empty until the app is published.
 import { IOS_APP_STORE_URL } from "../netlify/functions/_utils/app-links.js";
@@ -1727,7 +1728,10 @@ function AuthGate() {
     const saved = selectedPerson || (() => {
       try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
     })();
-    if (saved && user.email?.toLowerCase() !== saved.email?.toLowerCase()) {
+    // BY PERSON ID, not email: the roster that was tapped carries no email since #385, and
+    // comparing against that missing value bounced every name-tap sign-in to "Wrong account".
+    // /org-config supplies personId; until it does, there is no verdict.
+    if (isWrongAccount(saved, orgConfig)) {
       setStep("wrong-user");
       return;
     }
@@ -1764,7 +1768,7 @@ function AuthGate() {
     // isMember is a dependency, not just a read: without it the effect returns
     // early on `undefined` and never runs again once the answer arrives, so a
     // non-member with a mismatched domain would never be bounced at all.
-  }, [isAuthenticated, user, orgConfig?.domain, orgConfig?.isMember, orgConfig?.tier, selectedPerson]);
+  }, [isAuthenticated, user, orgConfig?.domain, orgConfig?.isMember, orgConfig?.tier, orgConfig?.personId, selectedPerson]);
 
   // REDEEM THE INVITE. Runs after authentication and BEFORE the membership
   // check below, because redeeming is what makes the invitee a member -- run it
