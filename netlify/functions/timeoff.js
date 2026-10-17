@@ -8,6 +8,7 @@ import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // ─── Time Off Requests ────────────────────────────────────────────────────────
 //
@@ -178,7 +179,7 @@ async function postTimeoffBubble(orgCode, groupId, memberIds, rec, authorColor) 
   await writeJson(messagesKey, messages.slice(-2000));
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   let member;
@@ -656,3 +657,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

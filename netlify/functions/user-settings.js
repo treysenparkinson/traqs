@@ -4,6 +4,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
 import { stampObject } from "./_utils/timestamps.js";
 import { mergePrefs, wouldEmptyPrefs } from "./_utils/merge-prefs.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Per-user appearance + personal view preferences (theme, colors, background,
 // saved presets, sidebar mode, job-list column layout, status/priority options).
@@ -22,7 +23,7 @@ function userSettingsKey(orgCode, email) {
   return `orgs/${orgCode}/user-settings/${safe}.json`;
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const orgCode = orgCodeFromHeader(event);
@@ -89,3 +90,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

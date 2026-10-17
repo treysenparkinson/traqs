@@ -2,6 +2,7 @@ import { readJson, listOrgCodes } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { validateToken, emailForToken } from "./_utils/auth.js";
 import { filterLive } from "./_utils/entities.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Resolve which organization(s) the AUTHENTICATED user belongs to. Used by
 // the mobile app right after Auth0 login so users don't have to type an
@@ -16,7 +17,7 @@ import { filterLive } from "./_utils/entities.js";
 //   0 matches → 200 with empty array (so mobile can show "no org" UI)
 //   1 match   → auto-pick on the client
 //   2+        → client shows a picker
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "GET") return err(405, "Method not allowed");
 
@@ -80,3 +81,6 @@ export async function handler(event) {
 
   return json(200, { matches });
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

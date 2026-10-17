@@ -13,6 +13,7 @@ import { sendSilentPush } from "./_utils/push.js";
 import { encryptPin, decryptPin } from "./_utils/pin.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { recordRuleEvents } from "./_utils/rule-log.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Escalation-sensitive person fields a non-admin must never set on themselves
 // or anyone: PTO must flow through timeoff.js approval, and pay/permissions/
@@ -153,7 +154,7 @@ function withBreakStart(p, stored) {
   };
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const s3Key = orgKey(event, "people.json");
@@ -599,3 +600,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

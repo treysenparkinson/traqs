@@ -7,14 +7,13 @@
 // where S3 writes are refused anyway (#454), they go to the local database too, so uploads work
 // while click-testing. STORAGE_BINARIES=s3|postgres overrides.
 //
-// The actor (who is making this request) rides an AsyncLocalStorage set by auth.js once the
-// caller is known, and lands in change_log through the store's SET LOCAL.
+// The actor (who is making this request) is recorded by auth.js into the request's own context
+// (request-context.js) and lands in change_log through the store's SET LOCAL.
 
 import pg from "pg";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { createPgStore } from "./pg.js";
+import { requestContext } from "../request-context.js";
 
-const actorStorage = new AsyncLocalStorage();
 let store = null;
 
 export const usePostgres = () => process.env.STORAGE_BACKEND === "postgres";
@@ -22,11 +21,16 @@ export const binariesOnPostgres = () => usePostgres() && (process.env.STORAGE_BI
   ? process.env.STORAGE_BINARIES === "postgres"
   : process.env.NETLIFY_DEV === "true");
 
-/** Called by auth.js when the caller is resolved; applies to the rest of this request. */
+/**
+ * Called by auth.js when the caller is resolved. Writes into THIS request's context
+ * (request-context.js withRequest); outside one it does nothing, so an actor can never be
+ * attributed to the wrong request.
+ */
 export function setActor(actor) {
-  if (!usePostgres()) return;
-  actorStorage.enterWith({ ...(actorStorage.getStore() || {}), ...actor });
+  const ctx = requestContext.getStore();
+  if (ctx) ctx.actor = { ...(ctx.actor || {}), ...actor };
 }
+const currentActor = () => requestContext.getStore()?.actor || null;
 
 function assertSafeUrl(url) {
   // Local dev must never point at a shared database by accident: the S3 dev guard's rule (#454),
@@ -52,7 +56,7 @@ export function pgStore() {
   // 'error' on the pool; unhandled, Node treats it as fatal and the whole function dies. The
   // next query simply gets a fresh connection, so log and carry on.
   pool.on("error", (e) => console.error(`[store] idle database connection lost: ${e.message}`));
-  store = createPgStore({ pool, actor: () => actorStorage.getStore() || null });
+  store = createPgStore({ pool, actor: currentActor });
   store.__pool = pool;
   return store;
 }

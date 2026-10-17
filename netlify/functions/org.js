@@ -9,13 +9,14 @@ import { isValidOrgCode, generateOrgCode } from "./_utils/orgcode.js";
 import { codeIndexKey } from "./_utils/orgindex.js";
 import { rateLimit, callerIp } from "./_utils/rate-limit.js";
 import { IDENTITY_PROVIDERS, providerForSub } from "./_utils/identity-provider.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // isValidCode was a third copy of the org-code rule. It now comes from
 // _utils/orgcode.js, which accepts both the legacy alphanumeric shape and the
 // generated PREFIX.XXXX.XXXX one.
 const isValidCode = isValidOrgCode;
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   // GET — public lookup of org config by code.
@@ -483,3 +484,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

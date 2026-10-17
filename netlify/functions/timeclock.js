@@ -17,6 +17,7 @@ import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush, sendVisiblePush } from "./_utils/push.js";
 import { verifyPin } from "./_utils/pin.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Feature flag: gate the "must be clocked in to work a job" + "can't clock out
 // while on a job" workflow rules. DISABLED for now — flip to true to re-enable.
@@ -597,7 +598,7 @@ function closeActiveBreak(person, personId, endIso, localDay) {
   };
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const orgCode = orgCodeFromHeader(event);
@@ -2775,3 +2776,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

@@ -1,6 +1,7 @@
 import Ably from "ably";
 import { requireOrgMember } from "./_utils/auth.js";
 import { preflight, json, err } from "./_utils/cors.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Issues a short-lived Ably TokenRequest so a browser can subscribe to its org's
 // real-time channels WITHOUT ever seeing ABLY_ROOT_KEY. Capability is scoped to
@@ -14,7 +15,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 // server-side with the root key. (Ably resolves the most specific matching
 // resource, so the explicit :presence entry grants publish there without
 // widening the org-{orgCode}:* data channels beyond subscribe.)
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "POST") return err(405, "Method not allowed");
 
@@ -43,3 +44,6 @@ export async function handler(event) {
     return err(500, "Failed to issue real-time token");
   }
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

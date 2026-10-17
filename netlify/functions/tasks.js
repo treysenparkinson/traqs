@@ -20,8 +20,9 @@ import { overlapContext, overlapViolations } from "../../src/overlapRules.js";
 import { localDay } from "../../src/localDay.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
 import { stringifyTeams } from "./_utils/normalize-ids.js";
+import { withRequest } from "./_utils/request-context.js";
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const s3Key = orgKey(event, "tasks.json");
@@ -764,3 +765,6 @@ function unestimatedNowSevenPointFive(nextTasks, prevTasks) {
 // off an event, which this helper does not have, so the key is built from the code the
 // handler already resolved.
 function orgKeyFor(orgCode, file) { return `orgs/${orgCode}/${file}`; }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

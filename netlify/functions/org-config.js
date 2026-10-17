@@ -4,6 +4,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
 import { personFromAdmin, settleInvitesOnLogin } from "./_utils/invite.js";
 import { nowIso } from "./_utils/timestamps.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Authenticated mirror of the public `/org?code=…` endpoint that the login
 // screen calls. The public endpoint returns ONLY non-PII fields (name,
@@ -15,7 +16,7 @@ import { nowIso } from "./_utils/timestamps.js";
 // Replaces the prior pattern where App.jsx compared the logged-in user's
 // email against `orgConfig.adminEmail` client-side; that required leaking
 // the admin's email to anyone who guessed the org code.
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "GET") return err(405, "Method not allowed");
 
@@ -102,3 +103,6 @@ export async function handler(event) {
     return err(500, "Failed to read org config");
   }
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

@@ -59,7 +59,14 @@ if (process.argv.includes("--db-only")) {
 const env = { ...process.env, STORAGE_BACKEND: "postgres", TRAQS_DATABASE_URL: url, STORAGE_BINARIES: "postgres" };
 const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dev"], { cwd: ROOT, env, stdio: "inherit", shell: process.platform === "win32" });
 let stopping = false;
-const stop = async (code) => { if (stopping) return; stopping = true; try { child.kill(); } catch { /* gone */ } await cluster.stop().catch(() => {}); process.exit(code ?? 0); };
+// On Windows the dev server runs under a shell, and child.kill() ends only that shell: netlify
+// dev and vite would keep :8888 / :5173 against a stopped database. Stop the whole tree.
+const killTree = () => {
+  if (child.exitCode !== null) return;
+  if (process.platform === "win32") spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  else child.kill("SIGTERM");
+};
+const stop = async (code) => { if (stopping) return; stopping = true; try { killTree(); } catch { /* gone */ } await cluster.stop().catch(() => {}); process.exit(code ?? 0); };
 child.on("exit", (code) => stop(code));
 process.on("SIGINT", () => stop(0));
 process.on("SIGTERM", () => stop(0));

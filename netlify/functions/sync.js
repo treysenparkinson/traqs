@@ -3,6 +3,7 @@ import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { nowIso } from "./_utils/timestamps.js";
 import { canViewThread } from "./messages.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // Delta-sync endpoint — the foundation for IndexedDB / SwiftData caching and
 // live updates. Clients pass `?since=<ISO>` (the `serverTime` from their last
@@ -32,7 +33,7 @@ function changedSince(rec, sinceMs) {
   return new Date(rec.lastModifiedAt).getTime() > sinceMs;
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "GET") return err(405, "Method not allowed");
 
@@ -151,3 +152,6 @@ export async function handler(event) {
     return err(500, "Failed to sync");
   }
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

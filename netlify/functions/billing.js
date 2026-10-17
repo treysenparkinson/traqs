@@ -18,6 +18,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
 import { requirePerm } from "./_utils/can.js";
 import { nowIso } from "./_utils/timestamps.js";
+import { withRequest } from "./_utils/request-context.js";
 
 const billingKey = (code) => `orgs/${code}/billing.json`;
 
@@ -25,7 +26,7 @@ const billingKey = (code) => `orgs/${code}/billing.json`;
 // which is exactly Basic — so there is nothing to backfill and no migration.
 const DEFAULT = { tier: "basic", requestedTier: null, requestedAt: null, requestedBy: null };
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   let member;
@@ -60,3 +61,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

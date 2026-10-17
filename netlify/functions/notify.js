@@ -26,8 +26,9 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { personCan } from "./_utils/can.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
+import { withRequest } from "./_utils/request-context.js";
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "POST") return err(405, "Method not allowed");
 
@@ -198,3 +199,6 @@ export async function handler(event) {
 
   return json(200, { sent: osSent + (webResult?.sent || 0), web: webResult?.sent || 0, oneSignalId });
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

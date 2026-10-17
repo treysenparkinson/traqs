@@ -6,6 +6,7 @@
 // To invoke manually for testing:  netlify functions:invoke timeoff-cleanup
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { readJson, writeJson } from "./_utils/s3.js";
+import { withRequest } from "./_utils/request-context.js";
 
 const RETENTION_DAYS = 30;
 
@@ -33,7 +34,7 @@ async function listAllKeys(prefix) {
   return keys;
 }
 
-export async function handler() {
+async function handlerImpl() {
   const startedAt = Date.now();
   const cutoff = new Date();
   cutoff.setUTCDate(cutoff.getUTCDate() - RETENTION_DAYS);
@@ -80,3 +81,6 @@ export async function handler() {
     return { statusCode: 500, body: JSON.stringify({ error: "cleanup failed" }) };
   }
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

@@ -29,13 +29,14 @@ import {
 import { sendEmail, appBaseUrl } from "./_utils/mail.js";
 import { inviteEmail, inviteAcceptUrl } from "./_utils/email-invite.js";
 import { IOS_APP_STORE_URL } from "./_utils/app-links.js";
+import { withRequest } from "./_utils/request-context.js";
 
 const invitesKey = (code) => `orgs/${code}/invites.json`;
 const peopleKey = (code) => `orgs/${code}/people.json`;
 
 const readInvites = async (code) => (await readJson(invitesKey(code)).catch(() => null)) ?? [];
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   // ── Public lookup by token ───────────────────────────────────────────
@@ -196,3 +197,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

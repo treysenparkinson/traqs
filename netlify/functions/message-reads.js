@@ -5,6 +5,7 @@ import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { canViewThread } from "./messages.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // ─── Read receipts ───────────────────────────────────────────────────────────
 //
@@ -19,7 +20,7 @@ import { canViewThread } from "./messages.js";
 // Access is gated by the SAME `canViewThread` ACL as messages, so a member can
 // only see/advance cursors for threads they participate in.
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const readsKey = orgKey(event, "reads.json");
@@ -137,3 +138,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

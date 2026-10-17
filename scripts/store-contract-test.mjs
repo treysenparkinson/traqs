@@ -89,15 +89,39 @@ try {
   await contract("postgres via s3.js", s3, updateJson);
 
   console.log("store contract: postgres only");
-  await new Promise((resolve) => setImmediate(async () => {
-    setActor({ personId: "7", email: "wendy@testpanels.example", source: "timeclock:POST" });
-    await s3.writeJson("orgs/TESTORG/clients.json", [{ id: "c1", name: "D" }]);
-    resolve();
-  }));
-  const log = (await db.client.query("select actor_person_id, actor_email, source from change_log where table_name = 'clients' and op = 'U' order by id desc limit 1")).rows[0];
-  ok("the request's actor is recorded with the change", [log?.actor_person_id, log?.actor_email, log?.source], ["7", "wendy@testpanels.example", "timeclock:POST"]);
-  const rows = (await db.client.query("select count(*)::int n from change_log where table_name = 'clients'")).rows[0].n;
-  ok("rewriting clients.json logs only real changes (insert, then one update per edit)", rows, 4);
+  // The re-parent-and-delete write (review finding: deletes used to run first, and the cascade
+  // from the removed panel took the moved op with it).
+  const T = "orgs/TESTORG/tasks.json";
+  const before = [{ id: "j1", title: "J", subs: [
+    { id: "p1", title: "P1", subs: [{ id: "o2", title: "Wire", team: ["7"], moveLog: [{ date: "2026-10-01", movedBy: "Ada", reason: "x" }] }] },
+    { id: "p2", title: "P2", subs: [{ id: "o9", title: "Other" }] }] }];
+  const after = [{ id: "j1", title: "J", subs: [
+    { id: "p2", title: "P2", subs: [{ id: "o9", title: "Other" }, { id: "o2", title: "Wire", team: ["7"], moveLog: [{ date: "2026-10-01", movedBy: "Ada", reason: "x" }] }] }] }];
+  let moved;
+  try { await s3.writeJson(T, before); await s3.writeJson(T, after); moved = JSON.stringify(await s3.readJson(T)); }
+  catch (e) { moved = `threw: ${e.message}`; }
+  ok("an op moved out of a panel removed in the same write survives, with its team and move log", moved, JSON.stringify(after));
+
+  // The actor: set by auth inside an AWAITED call, as requireOrgMember is, inside withRequest;
+  // several requests at once must each keep their own, and a request nobody identified gets none.
+  const { withRequest } = await import("../netlify/functions/_utils/request-context.js");
+  const fakeAuth = async (who) => { await new Promise((r) => setTimeout(r, Math.random() * 15)); if (who) setActor({ personId: who, email: `${who}@x`, source: "test:POST" }); };
+  // Four requests at once, each writing a different org's clients.json (an audited table).
+  await Promise.all([["7", "a"], ["1", "b"], [null, "k"], ["99", "c"]].map(([who, tag]) => withRequest(async () => {
+    await fakeAuth(who);
+    await new Promise((r) => setTimeout(r, Math.random() * 15));
+    await s3.writeJson(`orgs/A${tag.toUpperCase()}TEST/clients.json`, [{ id: `c_${tag}`, name: who || "kiosk" }]);
+  })({}, {})));
+  const byOrg = Object.fromEntries((await db.client.query("select org_code, actor_person_id from change_log where table_name = 'clients' and op = 'I' and org_code like 'A_TEST' order by org_code")).rows.map((r) => [r.org_code, r.actor_person_id]));
+  ok("concurrent requests each record their own actor; an unidentified one records none", byOrg, { AATEST: "7", ABTEST: "1", ACTEST: "99", AKTEST: null });
+  await withRequest(async () => { await fakeAuth("7"); await s3.writeJson("orgs/TESTORG/clients.json", [{ id: "c1", name: "D" }]); })({}, {});
+  const log = (await db.client.query("select actor_person_id, actor_email, source from change_log where table_name = 'clients' and org_code = 'TESTORG' and op = 'U' order by id desc limit 1")).rows[0];
+  ok("the request's actor is recorded with the change", [log?.actor_person_id, log?.actor_email, log?.source], ["7", "7@x", "test:POST"]);
+  await s3.writeJson("orgs/TESTORG/clients.json", [{ id: "c1", name: "E" }]);
+  const bare = (await db.client.query("select actor_person_id from change_log where table_name = 'clients' and org_code = 'TESTORG' and op = 'U' order by id desc limit 1")).rows[0];
+  ok("a write outside any request (a script) records no actor, never a stale one", bare?.actor_person_id ?? null, null);
+  const rows = (await db.client.query("select count(*)::int n from change_log where table_name = 'clients' and org_code = 'TESTORG'")).rows[0].n;
+  ok("rewriting clients.json logs only real changes (insert, then one update per edit)", rows, 5);
 } finally {
   const { __closePgStoreForTests } = await import("../netlify/functions/_utils/store/select.js");
   await __closePgStoreForTests();

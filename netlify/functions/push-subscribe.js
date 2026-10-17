@@ -7,8 +7,9 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { subsKey } from "./_utils/webpush.js";
+import { withRequest } from "./_utils/request-context.js";
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   let member;
@@ -57,3 +58,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

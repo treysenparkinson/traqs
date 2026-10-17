@@ -16,6 +16,7 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { refuseWriteInLocalDev } from "./_utils/dev-guard.js";
+import { withRequest } from "./_utils/request-context.js";
 
 const RETENTION_DAYS = 30;
 
@@ -76,7 +77,7 @@ async function pruneOldBackups(cutoffDateStr) {
   return pruned;
 }
 
-export async function handler() {
+async function handlerImpl() {
   const startedAt = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   const cutoff = new Date();
@@ -111,3 +112,6 @@ export async function handler() {
     return { statusCode: 500, body: JSON.stringify({ error: "Backup failed" }) };
   }
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

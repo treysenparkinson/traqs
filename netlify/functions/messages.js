@@ -8,6 +8,7 @@ import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
 import { canClearThread } from "../../src/threadClear.js";
+import { withRequest } from "./_utils/request-context.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -207,7 +208,7 @@ function threadDisplayName(threadKey, jobs, groups) {
   return null;   // dm: — the author is the thread
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const messagesKey = orgKey(event, "messages.json");
@@ -405,3 +406,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

@@ -3,6 +3,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { writeBinary, readBinaryWithMeta, readJson } from "./_utils/s3.js";
 import { CORS, preflight, json, err } from "./_utils/cors.js";
 import { ORG_CODE_SOURCE } from "./_utils/orgcode.js";
+import { withRequest } from "./_utils/request-context.js";
 
 // How long after clocking out a worker may still attach their finish-of-job
 // photo. Long enough to take and upload a picture, short enough that the
@@ -61,7 +62,7 @@ function makeId() {
   return randomBytes(9).toString("base64url");
 }
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   // ── POST — upload a new attachment ─────────────────────────────────────
@@ -180,3 +181,6 @@ export async function handler(event) {
 
   return err(405, "Method not allowed");
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

@@ -93,20 +93,18 @@ async function ensureOrg(client, org) {
 async function writeTables(client, owner, tables) {
   const m = await meta(client);
   const current = await readTables(client, owner);
-  // config.json owns the org row's config columns, but the row itself is shared with every
-  // other file of the org: an org row is never deleted by a write, only reset.
-  for (const table of owner.codec.tables) {
+  // Two phases, upserts for every table first, then deletes. Deleting first is a data-loss bug:
+  // nodes cascade on parent_id / job_id, so a node moved OUT of a panel that the same write
+  // removes would be cascade-deleted before its UPDATE ran, and the UPDATE would hit no row.
+  // With FKs deferred, re-parenting first is always legal. Deletes then run parents-first
+  // (codec.tables lists parents first) so the move log's "only with its node" rule holds.
+  const plans = owner.codec.tables.map((table) => {
     const { cols: types, pk } = m[table];
-    const next = tables[table] || [];
-    const have = new Map(current[table].map((r) => [rowKey(pk, r), r]));
-    const want = new Map(next.map((r) => [rowKey(pk, r), r]));
-    // deletes first, parents before children (codec.tables lists parents first)
-    for (const [k, r] of have) {
-      if (want.has(k)) continue;
-      if (table === "orgs") { await resetOrgConfig(client, m, r.code); continue; }
-      const where = pk.map((c, i) => `${q(c)} = $${i + 1}`).join(" and ");
-      await client.query(`delete from ${table} where ${where}`, pk.map((c) => r[c]));
-    }
+    return { table, types, pk,
+      have: new Map(current[table].map((r) => [rowKey(pk, r), r])),
+      want: new Map((tables[table] || []).map((r) => [rowKey(pk, r), r])) };
+  });
+  for (const { table, types, pk, have, want } of plans) {
     for (const [k, r] of want) {
       const old = have.get(k);
       if (!old) {
@@ -119,7 +117,19 @@ async function writeTables(client, owner, tables) {
       if (!changed.length) continue;
       const sets = changed.map((c, i) => `${q(c)} = $${i + 1}`).join(", ");
       const where = pk.map((c, i) => `${q(c)} = $${changed.length + i + 1}`).join(" and ");
-      await client.query(`update ${table} set ${sets} where ${where}`, [...changed.map((c) => toParam(types[c], r[c])), ...pk.map((c) => r[c])]);
+      const res = await client.query(`update ${table} set ${sets} where ${where}`, [...changed.map((c) => toParam(types[c], r[c])), ...pk.map((c) => r[c])]);
+      // A row read moments ago in this transaction must still be there; never lose it silently.
+      if (res.rowCount !== 1) throw new Error(`store: update of ${table} ${k} touched ${res.rowCount} rows`);
+    }
+  }
+  // config.json owns the org row's config columns, but the row itself is shared with every
+  // other file of the org: an org row is never deleted by a write, only reset.
+  for (const { table, pk, have, want } of plans) {
+    for (const [k, r] of have) {
+      if (want.has(k)) continue;
+      if (table === "orgs") { await resetOrgConfig(client, m, r.code); continue; }
+      const where = pk.map((c, i) => `${q(c)} = $${i + 1}`).join(" and ");
+      await client.query(`delete from ${table} where ${where}`, pk.map((c) => r[c]));
     }
   }
 }
@@ -219,7 +229,9 @@ export function createPgStore({ pool, actor = () => null }) {
       });
     },
     async listOrgCodes() {
-      return tx(async (c) => (await c.query(`select distinct split_part(key, '/', 2) as code from store_versions where key like 'orgs/%/%' order by 1`)).rows.map((r) => r.code), { readOnly: true });
+      // Byte order, as S3 lists keys: a non-C database collation (Aurora's en_US) would sort
+      // dotted / mixed-case codes differently and change the order handlers iterate orgs in.
+      return tx(async (c) => (await c.query(`select distinct split_part(key, '/', 2) collate "C" as code from store_versions where key like 'orgs/%/%' order by 1`)).rows.map((r) => r.code), { readOnly: true });
     },
     async writeBinary(key, body, contentType) {
       return tx(async (c) => {

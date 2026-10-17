@@ -18,10 +18,11 @@ import { sendVisiblePush } from "./_utils/push.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { stampArray, nowIso } from "./_utils/timestamps.js";
 import { afterHoursAlertAt } from "./_utils/after-hours.js";
+import { withRequest } from "./_utils/request-context.js";
 
 const STALE_MS = 12 * 60 * 60 * 1000; // 12 hours
 
-export async function handler() {
+async function handlerImpl() {
   const startedAt = Date.now();
   const now = Date.now();
   let orgsChecked = 0;
@@ -176,3 +177,6 @@ export async function handler() {
   console.log("forgot-clockout complete:", summary);
   return { statusCode: 200, body: JSON.stringify(summary) };
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);

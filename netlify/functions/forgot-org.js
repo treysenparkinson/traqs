@@ -6,8 +6,9 @@ import { preflight, json, err } from "./_utils/cors.js";
 // as a stranger. There is no default now.
 import { sendEmail } from "./_utils/mail.js";
 import { orgCodeEmail } from "./_utils/email-orgcode.js";
+import { withRequest } from "./_utils/request-context.js";
 
-export async function handler(event) {
+async function handlerImpl(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   if (event.httpMethod !== "POST") return err(405, "Method not allowed");
@@ -97,3 +98,6 @@ export async function handler(event) {
 
   return json(200, { ok: true });
 }
+
+// One request context per invocation: the audit actor can't leak between requests.
+export const handler = withRequest(handlerImpl);
