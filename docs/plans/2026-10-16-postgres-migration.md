@@ -46,7 +46,7 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 **Needs you**
 - **D1.** Local Postgres is `embedded-postgres` (real Postgres 17 binaries from npm), started by the build and by `npm run db:up`. (Brayden, 2026-10-16)
 - **D2.** A read-only snapshot of production S3 (`orgs/**` JSON, no attachments) goes into a git-ignored `db/snapshots/` on this machine, used only to prove the round-trip and seed local dev. Never committed. (Brayden, 2026-10-16)
-- **D3. AWS hosting (decide before phase 3, not now).** **My pick:** Aurora Serverless v2 for Postgres with the RDS Data API (HTTP + IAM, so Netlify Functions need no VPC, static IP or connection pooler). **Other:** RDS Postgres + RDS Proxy (more conventional, but Netlify's changing IPs mean a public endpoint or a VPC bridge).
+- **D3.** AWS hosting is Aurora Serverless v2 for Postgres with the RDS Data API (HTTP + IAM, so Netlify Functions need no VPC, static IP or connection pooler). Phase 3 adds a Data API driver behind the same store interface; local dev and the build keep the `pg` driver against embedded Postgres. (Approved in chat, 2026-10-17)
 
 **Calls I made** (veto any)
 - **C1.** Work on `feature/postgres`; master and its unpushed resize work stay shippable.
