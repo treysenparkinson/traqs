@@ -9,7 +9,7 @@
     "db:pull-snapshot": "node tools/db/pull-snapshot.mjs",
     "db:verify-snapshot": "node tools/db/verify-snapshot.mjs",
     "build": "npm run lint && node scripts/db/with-pg.mjs node scripts/run-suites.mjs && vite build",
-    "check:push": "node scripts/clock-shift-test.mjs",
+    "check:push": "node scripts/db/with-pg.mjs node scripts/clock-shift-test.mjs",
     "preview": "vite preview",
     "cap:android": "npm run build && cap sync android && cap open android",
     "cap:ios": "npm run build && cap sync ios && cap open ios",
