@@ -27,7 +27,8 @@ export function freePort() {
 export const urlFor = (port, database = "postgres") =>
   `postgres://${PG_USER}:${encodeURIComponent(PG_PASSWORD)}@127.0.0.1:${port}/${database}`;
 
-export async function startCluster({ dir = null, port = null, persistent = false, quiet = true } = {}) {
+// dir + persistent: a cluster that outlives the process (dev:pg). `init` creates it the first time.
+export async function startCluster({ dir = null, port = null, persistent = false, quiet = true, init = false } = {}) {
   const databaseDir = dir || mkdtempSync(path.join(os.tmpdir(), "traqs-pg-"));
   const p = port || (await freePort());
   const logs = [];
@@ -41,7 +42,7 @@ export async function startCluster({ dir = null, port = null, persistent = false
     onError: (m) => { logs.push(String(m)); },
   });
   try {
-    if (!dir || !persistent) await server.initialise();
+    if (!dir || !persistent || init) await server.initialise();
     await server.start();
   } catch (e) {
     e.message = `embedded postgres failed to start: ${e.message}\n${logs.slice(-20).join("")}`;

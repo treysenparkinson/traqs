@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "rimraf dist && netlify dev",
+    "dev:pg": "node scripts/db/dev-pg.mjs",
+    "db:pull-snapshot": "node tools/db/pull-snapshot.mjs",
+    "db:verify-snapshot": "node tools/db/verify-snapshot.mjs",
     "build": "npm run lint && node scripts/db/with-pg.mjs node scripts/run-suites.mjs && vite build",
     "check:push": "node scripts/clock-shift-test.mjs",
     "preview": "vite preview",

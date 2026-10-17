@@ -1,6 +1,6 @@
 # TRAQS runs on Postgres, proven identical to today before anyone relies on it
 
-**Status:** Agreed, building
+**Status:** Done (phase 1; click-test on :8888 is Treysen's)
 **Source:** Brayden (helping Treysen) in chat, 2026-10-16: "setup a relational database and migrate everything over to it locally, running a local DB as part of the build, and test the shit out of every functionality … snapshot current functionality and test cases … AWS to host the DB … get all that built locally for now"
 **Where:** `traqs-func` on `feature/postgres` (off `master`) · **Platforms:** server only. iOS, Android and web keep calling the same Netlify Functions with the same bodies; none of them change. · **Size:** L, phased
 **Last updated:** 2026-10-16 19:30, plan written
@@ -69,7 +69,7 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
   *Why:* the swap. Transactions with a version check stand in for ETags. *Proof:* a `store-contract-test` runs the same contract cases against fake-S3 and Postgres.
 - [x] **6. Every handler suite and golden on Postgres**: loader variant, suite runner
   *Why:* the actual proof of "nothing changed". *Proof:* the 39 suites and the goldens pass twice in `npm run build`, once per backend.
-- [ ] **7. Migration tool and local dev on Postgres**: `tools/db/migrate-from-s3.mjs`, dev wiring
+- [x] **7. Migration tool and local dev on Postgres** (click-test on :8888 is Treysen's, see How you'll test it): `tools/db/migrate-from-s3.mjs`, dev wiring
   *Why:* so you can click-test with writes on. *Proof:* migrating the snapshot then reading it back through the handlers matches the snapshot; localhost:8888 runs on the local DB and a resize persists across a reload.
 
 **Later phases (one line each, re-planned when they start):**
@@ -94,8 +94,9 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 
 ## How you'll test it
 1. `npm run build` on a clean checkout: the DB suites run, then everything else, then `✓ built in`.
-2. `npm run dev:pg` (after step 7): localhost:8888 on the local DB. Resize a pill, confirm, reload: it stuck.
-3. Clock someone in and out from the web time clock; the punch appears, and `npm run db:audit -- --table time_punches` shows who did it.
+2. Stop any running `npm run dev`, then `npm run dev:pg`. localhost:8888 now runs on the local database (seeded from the snapshot on first run). Resize a pill, confirm, reload: it stuck. On plain `npm run dev` the same save fails ("Auto-save failed"), because local writes to S3 are refused.
+3. Clock someone in and out from the web time clock. The punch appears, and the change_log shows who did it: `select at, op, actor_email, source from change_log where table_name = 'time_punches' order by id desc limit 5;` against `postgres://traqs:traqs-local-only@127.0.0.1:54329/traqs`.
+4. `npm run dev:pg -- --reseed` puts the local data back to the snapshot.
 
 ## Log
 - **2026-10-16 19:55 · step 1 · Decided:** one cluster per build (`scripts/db/with-pg.mjs` wraps `run-suites.mjs`), a migrated template database, and a clone per suite (`scripts/db/test-db.mjs`); a suite run on its own starts its own cluster. Cluster start + migrate is 4.2 s; the full build went to about 45 s. Postgres 17.10 (`embedded-postgres@17.10.0-beta.17`, `pg@8.23.1`, both pinned).
@@ -114,3 +115,21 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 - **2026-10-16 23:50 · step 6 · Found:** the store's pg Pool had no `error` handler, so a dropped idle connection (database restart, failover) would have crashed the function. Fixed. Also: local dev now refuses a non-localhost `TRAQS_DATABASE_URL` (the #454 rule applied to Postgres); attachment binaries stay on S3 in production and go to the local database under local dev; the test clusters use password auth, because SCRAM's nonce consumed the goldens' seeded randomness. org-lookup's match order is compared as a set (#569: it is `Promise.all` completion order, nondeterministic on S3 too).
 
 ## Outcome
+Phase 1 is built and committed on `feature/postgres`, local only. Nothing is deployed, nothing is pushed, and production S3 was only ever read.
+- **Database and build:** a real Postgres 17 starts inside `npm run build`. 48 tables are in 9 migrations, with `change_log` audit, `external_links` and an outbox for Business Central.
+- **Proof against today's behaviour:** 356 golden scenarios pin it, and all of them are identical on S3 and on Postgres (712 replays). The production snapshot round-trips byte for byte.
+- **Local dev:** `npm run dev:pg` runs the app on a seeded local database with writes enabled.
+
+Changes from plan:
+- C2 reversed (key order is preserved).
+- Move-log rewrites are audited rather than refused (008, #567).
+- The 39 legacy suites stay on their stub; the goldens and contract test cover the storage path.
+- The store was written in step 4, not step 5.
+- The click-test on :8888 is Treysen's. I couldn't restart the dev server: stopping the process tree on 8888 was refused by the environment's safety check.
+
+Follow-ups left out on purpose:
+- phase 2: row-level hot paths and fixing the logged defects
+- phase 3: AWS (D3) and cutover
+- phase 4: Business Central
+- phase 5: retiring the S3 scripts; `backup-daily` and `timeoff-cleanup` still list S3 directly
+- `messages.js` / kiosk paths don't set an actor yet, so their `change_log` rows have a source but no person

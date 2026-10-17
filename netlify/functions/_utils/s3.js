@@ -151,7 +151,14 @@ export async function writeBinary(key, buffer, contentType) {
  * Throws if the key does not exist.
  */
 export async function readBinaryWithMeta(key) {
-  if (binariesOnPostgres()) return pgStore().readBinaryWithMeta(key);
+  if (binariesOnPostgres()) {
+    try { return await pgStore().readBinaryWithMeta(key); }
+    catch (e) {
+      // Local dev on Postgres starts from a JSON-only snapshot, so files uploaded before it
+      // live in S3: read them from there (reads are allowed under the dev guard, writes aren't).
+      if (!(process.env.NETLIFY_DEV === "true" && e?.name === "NoSuchKey")) throw e;
+    }
+  }
   const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   const data = await streamToBuffer(res.Body);
   return { data, contentType: res.ContentType || "application/octet-stream" };
