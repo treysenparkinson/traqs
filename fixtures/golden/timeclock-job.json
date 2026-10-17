@@ -19301,27 +19301,6 @@
        "kind": "ably",
        "args": [
         "TESTORG",
-        "people",
-        {
-         "ids": [
-          "7"
-         ]
-        }
-       ]
-      },
-      {
-       "kind": "silentPush",
-       "args": [
-        "TESTORG",
-        {
-         "entity": "people"
-        }
-       ]
-      },
-      {
-       "kind": "ably",
-       "args": [
-        "TESTORG",
         "tasks",
         {
          "ids": [
@@ -19336,6 +19315,27 @@
         "TESTORG",
         {
          "entity": "tasks"
+        }
+       ]
+      },
+      {
+       "kind": "ably",
+       "args": [
+        "TESTORG",
+        "people",
+        {
+         "ids": [
+          "7"
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "silentPush",
+       "args": [
+        "TESTORG",
+        {
+         "entity": "people"
         }
        ]
       },
@@ -20573,7 +20573,7 @@
    }
   },
   {
-   "name": "finishRequest: worker not on the op's team refused 403 (session on it still frozen)",
+   "name": "finishRequest: worker not on the op's team refused 403, and the session on it is not frozen (#560)",
    "steps": [
     {
      "status": 200,
@@ -20637,29 +20637,7 @@
      "body": {
       "error": "You can only request completion for an operation you are assigned to"
      },
-     "effects": [
-      {
-       "kind": "ably",
-       "args": [
-        "TESTORG",
-        "people",
-        {
-         "ids": [
-          "7"
-         ]
-        }
-       ]
-      },
-      {
-       "kind": "silentPush",
-       "args": [
-        "TESTORG",
-        {
-         "entity": "people"
-        }
-       ]
-      }
-     ]
+     "effects": []
     },
     {
      "status": 200,
@@ -20708,7 +20686,7 @@
        "iosOnlyFlag": {
         "kept": true
        },
-       "lastModifiedAt": "2026-10-19T15:00:00.000Z",
+       "lastModifiedAt": "2026-10-19T13:00:00.000Z",
        "activeJobClock": {
         "clockIn": "2026-10-19T13:00:00.000Z",
         "jobId": "j1",
@@ -20729,8 +20707,7 @@
           "endHour": 15.5,
           "hpd": 16
          }
-        ],
-        "frozenAtMs": 1792422000000
+        ]
        },
        "hasPin": true,
        "pin": "1111"
@@ -20841,7 +20818,7 @@
        "iosOnlyFlag": {
         "kept": true
        },
-       "lastModifiedAt": "2026-10-19T15:00:00.000Z",
+       "lastModifiedAt": "2026-10-19T13:00:00.000Z",
        "activeJobClock": {
         "clockIn": "2026-10-19T13:00:00.000Z",
         "jobId": "j1",
@@ -20862,8 +20839,7 @@
           "endHour": 15.5,
           "hpd": 16
          }
-        ],
-        "frozenAtMs": 1792422000000
+        ]
        }
       },
       {

@@ -280,7 +280,7 @@ export default [
       return s;
     },
     steps: [kiosk({ action: "finishRequest", personId: "7", pin: "1111", jobId: "j1", panelId: "p1", opId: "o2" })] },
-  { name: "finishRequest: worker not on the op's team refused 403 (session on it still frozen)", now: MON("07:00"),
+  { name: "finishRequest: worker not on the op's team refused 403, and the session on it is not frozen (#560)", now: MON("07:00"),
     steps: [post(AUTH.wendy, { action: "jobClockIn", personId: "7", ...O4 }),
       kiosk({ action: "finishRequest", personId: "7", pin: "1111", jobId: "j1", panelId: "p2", opId: "o4" }, MON("09:00")), GET_PEOPLE] },
   { name: "finishRequest: admin via PIN may request off-team", now: MON("11:00"),

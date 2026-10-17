@@ -3304,7 +3304,7 @@ The upsert is the sharper half. The chat path carries a comment explaining why i
 
 559. [LOGGED 2026-10-16, goldens timeclock-pay] payClockIn has no admin exemption from the worker's PIN (:2232-2244) while payClockOut does (:2279): an admin can clock a worker out but not in.
 
-560. [LOGGED 2026-10-16, goldens timeclock-job] **A REFUSED finishRequest STILL FREEZES SESSIONS.** The freeze write (timeclock.js:2685-2698) runs before the not-on-team 403 (:2704) and the op-not-found 404 (:2708), so anyone clocked into that opId gets `frozenAtMs` even though no request was made.
+560. [FIXED 2026-10-16 — the freeze now runs after the tasks write and after the 403 and 404, so a refused request writes nothing; an alreadyOpen repeat (a 200, not a refusal) still freezes as before. `finish-requests-test` §4b (11), red first, 3 mutants caught; golden re-recorded and the 403 scenario renamed.] [LOGGED 2026-10-16, goldens timeclock-job] **A REFUSED finishRequest STILL FREEZES SESSIONS.** The freeze write (timeclock.js:2685-2698) runs before the not-on-team 403 (:2704) and the op-not-found 404 (:2708), so anyone clocked into that opId gets `frozenAtMs` even though no request was made.
 
 561. [LOGGED 2026-10-16, goldens timeclock-job] jobClockOut's dedupe on (personId, opId, clockIn) skips only the productionhours row (:1584-1592); the loggedHours counters on op, panel and job are still incremented (:1613-1661). Reachable only with existing data, since a retry 409s first.
 
