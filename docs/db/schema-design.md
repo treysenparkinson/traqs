@@ -111,6 +111,22 @@ One table, because node ids share one namespace and every level has the same cor
 | `external_links` | (org, entity, entity_id, system, external_id), last_synced_at, etag, extra. One place for Business Central numbers (customer, job, employee/resource) without a column per system. |
 | `integration_outbox` | (id bigserial, org, system, entity, entity_id, event, payload json, created_at, sent_at, attempts, last_error). Filled by triggers on the tables BC cares about; a worker sends them. Built empty in phase 1. |
 
+## Where the SQL differs from the tables above (phase 1)
+
+Settled while writing `db/migrations/001-007` against the real snapshot's shapes:
+
+- **Panel approvals** (`signOffs`, `apprChain`, `apprLog`, `apprComments`, `dateOverridden`) and op
+  `pendingSession` / `planned*` / `actual*` live in `nodes.extra` for now, not in their own
+  tables: web-only, low volume, and nothing queries them yet. Their tables come with the first
+  feature that needs them.
+- **`person_reviews`, `org_conditions`** keep each entry as a `doc` (free-form UI content).
+- **Mixed-type ids inside lists** (`node_team.person_id`, `chat_group_members.member_id`,
+  `time_punches.person_id`, ...) are `json`, so a number stays a number; indexes are on `::text`.
+- **`time_ledger_order`** records the interleaving of punches and events in `payhours.json`.
+- **`*_present` flags** record whether a list key existed at all (absent and `[]` differ).
+- **`raw_documents`** holds any S3 key with no table (legacy `timeclock.json`, `*.migrated`, index
+  files, future files), and **`store_versions`** is the per-key version that stands in for the ETag.
+
 ## What is deliberately not normalized
 
 - **`person_live_state`, `pending_session`, `engineering`, `date_overridden`, `job_refs`**: volatile
