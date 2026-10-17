@@ -5,6 +5,7 @@ import { isValidOrgCode } from "./orgcode.js";
 import { resolveOrgAccess, auth0IndexKey } from "./orgindex.js";
 import { allowedProviders, providerForSub } from "./identity-provider.js";
 import { ruleMode, logRule } from "./rule-mode.js";
+import { setActor } from "./store/select.js";
 
 const domain = process.env.AUTH0_DOMAIN;
 const audience = process.env.AUTH0_AUDIENCE;
@@ -296,6 +297,7 @@ export async function requireOrgMember(event) {
   if (sub) {
     const cached = memberCache.get(`${sub}:${orgCode}`);
     if (cached && Date.now() - cached.at < MEMBER_TTL_MS) {
+      noteActor(event, orgCode, cached.result);
       return { orgCode, ...cached.result, payload };
     }
   }
@@ -373,5 +375,12 @@ export async function requireOrgMember(event) {
     isEngineer: me?.isEngineer === true,
   };
   if (sub) _capAndSet(memberCache, MEMBER_MAX, `${sub}:${orgCode}`, { result, at: Date.now() });
+  noteActor(event, orgCode, result);
   return { orgCode, ...result, payload };
+}
+
+// Who is making this request, for the Postgres store's change_log (a no-op on S3).
+function noteActor(event, orgCode, member) {
+  const fn = String(event?.path || "").split("/").pop() || "";
+  setActor({ personId: member?.personId ?? null, email: member?.email || "", source: `${fn}:${event?.httpMethod || ""}`, orgCode });
 }

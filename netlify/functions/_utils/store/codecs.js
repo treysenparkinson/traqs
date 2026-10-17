@@ -6,7 +6,14 @@
 //
 // docs/db/schema-design.md has the table map and the rules.
 
-import { split, join, isPlainObject, wrapJson, unwrapJson } from "./fields.js";
+import { split, join, ordered, isPlainObject, wrapJson, unwrapJson } from "./fields.js";
+
+// The record's own extras merged in, then its original key order restored (fields.js: key order
+// is data). Used wherever an encoder adds keys after join(): ids, child lists.
+const fin = (obj, extra) => {
+  if (extra) for (const [k, v] of Object.entries(extra)) if (k !== "__keys") obj[k] = v;
+  return ordered(obj, extra?.__keys);
+};
 
 const declined = (reason) => ({ declined: reason });
 const byPos = (rows) => [...(rows || [])].sort((a, b) => a.position - b.position);
@@ -89,7 +96,7 @@ const settings = {
     // work_start / work_end have a CHECK (HH:MM): any other spelling isn't offered to the
     // column, so split() leaves it in extra verbatim.
     const spec = SETTINGS_SPEC.filter(([k]) => !((k === "workStart" || k === "workEnd") && typeof scalars[k] === "string" && !HHMM.test(scalars[k])));
-    const { cols, extra: ex } = split(scalars, spec);
+    const { cols, extra: ex } = split(scalars, spec, { order: Object.keys(json) });
     let extra = ex ? { ...ex } : {};
     const out = { org_settings: [], org_departments: [], org_status_options: [], org_priority_options: [], org_custom_columns: [], org_custom_column_options: [], org_conditions: [], org_signoff_templates: [], org_export_templates: [] };
     const take = (key, ok, fill) => { const v = json[key]; if (v === undefined) return; if (ok(v)) fill(v); else extra[key] = v; };
@@ -99,7 +106,7 @@ const settings = {
     take("priOpts", rowsifiable, objs(PRI_SPEC, "org_priority_options"));
     take("customCols", (v) => rowsifiable(v) && v.every((c) => c.options === undefined || (Array.isArray(c.options) && c.options.every(isPlainObject))), (v) => v.forEach((c, position) => {
       const { options, ...rest } = c;
-      const { cols: cc, extra: e } = split(rest, CC_SPEC);
+      const { cols: cc, extra: e } = split(rest, CC_SPEC, { order: Object.keys(c) });
       let ce = e;
       if (Array.isArray(options) && options.length === 0) ce = moveExtra(ce, "options", []);
       out.org_custom_columns.push({ org_code: org, position, ...cc, extra: jsonOrNull(cleanExtra(ce)) });
@@ -124,13 +131,12 @@ const settings = {
       const o = join(r, CC_SPEC, extraOf(r));
       const opts = byPos((t.org_custom_column_options || []).filter((x) => x.column_position === r.position));
       if (opts.length) o.options = opts.map((x) => join(x, CCOPT_SPEC, extraOf(x)));
-      return o;
+      return ordered(o, extraOf(r)?.__keys);
     });
     const cond = byPos(t.org_conditions); if (cond.length) out.conditions = cond.map((r) => unwrapJson(r.doc));
     list("org_signoff_templates", SO_SPEC, "signOffTemplates");
     list("org_export_templates", EXP_SPEC, "exportTemplates");
-    const e = extraOf(s); if (e) Object.assign(out, e);
-    return out;
+    return fin(out, extraOf(s));
   },
 };
 
@@ -192,8 +198,7 @@ const people = {
       const rv = byPos((t.person_reviews || []).filter((x) => x.person_id === r.id));
       if (rv.length) p.reviews = rv.map((x) => unwrapJson(x.doc));
       for (const kind of LIVE_KINDS) { const s = (t.person_live_state || []).find((x) => x.person_id === r.id && x.kind === kind); if (s) p[kind] = unwrapJson(s.doc); }
-      const e = extraOf(r); if (e) Object.assign(p, e);
-      return p;
+      return fin(p, extraOf(r));
     });
   },
 };
@@ -210,7 +215,7 @@ const flatArray = ({ file, table, spec, idCol = "id" }) => ({
     if (!uniqueIds(json)) return declined(`an id appears twice in ${file}`);
     return { [table]: json.map((r, position) => { const { cols, extra } = split(r, spec, { skip: ["id"] }); return { org_code: org, [idCol]: r.id, position, ...cols, extra: jsonOrNull(extra) }; }) };
   },
-  encode(org, t) { return byPos(t[table]).map((r) => ({ id: r[idCol], ...join(r, spec, extraOf(r)) })); },
+  encode(org, t) { return byPos(t[table]).map((r) => fin({ id: r[idCol], ...join(r, spec, null) }, extraOf(r))); },
 });
 const clients = flatArray({ file: "clients.json", table: "clients", spec: CLIENT_SPEC });
 
@@ -297,8 +302,7 @@ const tasks = {
       const fr = byPos((t.node_finish_requests || []).filter((x) => x.node_id === n.id)); if (fr.length) o.finishRequests = fr.map((x) => join(x, FR_SPEC, extraOf(x)));
       const at = attachmentsOf(t, "node", n.id); if (at.length) o.attachments = at;
       const children = byPos(kids.get(n.id) || []); if (children.length) o.subs = children.map(build);
-      const e = extraOf(n); if (e) Object.assign(o, e);
-      return o;
+      return fin(o, extraOf(n));
     };
     return byPos(kids.get("\u0000root") || []).map(build);
   },
@@ -337,8 +341,7 @@ const groups = {
     return byPos(t.chat_groups).map((r) => {
       const g = { id: r.id, ...join(r, GROUP_SPEC, null) };
       const m = byPos((t.chat_group_members || []).filter((x) => x.group_id === r.id)); if (m.length) g.memberIds = m.map((x) => unwrapJson(x.member_id));
-      const e = extraOf(r); if (e) Object.assign(g, e);
-      return g;
+      return fin(g, extraOf(r));
     });
   },
 };
@@ -371,8 +374,7 @@ const messages = {
       const m = { id: r.id, ...join(r, MSG_SPEC, null) };
       const p = byPos((t.message_participants || []).filter((x) => x.message_id === r.id)); if (p.length) m.participantIds = p.map((x) => unwrapJson(x.person_id));
       const at = attachmentsOf(t, "message", r.id); if (at.length) m.attachments = at;
-      const e = extraOf(r); if (e) Object.assign(m, e);
-      return m;
+      return fin(m, extraOf(r));
     });
   },
 };
@@ -432,7 +434,7 @@ const payhours = {
     return byPos(t.time_ledger_order).map((o) => {
       if (o.kind === "other") return unwrapJson(o.other);
       const r = o.kind === "event" ? events.get(o.row_id) : punches.get(o.row_id);
-      return { id: r.id, ...join(r, o.kind === "event" ? EVENT_SPEC : PUNCH_SPEC, extraOf(r)) };
+      return fin({ id: r.id, ...join(r, o.kind === "event" ? EVENT_SPEC : PUNCH_SPEC, null) }, extraOf(r));
     });
   },
 };

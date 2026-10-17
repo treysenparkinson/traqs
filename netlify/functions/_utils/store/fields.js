@@ -30,8 +30,13 @@ export const TYPES = {
  * accepted values (JSON-typed values wrapped as {__json}) and extra holds every other key, or
  * null when there is nothing left over.
  */
-export function split(record, spec, { skip = [] } = {}) {
+export function split(record, spec, { skip = [], order = null } = {}) {
   const cols = {}, extra = {};
+  // KEY ORDER IS DATA. Handlers compare records with JSON.stringify (src/taskActions.js
+  // isAppend / changed-node checks), so a record that comes back with the same keys in another
+  // order reads as an edit. The original order rides in extra.__keys and join/ordered() restores it.
+  const keys = order || Object.keys(record);
+  if (keys.length > 1) extra.__keys = keys;
   const known = new Map(spec.map(([k, col, type]) => [k, [col, type]]));
   for (const [k, v] of Object.entries(record)) {
     if (skip.includes(k)) continue;
@@ -51,7 +56,16 @@ export function join(row, spec, extra) {
     if (v === null || v === undefined) continue;
     out[k] = type === "json" ? unwrapJson(v) : TYPES[type][2](v);
   }
-  if (extra) for (const [k, v] of Object.entries(extra)) out[k] = v;
+  if (extra) for (const [k, v] of Object.entries(extra)) if (k !== "__keys") out[k] = v;
+  return ordered(out, extra?.__keys);
+}
+
+/** obj with its keys in `keys` order (any key not listed keeps its place after them). */
+export function ordered(obj, keys) {
+  if (!Array.isArray(keys)) return obj;
+  const out = {};
+  for (const k of keys) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+  for (const k of Object.keys(obj)) if (!(k in out)) out[k] = obj[k];
   return out;
 }
 

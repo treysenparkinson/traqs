@@ -19,9 +19,15 @@ let pass = 0, fail = 0;
 const ok = (label, good, detail = "") => { if (good) pass++; else fail++; if (!good || process.env.VERBOSE) console.log(`  ${good ? "PASS" : "FAIL"}  ${label}${good ? "" : `\n        ${detail}`}`); };
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)
   ? Object.fromEntries(Object.keys(x).sort().filter((key) => x[key] !== undefined).map((key) => [key, x[key]])) : x));
+// EXACT: same keys in the same order, same values, as JSON.stringify sees them. Key order is
+// behaviour (handlers compare with JSON.stringify), so semantic equality is not enough.
 const firstDiff = (a, b, at = "$") => {
-  if (canon(a) === canon(b)) return null;
-  if (a && b && typeof a === "object" && typeof b === "object") for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${at}.${k}`); if (d) return d; }
+  if (JSON.stringify(a) === JSON.stringify(b)) return null;
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    if (!Array.isArray(a) && canon(Object.keys(a).sort()) === canon(Object.keys(b).sort()) && Object.keys(a).join() !== Object.keys(b).join())
+      return `${at}: key order: want ${Object.keys(a).join(",").slice(0, 150)} | got ${Object.keys(b).join(",").slice(0, 150)}`;
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiff(a[k], b[k], `${at}.${k}`); if (d) return d; }
+  }
   return `${at}: want ${JSON.stringify(a)?.slice(0, 200)} | got ${JSON.stringify(b)?.slice(0, 200)}`;
 };
 

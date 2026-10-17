@@ -1,5 +1,8 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { refuseWriteInLocalDev } from "./dev-guard.js";
+// STORAGE_BACKEND=postgres routes every function below to the Postgres store, same contract
+// (docs/plans/2026-10-16-postgres-migration.md). Unset, nothing here changes.
+import { usePostgres, binariesOnPostgres, pgStore } from "./store/select.js";
 
 const client = new S3Client({
   region: process.env.MY_AWS_REGION,
@@ -16,6 +19,7 @@ const BUCKET = process.env.S3_BUCKET;
  * Returns the parsed value, or null if the key does not exist.
  */
 export async function readJson(key) {
+  if (usePostgres()) return pgStore().readJson(key);
   try {
     const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
     const body = await streamToString(res.Body);
@@ -32,6 +36,7 @@ export async function readJson(key) {
  * Write a value as JSON to S3.
  */
 export async function writeJson(key, value) {
+  if (usePostgres()) return pgStore().writeJson(key, value);
   refuseWriteInLocalDev(`writeJson ${key}`);   // #454
   await client.send(
     new PutObjectCommand({
@@ -48,6 +53,7 @@ export async function writeJson(key, value) {
  * Returns { data, etag }; both null when the key does not exist.
  */
 export async function readJsonVersioned(key) {
+  if (usePostgres()) return pgStore().readJsonVersioned(key);
   try {
     const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
     const body = await streamToString(res.Body);
@@ -76,6 +82,12 @@ export class PreconditionFailed extends Error {
  * in flight; both become PreconditionFailed so the caller re-reads and retries.
  */
 export async function writeJsonIfMatch(key, value, etag) {
+  if (usePostgres()) {
+    // The Postgres store throws its own PreconditionFailed; callers check `.preconditionFailed`
+    // (update-json.js), and this keeps `instanceof` true for this module's class as well.
+    try { return await pgStore().writeJsonIfMatch(key, value, etag); }
+    catch (e) { if (e?.preconditionFailed) throw new PreconditionFailed(key); throw e; }
+  }
   refuseWriteInLocalDev(`writeJsonIfMatch ${key}`);   // #454
   try {
     await client.send(
@@ -98,6 +110,7 @@ export async function writeJsonIfMatch(key, value, etag) {
 
 // List all org codes by scanning orgs/{code}/config.json keys in S3.
 export async function listOrgCodes() {
+  if (usePostgres()) return pgStore().listOrgCodes();
   const codes = [];
   let token;
   do {
@@ -121,6 +134,7 @@ export async function listOrgCodes() {
  * Upload raw binary data to S3.
  */
 export async function writeBinary(key, buffer, contentType) {
+  if (binariesOnPostgres()) return pgStore().writeBinary(key, buffer, contentType);
   refuseWriteInLocalDev(`writeBinary ${key}`);   // #454
   await client.send(
     new PutObjectCommand({
@@ -137,6 +151,7 @@ export async function writeBinary(key, buffer, contentType) {
  * Throws if the key does not exist.
  */
 export async function readBinaryWithMeta(key) {
+  if (binariesOnPostgres()) return pgStore().readBinaryWithMeta(key);
   const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   const data = await streamToBuffer(res.Body);
   return { data, contentType: res.ContentType || "application/octet-stream" };
@@ -147,6 +162,7 @@ export async function readBinaryWithMeta(key) {
  * Used for renaming an org code.
  */
 export async function copyPrefix(sourcePrefix, destPrefix) {
+  if (usePostgres()) return pgStore().copyPrefix(sourcePrefix, destPrefix);
   refuseWriteInLocalDev(`copyPrefix ${sourcePrefix}`);   // #454
   const keys = [];
   let token;
@@ -175,6 +191,7 @@ export async function copyPrefix(sourcePrefix, destPrefix) {
  * Copy a single S3 object from srcKey to destKey (server-side copy).
  */
 export async function copyObject(srcKey, destKey) {
+  if (usePostgres()) return pgStore().copyObject(srcKey, destKey);
   refuseWriteInLocalDev(`copyObject ${srcKey}`);   // #454
   await client.send(new CopyObjectCommand({
     Bucket: BUCKET,
@@ -188,6 +205,7 @@ export async function copyObject(srcKey, destKey) {
  * idempotent and does not error on absent keys).
  */
 export async function deleteObject(key) {
+  if (usePostgres()) return pgStore().deleteObject(key);
   refuseWriteInLocalDev(`deleteObject ${key}`);   // #454
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }

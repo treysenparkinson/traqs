@@ -53,6 +53,13 @@ for (const sc of scenarios) {
   const want = golden.get(sc.name);
   if (!want) { fail++; console.log(`  FAIL  [${backend}] ${area} / ${sc.name}: not recorded`); continue; }
   const got = await runScenario(sc, { makeStore });
+  // sc.unorderedPaths: arrays whose order the HANDLER doesn't fix (e.g. Promise.all completion
+  // order, #569) — nondeterministic on S3 as well, so they're compared as sets. Each use names why.
+  for (const p of sc.unorderedPaths || []) for (const doc of [want, got]) {
+    const parts = p.split("."); const last = parts.pop();
+    const parent = parts.reduce((o, k) => (o == null ? o : o[k]), doc);
+    if (parent && Array.isArray(parent[last])) parent[last] = [...parent[last]].sort((x, y) => (canon(x) < canon(y) ? -1 : canon(x) > canon(y) ? 1 : 0));
+  }
   const d = firstDiff(want, got);
   if (d) { fail++; console.log(`  FAIL  [${backend}] ${area} / ${sc.name}\n        ${d}`); }
   else { pass++; console.log(`  PASS  [${backend}] ${area} / ${sc.name}`); }

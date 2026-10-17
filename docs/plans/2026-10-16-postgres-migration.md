@@ -50,7 +50,7 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 
 **Calls I made** (veto any)
 - **C1.** Work on `feature/postgres`; master and its unpushed resize work stay shippable.
-- **C2.** "Identical" means semantic JSON equality (same keys, values, types, order of arrays), not byte-identical key order. Every client parses JSON; none compares bytes.
+- **C2.** ~~"Identical" means semantic JSON equality, not key order.~~ **Reversed in step 6:** key order is preserved exactly, and round-trips are checked as byte-identical `JSON.stringify`. The handlers compare records with `JSON.stringify` (`src/taskActions.js`), so order is behaviour. See Log.
 - **C3.** Plain SQL migration files (`db/migrations/NNN_*.sql`) with a ~50-line runner; no ORM. The handlers keep their own logic, so an ORM adds nothing.
 - **C4.** Storage is chosen by `STORAGE_BACKEND=s3|postgres` (default `s3`), so the branch can't change production by accident.
 - **C5.** The known storage hazards (lost-update writers on payhours/messages/groups, the 2000-message cap) are logged in SCHEDULE_MAP now but fixed in phase 2 behind goldens, so phase 1 stays a pure swap.
@@ -65,9 +65,9 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
   *Why:* the tables, keys, constraints, audit triggers. *Proof:* `schema-test` applies it to an empty cluster and checks every table, constraint and trigger; the move log refuses an UPDATE; `change_log` records an actor.
 - [x] **4. Lossless codecs, proven on real data**: `netlify/functions/_utils/store/codecs/`
   *Why:* one `decode(json) → rows` / `encode(rows) → json` per S3 file is the migration. *Proof:* `codec-roundtrip-test` (fixtures, in the build) and `tools/db/verify-snapshot.mjs` (the D2 snapshot) show `encode(decode(x))` equals `x` for every file; a profile report lists dangling references, which settles the **(FK?)** relations.
-- [ ] **5. Postgres storage behind `s3.js`**: `netlify/functions/_utils/store/pg.js`, `s3.js` selector
+- [x] **5. Postgres storage behind `s3.js`**: `netlify/functions/_utils/store/pg.js`, `s3.js` selector
   *Why:* the swap. Transactions with a version check stand in for ETags. *Proof:* a `store-contract-test` runs the same contract cases against fake-S3 and Postgres.
-- [ ] **6. Every handler suite and golden on Postgres**: loader variant, suite runner
+- [x] **6. Every handler suite and golden on Postgres**: loader variant, suite runner
   *Why:* the actual proof of "nothing changed". *Proof:* the 39 suites and the goldens pass twice in `npm run build`, once per backend.
 - [ ] **7. Migration tool and local dev on Postgres**: `tools/db/migrate-from-s3.mjs`, dev wiring
   *Why:* so you can click-test with writes on. *Proof:* migrating the snapshot then reading it back through the handlers matches the snapshot; localhost:8888 runs on the local DB and a resize persists across a reload.
@@ -107,5 +107,10 @@ Phase 2 then moves the hot paths to row-level writes, one handler at a time, eac
 - **2026-10-16 22:30 · step 4 · Changed:** the Postgres store (`_utils/store/pg.js`, planned for step 5) was written now, because proving codecs "through Postgres" needs it. Step 5 is now its contract test plus wiring.
 - **2026-10-16 22:30 · step 4 · Found:** two storage details only real Postgres showed. A json column must be read as text, or JSON `null` and SQL NULL (absent) collapse; and reserved column names (`end`) need quoting. Both are fixed in the store. Also #573: invite accept can mint an id that already exists, which the PK refuses; that one file kind falls back to raw storage.
 - **2026-10-16 22:30 · step 4 · Decided:** the (FK?) relations stay validated, not enforced. The production profile shows real dangling references in every one except deps and time-off links (57 of 1109 team ids, 3 of 66 client ids, 9 of 62 PMs, 29 of 149 group members, 42 of 246 production sessions point at removed rows; history keeps them). Enforcing would reject today's data.
+- **2026-10-16 23:50 · steps 5-6 · Done:** `STORAGE_BACKEND=postgres` routes every `s3.js` function to the Postgres store (`_utils/store/select.js`), and `auth.js` records the actor for `change_log`. `store-contract-test` (39): the same cases on both stores, including 8 concurrent `updateJson` writers with none lost; a mutant without the version check fails 4. **All 356 goldens pass on both backends (712 replays)**, and the full build is about 107 s.
+- **2026-10-16 23:50 · step 6 · Changed:** C2 reversed. Replaying the goldens on Postgres failed 9 `tasks` permission scenarios: the store rebuilt records in column order, and the task classifier's `JSON.stringify` compares saw a no-op autosave as an edit (403). Every record's key order now rides in `extra.__keys`; the codec checks are now exact `JSON.stringify` equality, and the production snapshot re-verified under them.
+- **2026-10-16 23:50 · step 6 · Changed:** migration 008 relaxes the move log from "no UPDATE" to "rewrites audited, never removed with the node alive". The handlers' move-log repair rewrites stored entries today (#567: restored fields, client key order), and refusing that would have turned 200s into 500s. Strict append-only returns once #567 is fixed.
+- **2026-10-16 23:50 · step 6 · Changed:** the 39 legacy handler suites stay on their in-memory stub. They seed and assert on its internal map (`globalThis.__S3`), so pointing them at Postgres would mean rewriting them. What they cover is the handler logic, which didn't change; the storage path is covered by the 356 goldens on Postgres plus the contract test's real races. Done-means item 5 is met that way, not literally.
+- **2026-10-16 23:50 · step 6 · Found:** the store's pg Pool had no `error` handler, so a dropped idle connection (database restart, failover) would have crashed the function. Fixed. Also: local dev now refuses a non-localhost `TRAQS_DATABASE_URL` (the #454 rule applied to Postgres); attachment binaries stay on S3 in production and go to the local database under local dev; the test clusters use password auth, because SCRAM's nonce consumed the goldens' seeded randomness. org-lookup's match order is compared as a set (#569: it is `Promise.all` completion order, nondeterministic on S3 too).
 
 ## Outcome

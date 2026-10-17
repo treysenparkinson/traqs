@@ -33,6 +33,9 @@ export async function startCluster({ dir = null, port = null, persistent = false
   const logs = [];
   const server = new EmbeddedPostgres({
     databaseDir, port: p, user: PG_USER, password: PG_PASSWORD, persistent,
+    // Plain password auth on these localhost-only clusters: SCRAM's client nonce draws random
+    // bytes, which would consume the golden harness's seeded randomness and shift ids.
+    authMethod: "password",
     initdbFlags: ["--encoding=UTF8", "--locale=C"],
     onLog: (m) => { logs.push(String(m)); if (!quiet) process.stdout.write(String(m)); },
     onError: (m) => { logs.push(String(m)); },

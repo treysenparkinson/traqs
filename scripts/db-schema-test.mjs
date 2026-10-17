@@ -58,9 +58,12 @@ try {
   ok("an unknown request status is refused", await refuses(c, "insert into time_off_requests (org_code, id, position, status) values ('TESTORG', 'r1', 0, 'maybe')", [], /check/));
   ok("a deferred FK to a missing org fails at commit, not at insert", await refuses(c, "insert into clients (org_code, id, position) values ('NOPE1', 'c1', 0); set constraints all immediate", [], /foreign key/));
 
-  console.log("db-schema: append-only move log");
+  console.log("db-schema: the move log (migration 008: rewrites audited, never silently removed)");
   await c.query("insert into node_move_log (org_code, node_id, seq, moved_by, reason) values ('TESTORG', 'o1', 0, 'Ada', 'Moved')");
-  ok("a move log entry can't be rewritten", await refuses(c, "update node_move_log set reason = 'edited' where node_id = 'o1'", [], /append-only/));
+  // Handlers rewrite stored entries today (#567: repaired fields, client key order), so phase 1
+  // allows the rewrite — and records it, before and after.
+  ok("a move log rewrite is allowed (today's handlers do it, #567)", (await c.query("update node_move_log set reason = 'edited' where node_id = 'o1'")).rowCount, 1);
+  ok("...and recorded with before and after", (await c.query("select before->>'reason' b, after->>'reason' a from change_log where table_name = 'node_move_log' and op = 'U'")).rows[0], { b: "Moved", a: "edited" });
   ok("a move log entry can't be deleted while its node exists", await refuses(c, "delete from node_move_log where node_id = 'o1'", [], /only removed with their node/));
   await c.query("delete from nodes where org_code = 'TESTORG' and id = 'p1'");
   ok("removing the panel cascades to its op and the op's log", (await c.query("select count(*)::int n from node_move_log where node_id = 'o1'")).rows[0].n, 0);

@@ -126,6 +126,7 @@ export const SUITES = [
   "scripts/db-schema-test.mjs",
   "scripts/golden-test.mjs",
   "scripts/codec-roundtrip-test.mjs",
+  "scripts/store-contract-test.mjs",
   "scripts/split-test.mjs",
   "scripts/basic-lanes-test.mjs",
   "scripts/clock-atomicity-test.mjs",

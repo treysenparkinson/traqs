@@ -244,7 +244,10 @@ export default [
     steps: [{ fn: "org-config", method: "GET" }, { fn: "org-config", method: "GET", now: "2026-10-14T16:00:00.000Z" }] },
 
   // ══ org-lookup ═════════════════════════════════════════════
-  { name: "org-lookup GET: worker matches by domain + roster across orgs (query email ignored); admin by adminEmail", auth: AUTH.wendy, seed: seedWith(null, OTHER_ORGS), steps: [
+  // org-lookup lists matches in Promise.all completion order (org-lookup.js:72, SCHEDULE_MAP #569):
+  // timing-dependent on S3 too, so the list is compared as a set.
+  { name: "org-lookup GET: worker matches by domain + roster across orgs (query email ignored); admin by adminEmail", auth: AUTH.wendy, seed: seedWith(null, OTHER_ORGS),
+    unorderedPaths: ["steps.0.body.matches", "steps.1.body.matches", "steps.2.body.matches"], steps: [
     { fn: "org-lookup", method: "GET", query: { email: "ada@testpanels.example" } },
     { fn: "org-lookup", method: "GET", auth: AUTH.ada },
   ] },

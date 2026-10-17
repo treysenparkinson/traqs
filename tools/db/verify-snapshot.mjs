@@ -26,10 +26,15 @@ const keyOf = (p) => path.relative(dir, p).split(path.sep).join("/");
 
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)
   ? Object.fromEntries(Object.keys(x).sort().filter((key) => x[key] !== undefined).map((key) => [key, x[key]])) : x));
+// EXACT equality (key order included: handlers compare with JSON.stringify). Reports the path
+// only, never values, which may be personal data.
 const firstDiffPath = (a, b, at = "$") => {
-  if (canon(a) === canon(b)) return null;
-  if (a && b && typeof a === "object" && typeof b === "object") for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiffPath(a[k], b[k], `${at}.${k}`); if (d) return d; }
-  return at;      // the path only: no values (they may be personal data)
+  if (JSON.stringify(a) === JSON.stringify(b)) return null;
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    if (!Array.isArray(a) && canon(Object.keys(a).sort()) === canon(Object.keys(b).sort()) && Object.keys(a).join() !== Object.keys(b).join()) return `${at} (key order)`;
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) { const d = firstDiffPath(a[k], b[k], `${at}.${k}`); if (d) return d; }
+  }
+  return at;
 };
 
 console.log(`snapshot ${path.relative(ROOT, dir)}: ${files.length} JSON files`);
