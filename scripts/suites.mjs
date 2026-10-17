@@ -161,6 +161,7 @@ export const SUITES = [
   "scripts/edit-button-retired-test.mjs",
   "scripts/timeclock-edit-test.mjs",
   "scripts/timeclock-roster-writes-test.mjs",
+  "scripts/reopen-events-test.mjs",
   "scripts/timeclock-perms-test.mjs",
   "scripts/break-lunch-ledger-test.mjs",
   "scripts/idle-metric-test.mjs",

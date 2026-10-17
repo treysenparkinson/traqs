@@ -191,6 +191,54 @@ reset();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\n4b. #560 — a REFUSED request freezes nobody");
+// The freeze (#189) stamps frozenAtMs on everyone clocked into the op. It ran
+// BEFORE the 403 and 404 were decided, so a request that was refused still
+// froze the sessions on that opId — and the freeze is write-once, so nothing
+// lifted it short of a decision on a request that was never made.
+{
+  const clockInto = (personIdx, opId) => {
+    globalThis.__S3[K.people][personIdx].activeJobClock = {
+      clockIn: "2026-10-01T09:00:00.000Z", sessionId: "S" + personIdx, jobId: "JOB", panelId: "PANEL", opId };
+  };
+  const jcOf = (personIdx) => globalThis.__S3[K.people][personIdx].activeJobClock;
+  const peopleWrites = () => globalThis.__WRITES.filter(k => k === K.people).length;
+
+  reset(); clockInto(0, "OP");
+  let res = await req(8);
+  ok("#560: off-team request is still a 403", res.statusCode, 403);
+  ok("#560: ...the worker on that op is NOT frozen", jcOf(0).frozenAtMs ?? null, null);
+  ok("#560: ...and the roster was not written at all", peopleWrites(), 0);
+
+  reset(); clockInto(0, "NOSUCH");
+  res = await req(7, { opId: "NOSUCH" });
+  ok("#560: unknown op is still a 404", res.statusCode, 404);
+  ok("#560: ...a session carrying that opId is NOT frozen", jcOf(0).frozenAtMs ?? null, null);
+  ok("#560: ...and the roster was not written", peopleWrites(), 0);
+
+  // The freeze matches on opId alone, so a request naming a job that does not
+  // exist reached the sessions on a real op of the same id.
+  reset(); clockInto(0, "OP");
+  res = await req(7, { jobId: "NOJOB" });
+  ok("#560: a request on a job that does not exist is a 404", res.statusCode, 404);
+  ok("#560: ...and the session on the real OP is NOT frozen", jcOf(0).frozenAtMs ?? null, null);
+
+  // What the freeze is for, unchanged.
+  reset(); clockInto(0, "OP");
+  res = await req(7);
+  ok("#560: an accepted request still freezes the session on its op", [res.statusCode, typeof jcOf(0).frozenAtMs], [200, "number"]);
+
+  // NOT a refusal: asking twice is a 200 no-op, and it still freezes anyone
+  // who clocked into the op after the first request (today's behaviour, kept).
+  reset();
+  await req(7);
+  clockInto(1, "OP");
+  res = await req(7);
+  ok("#560: alreadyOpen is still a 200", [res.statusCode, res.body.alreadyOpen], [200, true]);
+  ok("#560: ...and still freezes a session opened since the first request", typeof jcOf(1).frozenAtMs, "number");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log("\n5. #177/#179 — releasing the hold a finish request put on a session");
 const withClock = (frozen = true) => {
   reset();

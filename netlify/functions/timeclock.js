@@ -144,12 +144,18 @@ function carryForgotNotice(forgotNotifiedAt) {
 // Breaks are PAID and deliberately absent: a 9h clocked window minus a 60min
 // lunch is the 8h paid day. Breaks come out of PRODUCTION time instead (see
 // applyClockJobPause), which is what makes idle time = paid break time.
+//
+// #557. An event's time is `ts`. adminReopenEntry wrote `at` until 2026-10-16,
+// so a shift reopened before then and still open holds that shape in
+// people.json; `eventTs` reads either, or its clock-out would subtract NaN and
+// store `hours: null`. Writers use `ts` only.
+const eventTs = (ev) => ev?.ts ?? ev?.at;
 function pausedMsFromEvents(events, endIso) {
   if (!Array.isArray(events) || events.length === 0) return 0;
   const endMs = new Date(endIso).getTime();
   let pausedMs = 0, lunchOpen = null;
   for (const ev of events) {
-    const t = new Date(ev.ts).getTime();
+    const t = new Date(eventTs(ev)).getTime();
     if (ev.type === "lunchStart") lunchOpen = t;
     else if (ev.type === "lunchEnd" && lunchOpen != null) { pausedMs += Math.max(0, t - lunchOpen); lunchOpen = null; }
   }
@@ -986,7 +992,7 @@ async function handlerImpl(event) {
           .sort((a, b) => a.t - b.t)
           .map(r => ({ type: r.type, ts: r.ts }));
         const nonLunch = (p.activeClockIn.events || []).filter(ev => ev && !isLunch(ev.type));
-        const events = [...nonLunch, ...lunch].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+        const events = [...nonLunch, ...lunch].sort((a, b) => new Date(eventTs(a)) - new Date(eventTs(b)));
         return { ...p, activeClockIn: { ...p.activeClockIn, events } };
       };
 
@@ -1169,8 +1175,9 @@ async function handlerImpl(event) {
         const events = log
           .filter(e => e.eventType && !e.deletedAt && String(e.personId) === String(entry.personId))
           .filter(e => { const t = new Date(e.timestamp).getTime(); return !Number.isNaN(t) && t >= startMs && t <= endMs; })
-          .map(e => ({ type: e.eventType, at: e.timestamp }))
-          .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+          // `ts`, the key every reader of activeClockIn.events uses (#557).
+          .map(e => ({ type: e.eventType, ts: e.timestamp }))
+          .sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
 
         log = log.map(e => e.id === entryId ? { ...e, deletedAt: new Date().toISOString() } : e);
 
@@ -2682,6 +2689,19 @@ async function handlerImpl(event) {
       // write-once.
       //
       // Only the people actually working THIS op, and only those not already frozen.
+      //
+      // #560. AFTER every refusal. It ran before the 403 and the 404 were decided, so a
+      // refused request froze everyone clocked into that opId — write-once, for a request
+      // that was never made. A refused request writes nothing. An alreadyOpen repeat is not
+      // a refusal and still freezes, as it always has: someone who clocked in after the
+      // first request is working an op that is waiting on a decision.
+      try { await updateStampedArray(tasksKey, frMutate); }
+      catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save tasks"); }
+      // Order matters: "not yours" and "already open" are both reasons the op was FOUND and
+      // not written, so they have to be answered before the 404.
+      if (notOnTeam) return err(403, "You can only request completion for an operation you are assigned to");
+      if (!updated && !alreadyOpen) return err(404, "Operation not found");
+
       const frFreezeAt = Date.parse(at);
       try {
         await updateStampedArray(peopleKey, (stored) => {
@@ -2698,15 +2718,9 @@ async function handlerImpl(event) {
         });
       } catch { /* non-fatal: the request itself is already recorded */ }
 
-      try { await updateStampedArray(tasksKey, frMutate); }
-      catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save tasks"); }
-      // Order matters: "not yours" and "already open" are both reasons the op was FOUND and
-      // not written, so they have to be answered before the 404.
-      if (notOnTeam) return err(403, "You can only request completion for an operation you are assigned to");
       // Not an error. Asking twice is what a worker does when the first tap looked like it
       // did nothing, and a 409 on the second would be a bug report rather than a no-op.
       if (alreadyOpen) return json(200, { ok: true, alreadyOpen: true });
-      if (!updated) return err(404, "Operation not found");
 
       // The audience is the admins who can APPROVE completions, not every
       // admin — an admin with the toggle off has no button on these cards and

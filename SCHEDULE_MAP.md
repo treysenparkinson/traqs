@@ -3296,15 +3296,15 @@ The upsert is the sharper half. The chat path carries a comment explaining why i
 
 556. [LOGGED 2026-10-16 — same survey] messages.js authenticates on its own path (validateToken, emailForToken, roster lookup, :27) instead of `requireOrgMember`, so it skips the `config.deletedAt` check, the adminEmails bootstrap and the `org_id` claim path that every other authenticated endpoint applies.
 
-**#557–#572 were found recording the Postgres-migration goldens (fixtures/golden/*.json, 2026-10-16).** Each is pinned AS-IS by a golden, so the storage swap reproduces it; fixing one means re-recording that golden on purpose. None fixed.
+**#557–#572 were found recording the Postgres-migration goldens (fixtures/golden/*.json, 2026-10-16).** Each is pinned AS-IS by a golden, so the storage swap reproduces it; fixing one means re-recording that golden on purpose. None fixed when recorded; a later fix is marked on its entry.
 
-557. [LOGGED 2026-10-16, goldens timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out"] **A REOPENED SHIFT CLOCKS OUT WITH `hours: null`.** adminReopenEntry rebuilds `activeClockIn.events` as `{type, at}` (timeclock.js:1171); every reader expects `{type, ts}` (`pausedMsFromEvents`, :151), so the clock-out computes NaN and stores null in payhours. Payroll-visible.
+557. [FIXED 2026-10-16 — reopen writes `{type, ts}` and `pausedMsFromEvents` also reads a stored `at` (`eventTs`), so a shift reopened before the fix and still open closes correctly too; `scripts/reopen-events-test.mjs` (18), red first, 3 mutants caught; golden re-recorded, `hours` null -> 26.08.] [LOGGED 2026-10-16, goldens timeclock-pay "adminReopenEntry: reopened shift carries its rows, then kiosk clock-out"] **A REOPENED SHIFT CLOCKS OUT WITH `hours: null`.** adminReopenEntry rebuilds `activeClockIn.events` as `{type, at}` (timeclock.js:1171); every reader expects `{type, ts}` (`pausedMsFromEvents`, :151), so the clock-out computes NaN and stores null in payhours. Payroll-visible.
 
 558. [LOGGED 2026-10-16, goldens timeclock-pay] The kiosk PIN clockIn checks only salary (timeclock.js:2431-2434), not `canClockInOut`, which payClockIn does refuse (:2201). A person blocked from clocking in can still do it at the kiosk.
 
 559. [LOGGED 2026-10-16, goldens timeclock-pay] payClockIn has no admin exemption from the worker's PIN (:2232-2244) while payClockOut does (:2279): an admin can clock a worker out but not in.
 
-560. [LOGGED 2026-10-16, goldens timeclock-job] **A REFUSED finishRequest STILL FREEZES SESSIONS.** The freeze write (timeclock.js:2685-2698) runs before the not-on-team 403 (:2704) and the op-not-found 404 (:2708), so anyone clocked into that opId gets `frozenAtMs` even though no request was made.
+560. [FIXED 2026-10-16 — the freeze now runs after the tasks write and after the 403 and 404, so a refused request writes nothing; an alreadyOpen repeat (a 200, not a refusal) still freezes as before. `finish-requests-test` §4b (11), red first, 3 mutants caught; golden re-recorded and the 403 scenario renamed.] [LOGGED 2026-10-16, goldens timeclock-job] **A REFUSED finishRequest STILL FREEZES SESSIONS.** The freeze write (timeclock.js:2685-2698) runs before the not-on-team 403 (:2704) and the op-not-found 404 (:2708), so anyone clocked into that opId gets `frozenAtMs` even though no request was made.
 
 561. [LOGGED 2026-10-16, goldens timeclock-job] jobClockOut's dedupe on (personId, opId, clockIn) skips only the productionhours row (:1584-1592); the loggedHours counters on op, panel and job are still incremented (:1613-1661). Reachable only with existing data, since a retry 409s first.
 
