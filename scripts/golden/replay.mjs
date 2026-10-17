@@ -25,7 +25,8 @@ const goldenPath = path.join(ROOT, "fixtures", "golden", `${area}.json`);
 const scenarios = (await import(pathToFileURL(path.resolve(ROOT, file)).href)).default;
 
 let makeStore = async (seed) => createMemStore(seed);
-if (backend === "pg") makeStore = (await import("./pg-store.mjs")).makePgStore;
+let closeStores = async () => {};
+if (backend === "pg") ({ makePgStore: makeStore, closePgStores: closeStores } = await import("./pg-store.mjs"));
 
 const names = new Set();
 for (const sc of scenarios) { if (names.has(sc.name)) { console.error(`duplicate scenario name: ${sc.name}`); process.exit(2); } names.add(sc.name); }
@@ -36,6 +37,7 @@ if (mode === "record") {
   mkdirSync(path.dirname(goldenPath), { recursive: true });
   writeFileSync(goldenPath, JSON.stringify({ area, recordedAt: "frozen", scenarios: out }, null, 1) + "\n");
   console.log(`recorded ${out.length} scenarios -> ${path.relative(ROOT, goldenPath)}`);
+  await closeStores();
   process.exit(0);
 }
 
@@ -66,4 +68,5 @@ for (const sc of scenarios) {
 }
 for (const name of golden.keys()) if (!names.has(name)) { fail++; console.log(`  FAIL  [${backend}] ${area} / ${name}: recorded but no longer a scenario`); }
 console.log(`${area}: ${pass} passed, ${fail} failed`);
+await closeStores();
 process.exit(fail ? 1 : pass ? 0 : 2);

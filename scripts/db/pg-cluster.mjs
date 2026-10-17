@@ -38,6 +38,10 @@ export async function startCluster({ dir = null, port = null, persistent = false
     // bytes, which would consume the golden harness's seeded randomness and shift ids.
     authMethod: "password",
     initdbFlags: ["--encoding=UTF8", "--locale=C"],
+    // A throwaway cluster's data never has to survive a crash, so skip the disk flushes: each
+    // commit otherwise waits ~30 ms for an fsync on Windows, and the goldens commit thousands of
+    // times. Visibility and locking are unchanged. The persistent dev cluster keeps the defaults.
+    postgresFlags: persistent ? [] : ["-c", "fsync=off", "-c", "synchronous_commit=off"],
     onLog: (m) => { logs.push(String(m)); if (!quiet) process.stdout.write(String(m)); },
     onError: (m) => { logs.push(String(m)); },
   });
